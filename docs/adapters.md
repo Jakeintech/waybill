@@ -1,0 +1,66 @@
+# Adapters: using other trackers and git hosts
+
+Waybill's core is tool-agnostic: the ledger schema, evidence tiers, and
+report logic don't care where receipts come from. Jira and GitHub are just
+the bundled defaults. Coupling lives in exactly three places:
+
+1. **`.mcp.json`** — which MCP servers are available.
+2. **`~/.waybill/config.json`** — `tracker.kind` and `git.kind`, plus
+   project/repo scope.
+3. **The `sync` skill's query examples** — JQL for Jira, search syntax for
+   GitHub. The skill treats these as examples; with a different server
+   connected, Claude adapts to that server's tools, but tested guidance makes
+   it reliable.
+
+## Swapping a server
+
+Edit `.mcp.json` (in your local plugin install, or fork the repo) to point at
+the equivalent MCP server, for example:
+
+```json
+{
+  "mcpServers": {
+    "linear": { "type": "http", "url": "https://mcp.linear.app/mcp" },
+    "gitlab": { "command": "npx", "args": ["-y", "@zereight/mcp-gitlab"],
+               "env": { "GITLAB_PERSONAL_ACCESS_TOKEN": "${GITLAB_TOKEN}" } }
+  }
+}
+```
+
+> Verify current server URLs/packages against each vendor's own docs before
+> use — endpoints move (Atlassian retired its original SSE endpoint in 2026).
+
+Then update `config.json` (`tracker.kind`, `git.kind`) and re-run
+"initialize my waybill ledger" if scope changed.
+
+## What a sync adapter must provide
+
+For the `sync` skill to do its job, the connected servers must be able to
+answer, scoped to the current user:
+
+- **Tracker**: my issues updated since \<date\> in \<projects\>, with key,
+  title, points/estimate, epic/parent, iteration, status + resolution date.
+- **Git host**: my merged PRs/MRs since \<date\> into the default branch of
+  \<repos\>, with URL, title, source branch, merge timestamp.
+
+Trackers without story points: leave `points` null and lean on the
+cycle-time baseline instead — do not invent a point scale.
+
+## Contributing a tested adapter
+
+Open a PR that adds:
+
+1. The `.mcp.json` server block (auth via env vars, documented).
+2. Query-syntax notes for the `sync` skill (the equivalent of the JQL /
+   GitHub-search examples).
+3. A row in the table below, after actually running init → sync →
+   bootstrap report end-to-end.
+
+| Tracker / Git host | MCP server | Status | Notes |
+|---|---|---|---|
+| Jira + Confluence (Atlassian Cloud) | `https://mcp.atlassian.com/v1/mcp/authv2` (official, OAuth) | ✅ bundled | Points, epics, sprints all available |
+| GitHub | `https://api.githubcopilot.com/mcp/` (official, PAT header) | ✅ bundled | Fine-grained read-only PAT recommended |
+| Linear | — | 🙋 wanted | Estimates map to `points` |
+| GitLab | — | 🙋 wanted | MRs map to `artifacts.prs` |
+| Bitbucket | — | 🙋 wanted | Available via Atlassian's server; needs testing |
+| Azure DevOps | — | 🙋 wanted | |

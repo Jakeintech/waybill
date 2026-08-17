@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose an improvement or new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation, not the solution. Who hits this, and when?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: scope-check
+    attributes:
+      label: Scope check
+      description: >
+        The scope test (see ROADMAP.md): does this make an individual
+        engineer's claims more checkable? Features that measure other people,
+        add dashboards, or move data off the user's machine are non-goals.
+      options:
+        - "Yes — it strengthens evidence for the individual's own work"
+        - "Not sure — needs discussion"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I read ROADMAP.md, including the non-goals
+        - label: This preserves the methodology invariants (pre-registration, ranges, append-only, no peer data)

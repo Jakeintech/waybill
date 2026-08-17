@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & ideas
+    url: https://github.com/YOUR_GITHUB_USERNAME/waybill/discussions
+    about: Setup help, adapter questions, and open-ended ideas live in Discussions.
+  - name: Security reports
+    url: https://github.com/YOUR_GITHUB_USERNAME/waybill/security/advisories/new
+    about: Please report vulnerabilities privately — see SECURITY.md.

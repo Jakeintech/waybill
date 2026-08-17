@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in Waybill isn't working as documented
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: From `.claude-plugin/plugin.json` or `claude plugin list`
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - log / pre-registration
+        - sync (Jira / GitHub)
+        - report
+        - forecast
+        - SessionEnd hook / capture
+        - ledger schema / storage
+        - install / MCP setup
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you said/ran, what you expected, what you got. Redact issue keys/URLs as needed — never paste tokens.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Steps, plus a sanitized ledger entry or capture file if relevant.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran `bash scripts/validate-plugin.sh` on my install and it passes
+        - label: I searched existing issues

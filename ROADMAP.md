@@ -1,0 +1,108 @@
+# Roadmap
+
+## Positioning
+
+One engine, two jobs. The engine is an **evidence-tiered accomplishment
+ledger**. The jobs it serves:
+
+1. **The wedge — AI token-budget pitches.** Narrow, urgent, and currently
+   unserved: teams that allocate Claude tokens by demonstrated value give
+   engineers a recurring "prove it" assignment with no tooling. This is the
+   launch story.
+2. **The market — brag documents.** Performance reviews, promo packets, and
+   sprint reviews are the same problem (recall + credibility) for a much
+   larger audience. Everything the wedge needs, the market reuses.
+
+Scope test for any proposal: **does it make an individual engineer's claims
+more checkable?** If it measures other people, adds a dashboard, or moves
+data off the user's machine, it fails the test (see Non-goals).
+
+The normative product specification — including the spend-attribution
+engine — lives in [docs/product-spec.md](docs/product-spec.md).
+
+## Now — 0.2.x (shipping)
+
+- Core loop: pre-registered `log`, SessionEnd capture + transcript
+  mining, Jira/GitHub `sync`, `report` (token-pitch, perf-review,
+  sprint-recap, quarterly), `forecast`.
+- **Bootstrap report**: a facts-only report from ~90 days of tracker/git
+  history on first sync, so the first five minutes deliver value before any
+  habit change.
+- Gold-star repo baseline: CI, validator, tests, community health files.
+
+## Next — 0.3 "Metered" (spec M1)
+
+- **Deterministic metering engine** (`scripts/meter`): exact token counts
+  from local session records, incremental with checkpoints, retroactive
+  ~90-day bootstrap, conservation check enforced in CI with fixture
+  transcripts.
+- **Attribution engine**: spend assigned to Jira stories/epics via the
+  pin → active-entry → transcript-evidence → branch → repo-default resolver
+  chain, confidence on every event, and an attribution inbox for ambiguity.
+- **Schema v2**: `usage.jsonl` fact stream, config pricing table, budgets
+  (additive — minor release).
+
+## Then — 0.4 "Answerable" (spec M2)
+
+- **`spend` skill**: "where am I spending", "what did PLAT-482 cost",
+  "how's my burn", one-tap attribution-exception resolution.
+- **Budgets & pacing** against the allocation and optional per-epic
+  envelopes, surfaced without nagging.
+- **Spend ledger** section in the token pitch; **metered rates** in the
+  forecast (manual token entry becomes an override, not a requirement).
+- **OpenTelemetry as secondary source** for sessions without transcripts.
+- **Confluence publisher** (opt-in) and the **first community adapter**
+  (Linear or GitLab), with a tested-config table in `docs/adapters.md`.
+
+## Later — 1.0 "Trustworthy at scale" (spec M3)
+
+- **Skill trigger evals in CI**: scripted `claude -p` checks that each
+  skill's description actually triggers on its canonical phrases (skills
+  chronically undertrigger; descriptions are the UI).
+- **Per-account waste diagnostics**: deterministic detection of retry loops
+  and duplicate reads over tool-call patterns, rolled up per story — what
+  this story's tokens bought, and what they wasted.
+- **Rework/reopen tracking** on Claude-assisted items (quality
+  counterevidence — the "but is the code good?" answer).
+- **Allocation-cycle automation**: a scheduled reminder flow that drafts the
+  pitch N days before each grant renewal recorded in `config.json`.
+- **Export packs**: perf-review output as a formatted document on request.
+- **Schema freeze** and a documented migration policy.
+
+## Exploring (not committed)
+
+- **Team mode, opt-in only**: individuals *choose* to publish their ledgers
+  to a shared warehouse; semantic views (e.g. Snowflake) bridge tracker +
+  git + usage domains for org-level AI ROI analytics. Ships only with an
+  explicit consent model — aggregation must be a gift from ICs, never a tap
+  on them. This is where the original "semantic analytics over Snowflake
+  semantic layers" idea lives.
+
+## Non-goals
+
+Permanent, by design — these are the product's promises:
+
+- No manager dashboards, surveillance, or activity monitoring.
+- No individual peer comparison or ranking, ever.
+- No hosted service, accounts, or telemetry; data stays local.
+- No time tracking (outcomes and estimates, not keystrokes).
+- No support for backfilling `pre_registered: true` — the tier system is
+  only worth something if it cannot be gamed.
+
+## Distribution checklist (0.2 launch)
+
+- [ ] GitHub repo description starts with "Claude Code plugin"; topics set:
+      `claude`, `claude-code`, `claude-plugin`, `mcp`, `jira`, `github`,
+      `brag-document`, `performance-review`, `developer-productivity`,
+      `ai-roi`, `engineering-metrics`.
+- [ ] 60–90s demo (GIF or asciinema) at the top of the README:
+      sync → bootstrap report → token pitch.
+- [ ] Social preview image set in repo settings.
+- [ ] Submit to the official plugin directory
+      ([anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official))
+      — it's available by default in every Claude Code install.
+- [ ] PR to community lists (awesome-claude-code and plugin directories).
+- [ ] Launch write-up: *"I asked for a bigger Claude budget with receipts"* —
+      include the actual generated report as the artifact. Post to dev.to /
+      r/ClaudeAI / Hacker News / the Claude Discord.
+- [ ] Seed 4–6 `good first issue`s (adapters, report templates, test cases).

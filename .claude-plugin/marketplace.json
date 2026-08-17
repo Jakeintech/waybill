@@ -1,0 +1,16 @@
+{
+  "name": "waybill",
+  "owner": {
+    "name": "YOUR NAME",
+    "url": "https://github.com/YOUR_GITHUB_USERNAME"
+  },
+  "plugins": [
+    {
+      "name": "waybill",
+      "source": "./",
+      "description": "Token accounting for AI-assisted work: every token itemized to the story it shipped, with receipt-backed reports, perf-review packets, and token-budget forecasts.",
+      "category": "productivity",
+      "tags": ["token-accounting", "brag-document", "jira", "github", "ai-roi", "performance-review"]
+    }
+  ]
+}

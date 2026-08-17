@@ -1,0 +1,16 @@
+{
+  "description": "Queues session metadata at session end so the log skill can later mine transcripts for accomplishments and token usage. Never blocks or slows the session.",
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/capture-session.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
