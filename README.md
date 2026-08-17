@@ -4,7 +4,7 @@
 
 A *waybill* is the shipping document that itemizes cargo and its charges. You ship; Waybill keeps the itemized record.
 
-[![CI](https://github.com/YOUR_GITHUB_USERNAME/waybill/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/waybill/actions/workflows/ci.yml)
+[![CI](https://github.com/Jakeintech/waybill/actions/workflows/ci.yml/badge.svg)](https://github.com/Jakeintech/waybill/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757)](https://code.claude.com/docs/en/plugins)
 
@@ -22,7 +22,7 @@ Humans answer both from memory, the night before, in adjectives. The person deci
 ## Five minutes to your first report
 
 ```bash
-claude plugin marketplace add YOUR_GITHUB_USERNAME/waybill
+claude plugin marketplace add Jakeintech/waybill
 claude plugin install waybill@waybill
 export GITHUB_MCP_PAT=github_pat_...   # fine-grained PAT, read access to your repos/PRs
 ```

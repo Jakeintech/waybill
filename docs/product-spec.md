@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft for implementation (releases 0.3 → 1.0) |
-| **Owner** | YOUR NAME |
+| **Owner** | Jakeintech |
 | **Last updated** | 2026-08-16 |
 | **Scope of this document** | The full product, with normative detail on the spend-attribution engine (new in 0.3) |
 

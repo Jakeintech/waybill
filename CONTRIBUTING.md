@@ -14,7 +14,7 @@ link to [the methodology](skills/ledger/references/methodology.md) and
 ## Dev setup
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/waybill
+git clone https://github.com/Jakeintech/waybill
 cd waybill
 claude plugin marketplace add .
 claude plugin install waybill@waybill

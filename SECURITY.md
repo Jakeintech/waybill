@@ -21,7 +21,7 @@ The latest minor release receives fixes. Older versions: please upgrade.
 Please **do not** open a public issue. Use GitHub's
 [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
 on this repository (Security → Report a vulnerability), or email
-**YOUR_EMAIL@example.com** with details and reproduction steps.
+**info@jakeawilliams.com** with details and reproduction steps.
 
 You'll get an acknowledgment within 72 hours and a fix or mitigation plan
 within 14 days for confirmed issues. Credit given unless you prefer

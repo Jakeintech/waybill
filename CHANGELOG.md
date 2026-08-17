@@ -61,7 +61,7 @@ compatibility surface.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/YOUR_GITHUB_USERNAME/waybill/compare/v0.2.1...HEAD
-[0.2.1]: https://github.com/YOUR_GITHUB_USERNAME/waybill/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/YOUR_GITHUB_USERNAME/waybill/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/YOUR_GITHUB_USERNAME/waybill/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Jakeintech/waybill/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/Jakeintech/waybill/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/Jakeintech/waybill/releases/tag/v0.1.0

@@ -11,7 +11,7 @@ pull requests, discussions, and any space representing the project.
 ## Enforcement
 
 Report unacceptable behavior privately to the maintainer at
-**YOUR_EMAIL@example.com**. Reports are reviewed promptly and
+**info@jakeawilliams.com**. Reports are reviewed promptly and
 confidentially. Consequences follow the Covenant's
 [enforcement guidelines](https://www.contributor-covenant.org/version/2/1/code_of_conduct/#enforcement-guidelines),
 from correction up to a permanent ban.
