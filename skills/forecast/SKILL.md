@@ -8,7 +8,7 @@ description: >
   section. Combines upcoming tracker work with historical rates from the
   waybill ledger.
 metadata:
-  version: "0.1.0"
+  version: "0.3.0"
 ---
 
 # Forecast
@@ -28,16 +28,29 @@ Let `LEDGER_HOME` mean `${WAYBILL_HOME:-$HOME/.waybill}`.
    tracker's problem, not the forecast's: ask the user to estimate them and
    mark those rows `(self-estimated)` in the output.
 
-## Compute historical rates (from `ledger.jsonl`)
+## Compute historical rates (metered, never manual)
 
-- `tokens_per_point`: median over the most recent shipped entries that have
-  both `points` and `tokens`, using at least the last 5; if fewer than 5
-  exist, compute anyway but label the whole forecast **low confidence** and
-  say why in one line.
+```bash
+WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+$WAYBILL mine --all          # catch-up metering first
+$WAYBILL query forecast
+```
+
+The engine returns, from metered + attributed usage joined to shipped
+entries:
+
+- `tokens_per_point`: median over the most recent shipped stories with both
+  points and metered tokens (manual `tokens` fields are an override, not the
+  source). If `low_confidence` is true (fewer than 5 such stories), label
+  the whole forecast **low confidence** and say why in one line:
+  "Fewer than 5 shipped stories with token data — this forecast is labeled
+  low confidence, because it is."
 - `hours_saved_per_point`: from `time_saved_hours` ranges with basis
   `pre_registered` or `baseline` only, kept as a low–high range.
-- `utilization`: tokens consumed in the last allocation period ÷ tokens
-  granted, from `config.json.allocations`, if present.
+- `utilization_pct`: metered tokens ÷ tokens granted for the current
+  allocation, if configured.
+
+Never adjust the returned numbers; you write the prose around them.
 
 ## Compute the ask
 

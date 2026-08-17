@@ -1654,6 +1654,370 @@ function runMine(home, args) {
   return 0;
 }
 
+// src/projections/queries.ts
+function inWindow(ts, w) {
+  if (w.from !== null && ts < w.from) return false;
+  if (w.to !== null && ts > w.to) return false;
+  return true;
+}
+function totalTokens(u) {
+  return u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation;
+}
+function isoWeek(ts) {
+  const d = new Date(Date.parse(ts));
+  const day = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - day + 3);
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const ftDay = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - ftDay + 3);
+  const week = 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 864e5));
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
+  const usage = authoritative(usageEvents).filter(
+    (u) => u.kind === "usage" && inWindow(u.ts, window)
+  );
+  const accounts = /* @__PURE__ */ new Map();
+  const models = /* @__PURE__ */ new Map();
+  const weeks = /* @__PURE__ */ new Map();
+  const accountSessions = /* @__PURE__ */ new Map();
+  let total = 0;
+  for (const u of usage) {
+    const t = totalTokens(u);
+    total += t;
+    const acc = accounts.get(u.attribution.account) ?? {
+      account: u.attribution.account,
+      tokens: 0,
+      input: 0,
+      output: 0,
+      cache_read: 0,
+      cache_creation: 0,
+      cost_usd: null,
+      min_confidence: 1,
+      resolvers: [],
+      sessions: 0
+    };
+    acc.tokens += t;
+    acc.input += u.tokens.input;
+    acc.output += u.tokens.output;
+    acc.cache_read += u.tokens.cache_read;
+    acc.cache_creation += u.tokens.cache_creation;
+    if (u.cost_usd) acc.cost_usd = Math.round(((acc.cost_usd ?? 0) + u.cost_usd.value) * 1e4) / 1e4;
+    if (u.attribution.confidence < acc.min_confidence) acc.min_confidence = u.attribution.confidence;
+    if (!acc.resolvers.includes(u.attribution.resolver)) acc.resolvers.push(u.attribution.resolver);
+    accounts.set(u.attribution.account, acc);
+    const sess = accountSessions.get(u.attribution.account) ?? /* @__PURE__ */ new Set();
+    sess.add(u.session_id);
+    accountSessions.set(u.attribution.account, sess);
+    const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false };
+    m.tokens += t;
+    if (u.cost_usd) {
+      m.cost = Math.round((m.cost + u.cost_usd.value) * 1e4) / 1e4;
+      m.priced = true;
+    }
+    models.set(u.model, m);
+    weeks.set(isoWeek(u.ts), (weeks.get(isoWeek(u.ts)) ?? 0) + t);
+  }
+  for (const [account, acc] of accounts) {
+    acc.sessions = accountSessions.get(account)?.size ?? 0;
+    acc.resolvers.sort();
+  }
+  const shippedKeys = new Set(
+    authoritative(ledgerEvents).filter((e) => e.kind === "shipped").map((e) => e.tracker_key).filter((k) => k !== null)
+  );
+  const openSpend = [...accounts.values()].filter((a) => a.account.startsWith("story:") && !shippedKeys.has(a.account.slice(6))).map((a) => ({ account: a.account, tokens: a.tokens })).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
+  const attributed = [...accounts.values()].filter((a) => a.account !== "unattributed" && a.min_confidence >= 0.6).reduce((n, a) => n + a.tokens, 0);
+  const openAmbiguities = countOpenAmbiguities(exceptionEvents);
+  const unattributed = accounts.get("unattributed")?.tokens ?? 0;
+  return {
+    window,
+    accounts: [...accounts.values()].sort(
+      (a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1)
+    ),
+    by_model: [...models.entries()].map(([model, m]) => ({ model, tokens: m.tokens, cost_usd: m.priced ? m.cost : null })).sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
+    by_week: [...weeks.entries()].map(([week, tokens]) => ({ week, tokens })).sort((a, b) => a.week < b.week ? -1 : 1),
+    total_tokens: total,
+    unattributed_tokens: unattributed,
+    unattributed_pct: total > 0 ? Math.round(unattributed / total * 1e3) / 10 : 0,
+    open_spend: openSpend,
+    attribution_health: {
+      attributed_pct_conf_060: total > 0 ? Math.round(attributed / total * 1e3) / 10 : 0,
+      inbox_open: openAmbiguities
+    },
+    pricing_version: config.pricing.version
+  };
+}
+function countOpenAmbiguities(exceptionEvents) {
+  const resolved = new Set(
+    exceptionEvents.filter((e) => e.kind === "resolution").map((e) => e.resolves)
+  );
+  return exceptionEvents.filter(
+    (e) => e.kind === "ambiguity" && !resolved.has(e.id)
+  ).length;
+}
+function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) {
+  const entries = authoritative(ledgerEvents).filter(
+    (e) => e.kind === "shipped" && inWindow(e.ts, window)
+  );
+  const spend = spendData(usageEvents, exceptionEvents, ledgerEvents, config, window);
+  const tokensByKey = /* @__PURE__ */ new Map();
+  for (const a of spend.accounts) {
+    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
+  }
+  const shipped = entries.map((e) => ({
+    id: e.id,
+    tracker_key: e.tracker_key,
+    title: e.title,
+    epic_key: e.epic_key,
+    epic_name: e.epic_name,
+    points: e.points,
+    prs: e.artifacts.prs,
+    deploy: e.artifacts.deploy,
+    ts: e.ts,
+    claude_role: e.claude_role,
+    metered_tokens: e.tracker_key !== null ? tokensByKey.get(e.tracker_key) ?? null : null,
+    escrowed: e.escrow !== null
+  })).sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
+  const points2 = shipped.reduce((n, s) => n + (s.points ?? 0), 0);
+  const mergedPrs = shipped.reduce((n, s) => n + s.prs.length, 0);
+  const deploys = shipped.filter((s) => s.deploy !== null).length;
+  const meteredTokens = shipped.reduce((n, s) => n + (s.metered_tokens ?? 0), 0);
+  const saved = { pre: { low: 0, high: 0, n: 0 }, judgment: { low: 0, high: 0, n: 0 } };
+  for (const e of entries) {
+    const t = e.time_saved_hours;
+    if (!t) continue;
+    const bucket = t.basis === "judgment" ? saved.judgment : saved.pre;
+    bucket.low += t.low;
+    bucket.high += t.high;
+    bucket.n += 1;
+  }
+  const allocation = config.allocations[config.allocations.length - 1] ?? null;
+  return {
+    window,
+    shipped,
+    totals: { points: points2, merged_prs: mergedPrs, deploys, metered_tokens: meteredTokens },
+    efficiency: {
+      tokens_per_point: points2 > 0 && meteredTokens > 0 ? Math.round(meteredTokens / points2) : null,
+      tokens_per_pr: mergedPrs > 0 && meteredTokens > 0 ? Math.round(meteredTokens / mergedPrs) : null
+    },
+    time_saved: {
+      pre_registered_or_baseline: { low: saved.pre.low, high: saved.pre.high, entries: saved.pre.n },
+      judgment: { low: saved.judgment.low, high: saved.judgment.high, entries: saved.judgment.n }
+    },
+    costs: {
+      window_tokens: spend.total_tokens,
+      granted_tokens: allocation?.tokens_granted ?? null,
+      utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null,
+      unattributed_pct: spend.unattributed_pct
+    },
+    spend_ledger: spend,
+    baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null ? config.baseline : null
+  };
+}
+function forecastData(ledgerEvents, usageEvents, config) {
+  const spend = spendData(usageEvents, [], ledgerEvents, config, { from: null, to: null });
+  const tokensByKey = /* @__PURE__ */ new Map();
+  for (const a of spend.accounts) {
+    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
+  }
+  const shipped = authoritative(ledgerEvents).filter(
+    (e) => e.kind === "shipped" && e.points !== null && e.points > 0 && e.tracker_key !== null && tokensByKey.has(e.tracker_key)
+  ).sort((a, b) => a.ts < b.ts ? -1 : 1);
+  const recent = shipped.slice(-Math.max(5, Math.min(shipped.length, 10)));
+  const rates = recent.map((e) => tokensByKey.get(e.tracker_key) / e.points).sort((a, b) => a - b);
+  const mid = Math.floor(rates.length / 2);
+  const tokensPerPoint = rates.length === 0 ? null : Math.round(rates.length % 2 === 1 ? rates[mid] : (rates[mid - 1] + rates[mid]) / 2);
+  let savedLow = 0;
+  let savedHigh = 0;
+  let savedPoints = 0;
+  for (const e of recent) {
+    const t = e.time_saved_hours;
+    if (t && (t.basis === "pre_registered" || t.basis === "baseline") && e.points) {
+      savedLow += t.low;
+      savedHigh += t.high;
+      savedPoints += e.points;
+    }
+  }
+  const allocation = config.allocations[config.allocations.length - 1] ?? null;
+  return {
+    tokens_per_point: tokensPerPoint,
+    basis_entries: recent.length,
+    low_confidence: recent.length < 5,
+    window: {
+      first_ts: recent[0]?.ts ?? null,
+      last_ts: recent[recent.length - 1]?.ts ?? null
+    },
+    hours_saved_per_point: savedPoints > 0 ? {
+      low: Math.round(savedLow / savedPoints * 100) / 100,
+      high: Math.round(savedHigh / savedPoints * 100) / 100
+    } : null,
+    utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null
+  };
+}
+
+// src/report/redaction.ts
+var SESSION_KEYS = /* @__PURE__ */ new Set(["session_id", "transcript_path", "cwd", "sessions"]);
+var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes"]);
+function collectStrings(value, field, into) {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const v of value) collectStrings(v, field, into);
+    return;
+  }
+  for (const [k, v] of Object.entries(value)) {
+    if (k === field && typeof v === "string") into.add(v);
+    else collectStrings(v, field, into);
+  }
+}
+function redact(data, audience) {
+  if (audience === "self") return { data, mapping: {} };
+  const clone = JSON.parse(JSON.stringify(data));
+  stripKeys(clone, SESSION_KEYS);
+  if (audience === "internal") return { data: clone, mapping: {} };
+  const keys = /* @__PURE__ */ new Set();
+  collectStrings(clone, "tracker_key", keys);
+  collectAccountKeys(clone, keys);
+  const epicKeys = /* @__PURE__ */ new Set();
+  collectStrings(clone, "epic_key", epicKeys);
+  const epicNames = /* @__PURE__ */ new Set();
+  collectStrings(clone, "epic_name", epicNames);
+  const repos = /* @__PURE__ */ new Set();
+  collectStrings(clone, "repo", repos);
+  const mapping = {};
+  let n = 0;
+  for (const k of [...keys].sort()) mapping[k] = `STORY-${++n}`;
+  n = 0;
+  for (const k of [...epicKeys].sort()) mapping[k] = `EPIC-${++n}`;
+  n = 0;
+  for (const k of [...epicNames].sort()) mapping[k] = `Epic ${++n}`;
+  n = 0;
+  for (const k of [...repos].sort()) mapping[k] = `repo-${++n}`;
+  const redacted = rewrite(clone, mapping);
+  return { data: redacted, mapping };
+}
+function collectAccountKeys(value, into) {
+  if (typeof value === "string") {
+    if (value.startsWith("story:")) into.add(value.slice(6));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectAccountKeys(v, into);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const v of Object.values(value)) collectAccountKeys(v, into);
+  }
+}
+function stripKeys(value, drop) {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const v of value) stripKeys(v, drop);
+    return;
+  }
+  const obj = value;
+  for (const k of Object.keys(obj)) {
+    if (drop.has(k)) delete obj[k];
+    else stripKeys(obj[k], drop);
+  }
+}
+function rewrite(value, mapping) {
+  if (typeof value === "string") {
+    if (value.startsWith("story:")) {
+      const key = value.slice(6);
+      return `story:${mapping[key] ?? key}`;
+    }
+    if (value.startsWith("adhoc:")) return "adhoc:redacted";
+    return mapping[value] ?? value;
+  }
+  if (Array.isArray(value)) return value.map((v) => rewrite(v, mapping));
+  if (value !== null && typeof value === "object") {
+    const obj = value;
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (EXTERNAL_DROP.has(k)) continue;
+      out[k] = rewrite(v, mapping);
+    }
+    return out;
+  }
+  return value;
+}
+
+// src/cli/cmd-query.ts
+var AUDIENCES = ["self", "internal", "external"];
+function runQuery(home, args) {
+  const [what, ...rest] = args;
+  let from = null;
+  let to = null;
+  let audience = null;
+  const positional = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--from") from = rest[++i] ?? null;
+    else if (a === "--to") to = rest[++i] ?? null;
+    else if (a === "--audience") {
+      const v = rest[++i];
+      if (!v || !AUDIENCES.includes(v)) {
+        process.stderr.write(`waybill query: --audience must be one of ${AUDIENCES.join(", ")}
+`);
+        return 2;
+      }
+      audience = v;
+    } else positional.push(a);
+  }
+  const config = loadConfig(home);
+  const aud = audience ?? config.audience_default;
+  const window = { from, to };
+  const ledger = readEvents(home, "ledger");
+  const usage = readEvents(home, "usage");
+  const exceptions = readEvents(home, "exceptions");
+  let payload;
+  switch (what) {
+    case "spend":
+      payload = spendData(usage, exceptions, ledger, config, window);
+      break;
+    case "report":
+      payload = reportData(ledger, usage, exceptions, config, window);
+      break;
+    case "forecast":
+      payload = forecastData(ledger, usage, config);
+      break;
+    case "story": {
+      const key = positional[0];
+      if (!key) {
+        process.stderr.write("waybill query story: pass the tracker key\n");
+        return 2;
+      }
+      const spend = spendData(usage, exceptions, ledger, config, window);
+      const account = spend.accounts.find((a) => a.account === `story:${key}`) ?? null;
+      const entry = readEvents(home, "ledger").filter((e) => e.kind === "shipped" && e.tracker_key === key).sort((a, b) => a.ts < b.ts ? -1 : 1).pop() ?? null;
+      payload = {
+        key,
+        spend: account,
+        cache_read_share: account && account.tokens > 0 ? Math.round(account.cache_read / account.tokens * 1e3) / 10 : null,
+        shipped: entry ? { id: entry.id, ts: entry.ts, points: entry.points, prs: entry.artifacts.prs } : null,
+        tokens_per_point: account && entry && entry.points ? Math.round(account.tokens / entry.points) : null
+      };
+      break;
+    }
+    case "inbox": {
+      const resolved = new Set(
+        exceptions.filter((e) => e.kind === "resolution").map((e) => e.resolves)
+      );
+      payload = exceptions.filter((e) => e.kind === "ambiguity" && !resolved.has(e.id));
+      break;
+    }
+    default:
+      process.stderr.write(
+        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox\n"
+      );
+      return 2;
+  }
+  const { data, mapping } = redact(payload, aud);
+  const out = aud === "external" ? { audience: aud, data, redaction_note: "identifiers pseudonymized; internal version available on request", mapping_size: Object.keys(mapping).length } : { audience: aud, data };
+  process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+  return 0;
+}
+
 // src/cli/cmd-sync-plan.ts
 import { execFileSync as execFileSync6 } from "node:child_process";
 import { readFileSync as readFileSync8 } from "node:fs";
@@ -2137,6 +2501,8 @@ Commands:
   sync-plan   Reconcile normalized tracker/git payloads into proposed entries
                 --tracker jira --items <raw.json> --git github|local --changes <raw.json>
                 [--baseline] | --apply <plan.json>
+  query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
+                [--from <iso>] [--to <iso>] [--audience self|internal|external]
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -2182,6 +2548,8 @@ async function main(argv) {
       return runAppend(cli.home, cli.args, cli.json);
     case "sync-plan":
       return runSyncPlan(cli.home, cli.args);
+    case "query":
+      return runQuery(cli.home, cli.args);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {
