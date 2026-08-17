@@ -1,7 +1,8 @@
 import type { Attribution, LedgerEntry, PinEntry } from "../core/events.ts";
+import { isPlausibleTrackerKey } from "../core/keys.ts";
 import type { EvidenceKey, Turn } from "../meter/transcript.ts";
 
-export const RULES_VERSION = "1";
+export const RULES_VERSION = "2"; // v2: key-plausibility gating (stoplist + project_keys)
 
 export interface ResolverContext {
   sessionId: string;
@@ -21,6 +22,8 @@ export interface ResolverContext {
    * confidence 1.0, and survives any future re-meter.
    */
   turnOverrides?: Map<number, string>;
+  /** config.tracker.project_keys — gates branch-key matches (core/keys). */
+  projectKeys?: string[];
 }
 
 export interface Resolution {
@@ -117,7 +120,7 @@ export function resolveTurn(turn: Turn, ctx: ResolverContext): Resolution {
 
   // Rule 4 — session_branch: key parsed from the turn's branch.
   const branchKey = keyFromBranch(turn.branchAtStart, ctx.branchKeyPattern);
-  if (branchKey) {
+  if (branchKey && isPlausibleTrackerKey(branchKey, ctx.projectKeys ?? [])) {
     return { attribution: attribution(`story:${branchKey}`, "session_branch", 0.6), ambiguity };
   }
 

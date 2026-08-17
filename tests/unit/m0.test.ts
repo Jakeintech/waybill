@@ -140,7 +140,7 @@ test("e2e M0: init → capture queue → mine → verify (zero auth, zero config
 
     const mine = cli(home, ["mine", "--queue"]);
     assert.equal(mine.code, 0);
-    assert.match(mine.stdout, /mined 1 session\(s\)/);
+    assert.match(mine.stdout, /mined: 1 new · 0 re-metered.*1 gap/);
 
     const cap1 = JSON.parse(readFileSync(join(queue, "20260805T140700Z-1.json"), "utf8")) as Record<string, unknown>;
     assert.equal(cap1["mined"], true);
@@ -157,7 +157,7 @@ test("e2e M0: init → capture queue → mine → verify (zero auth, zero config
 
     // Re-mining is a no-op (captures marked, meter current).
     const again = cli(home, ["mine", "--queue"]);
-    assert.match(again.stdout, /mined 0 session\(s\)/);
+    assert.match(again.stdout, /mined: 0 new · 0 re-metered/);
 
     const verify = cli(home, ["verify"]);
     assert.equal(verify.code, 0, verify.stdout);
@@ -182,7 +182,7 @@ test("mine --all works on a completely fresh home (no init, no queue dir)", () =
     }
     const out = cli(home, ["mine", "--all", "--projects-dir", projects]);
     assert.equal(out.code, 0, out.stdout);
-    assert.match(out.stdout, /mined 2 session\(s\)/);
+    assert.match(out.stdout, /mined: 2 new/);
     assert.ok(readEvents<UsageEvent>(home, "usage").length > 0);
     const verify = cli(home, ["verify"]);
     assert.match(verify.stdout, /All checks passed/);

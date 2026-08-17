@@ -10,7 +10,7 @@ description: >
   Also use it at a natural stopping point after shipping something in a
   session, by offering (once, briefly) to log it.
 metadata:
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # Log Work
@@ -23,7 +23,7 @@ both references before writing entries.
 Use the engine for every write:
 
 ```bash
-WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
 ```
 
 If `${WAYBILL_HOME:-$HOME/.waybill}/config.json` does not exist, run ledger
@@ -49,7 +49,7 @@ initialization first (see the `ledger` skill).
    and leave the rest `null`.
 3. Build the `opened` entry body (no `id`) with `pre_registered: true`,
    `claude_role: "none"`, empty artifacts, and append it:
-   `$WAYBILL append --stream ledger --event '<json>' --commit`.
+   `node "$WAYBILL" append --stream ledger --event '<json>' --commit`.
    The engine seals the estimate in a SHA-256 escrow automatically and
    refuses backdated pre-registration.
 4. Confirm in one line, mentioning the seal the first time:
@@ -65,7 +65,7 @@ initialization first (see the `ledger` skill).
    - PR URLs and merge state via GitHub MCP tools if connected, else from
      the user or `git log`.
    - Issue status/points via Atlassian MCP tools if connected.
-   - Metered tokens per key: run `$WAYBILL mine --all` (catch-up), then read
+   - Metered tokens per key: run `node "$WAYBILL" mine --all` (catch-up), then read
      the usage stream totals for the key. Never hand-estimate tokens.
 3. Ask the user only for what cannot be derived: `actual_hours`, and
    `claude_role` (offer the ladder from the methodology; when they hesitate
@@ -75,7 +75,7 @@ initialization first (see the `ledger` skill).
    to record a `judgment`-tier estimate or leave it `null`.
 5. Append a `shipped` entry with `supersedes` pointing at the `opened`
    entry's id, carrying the same escrow object forward, via
-   `$WAYBILL append --stream ledger --event '<json>' --commit`.
+   `node "$WAYBILL" append --stream ledger --event '<json>' --commit`.
 6. Confirm with one line plus running sprint totals (points shipped, metered
    tokens).
 
@@ -97,7 +97,7 @@ of the attribution ladder.
 2. Append the pin:
 
 ```bash
-$WAYBILL append --stream ledger --commit --event '{
+node "$WAYBILL" append --stream ledger --commit --event '{
   "ts": "<now, ISO UTC>", "kind": "pin",
   "session_id": "<session uuid>",
   "account": "story:PLAT-482", "tracker_key": "PLAT-482",
@@ -105,19 +105,19 @@ $WAYBILL append --stream ledger --commit --event '{
 }'
 ```
 
-3. Re-meter so the pin takes effect: `$WAYBILL mine --all`. The pin changes
+3. Re-meter so the pin takes effect: `node "$WAYBILL" mine --all`. The pin changes
    the attribution-inputs fingerprint, so the affected session re-meters
    even though its transcript hasn't grown; corrected usage events
    supersede the old attribution and history is preserved.
 4. **Unpin** = append a `correction` superseding the pin's id, then
-   `$WAYBILL mine --all` again.
+   `node "$WAYBILL" mine --all` again.
 5. For "everything after 3pm belongs to X", set
    `range: {"from": "<iso>", "to": null}`.
 
 ## Mining pending sessions
 
-Run `$WAYBILL mine --queue` (just the queued captures) or
-`$WAYBILL mine --all` (every local transcript — the catch-up used before
+Run `node "$WAYBILL" mine --queue` (just the queued captures) or
+`node "$WAYBILL" mine --all` (every local transcript — the catch-up used before
 reports). The miner is deterministic: it meters token usage per turn,
 attributes it via the resolver ladder, writes session receipts, and marks
 captures `mined: true`. It never reads transcript text into the ledger —
@@ -135,6 +135,6 @@ option, a durable pin or repo default.
 - Never set `pre_registered: true` on an estimate given after the fact —
   the engine refuses it, and so should you.
 - Never hand-append JSONL or invent event ids; always go through
-  `$WAYBILL append`.
+  `node "$WAYBILL" append`.
 - Keep the interaction light: one confirmation, one-line summaries. Logging
   must cost the user less than the value it records.

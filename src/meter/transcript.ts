@@ -1,4 +1,5 @@
 import type { TokenCounts, UsageTokens } from "../core/events.ts";
+import { isPlausibleTrackerKey } from "../core/keys.ts";
 
 /** One tracker key sighting inside a session, with where it came from. */
 export interface EvidenceKey {
@@ -180,6 +181,8 @@ function toolBlocks(content: unknown): ToolBlock[] {
 
 export interface ParseOptions {
   branchKeyPattern: string;
+  /** config.tracker.project_keys — gates pattern matches (see core/keys). */
+  projectKeys?: string[];
 }
 
 export function parseTranscript(raw: string, options: ParseOptions): ParsedTranscript {
@@ -268,6 +271,8 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         const tIdx = currentTurn?.index ?? turnIndex;
         if (block.command !== null) {
           for (const ev of evidenceFromCommand(block.command, keyPattern)) {
+            // SHA-256 in a commit message is not a story (core/keys).
+            if (!isPlausibleTrackerKey(ev.key, options.projectKeys ?? [])) continue;
             evidence.push({ ...ev, turnIndex: tIdx });
           }
           const tally = commandTallies.get(tIdx) ?? new Map<string, number>();

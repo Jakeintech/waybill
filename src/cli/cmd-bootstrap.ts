@@ -101,10 +101,14 @@ export function collectTokens(home: string, sinceIso: string): BootstrapData["to
 export function runBootstrap(home: string, args: string[], json: boolean): number {
   let days = 90;
   let nowIso: string | null = null;
+  let fromIso: string | null = null;
+  let toIso: string | null = null;
   const repoPaths: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--days") days = Number(args[++i] ?? "90");
+    else if (a === "--from") fromIso = args[++i] ?? null;
+    else if (a === "--to") toIso = args[++i] ?? null;
     else if (a === "--repo-path") {
       const p = args[++i];
       if (p) repoPaths.push(p);
@@ -122,8 +126,14 @@ export function runBootstrap(home: string, args: string[], json: boolean): numbe
   const config = loadConfig(home);
   const identity = loadIdentity(home);
   const emails = identity?.git_emails ?? [];
-  const now = nowIso ? new Date(nowIso) : new Date();
-  const since = new Date(now.getTime() - days * 86400_000);
+  // --from/--to align the receipt with query report windows; --days is the shorthand.
+  if ((fromIso && Number.isNaN(Date.parse(fromIso))) || (toIso && Number.isNaN(Date.parse(toIso)))) {
+    process.stderr.write("waybill bootstrap: --from/--to must be dates\n");
+    return 2;
+  }
+  const now = toIso ? new Date(toIso) : nowIso ? new Date(nowIso) : new Date();
+  const since = fromIso ? new Date(fromIso) : new Date(now.getTime() - days * 86400_000);
+  if (fromIso) days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 86400_000));
   const sinceIso = since.toISOString().slice(0, 19) + "Z";
 
   if (repoPaths.length === 0 && isGitRepo(process.cwd())) repoPaths.push(process.cwd());
@@ -136,7 +146,7 @@ export function runBootstrap(home: string, args: string[], json: boolean): numbe
     }
     const name = repoFromCwd(path) ?? path;
     const commits = parseGitLog(gitLogRaw(path, sinceIso));
-    repos.push(summarizeRepo(name, path, commits, emails, config.metering.branch_key_pattern));
+    repos.push(summarizeRepo(name, path, commits, emails, config.metering.branch_key_pattern, config.tracker.project_keys));
   }
 
   const data: BootstrapData = {

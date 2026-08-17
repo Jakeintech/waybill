@@ -9,6 +9,7 @@ import {
   type TokenCounts,
   type UsageEvent,
 } from "../../src/core/events.ts";
+import { RULES_VERSION } from "../../src/attribution/resolver.ts";
 import { sealEstimate } from "../../src/core/escrow.ts";
 import { appendEvents } from "../../src/core/streams.ts";
 
@@ -92,7 +93,7 @@ export function makeUsage(overrides: {
       tracker_key: account.startsWith("story:") ? account.slice("story:".length) : null,
       resolver: overrides.resolver ?? ("active_entry" as const),
       confidence: overrides.confidence ?? 0.9,
-      rules_version: "1",
+      rules_version: RULES_VERSION,
     },
     source: "transcript" as const,
     transcript_version: "2.1.229",

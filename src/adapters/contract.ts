@@ -1,4 +1,5 @@
 import type { WorkType } from "../core/events.ts";
+import { isPlausibleTrackerKey } from "../core/keys.ts";
 
 /** A normalized tracker item — the only shape sync ever reasons about. */
 export interface WorkItem {
@@ -37,6 +38,8 @@ export interface AdapterContext {
    * dropped even if a mis-scoped query fetched them. */
   githubLogin: string | null;
   jiraAccountId: string | null;
+  /** config.tracker.project_keys — gates key extraction (core/keys). */
+  projectKeys: string[];
   /** Candidate custom field ids for story points (Jira instances vary). */
   pointsFields: string[];
   /** Candidate custom field ids for sprint. */
@@ -49,6 +52,7 @@ export function defaultContext(partial: Partial<AdapterContext> = {}): AdapterCo
     identityEmails: [],
     githubLogin: null,
     jiraAccountId: null,
+    projectKeys: [],
     pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
     sprintFields: ["customfield_10020", "customfield_10010"],
     ...partial,
@@ -69,9 +73,10 @@ export interface GitHostAdapter {
   normalizeChanges(raw: unknown, ctx: AdapterContext): MergedChange[];
 }
 
-export function extractKeys(text: string, keyPattern: string): string[] {
+export function extractKeys(text: string, keyPattern: string, projectKeys: string[] = []): string[] {
   const out: string[] = [];
   for (const k of text.match(new RegExp(keyPattern, "g")) ?? []) {
+    if (!isPlausibleTrackerKey(k, projectKeys)) continue;
     if (!out.includes(k)) out.push(k);
   }
   return out;

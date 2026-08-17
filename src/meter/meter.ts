@@ -81,6 +81,7 @@ export function priceTokens(
 export function meterTranscript(input: MeterInput): MeterOutput {
   const transcript = parseTranscript(input.raw, {
     branchKeyPattern: input.config.metering.branch_key_pattern,
+    projectKeys: input.config.tracker.project_keys,
   });
   const sessionId = transcript.sessionId;
   const newUsage: UsageEvent[] = [];
@@ -116,6 +117,7 @@ export function meterTranscript(input: MeterInput): MeterOutput {
     openEntries,
     repoDefaults: input.config.metering.repo_defaults,
     evidence: transcript.evidence,
+    projectKeys: input.config.tracker.project_keys,
     ...(input.turnOverrides ? { turnOverrides: input.turnOverrides } : {}),
   };
 

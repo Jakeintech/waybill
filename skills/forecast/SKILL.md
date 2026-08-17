@@ -8,7 +8,7 @@ description: >
   section. Combines upcoming tracker work with historical rates from the
   waybill ledger.
 metadata:
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # Forecast
@@ -29,9 +29,9 @@ same honesty rules as reports.
 ## Compute historical rates (metered, never manual)
 
 ```bash
-WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
-$WAYBILL mine --all          # catch-up metering first
-$WAYBILL query forecast
+WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+node "$WAYBILL" mine --all          # catch-up metering first
+node "$WAYBILL" query forecast
 ```
 
 The engine returns, from metered + attributed usage joined to shipped

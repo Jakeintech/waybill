@@ -188,6 +188,7 @@ export function meterOtel(input: OtelMeterInput): OtelMeterOutput {
       openEntries,
       repoDefaults: input.config.metering.repo_defaults,
       evidence: [],
+      projectKeys: input.config.tracker.project_keys,
     };
 
     for (const model of models) {

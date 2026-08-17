@@ -5,7 +5,10 @@ import { runBootstrap } from "./cmd-bootstrap.ts";
 import { runInit } from "./cmd-init.ts";
 import { runMeter } from "./cmd-meter.ts";
 import { runMine } from "./cmd-mine.ts";
+import { runExport } from "./cmd-export.ts";
 import { runPace } from "./cmd-pace.ts";
+import { runPricing } from "./cmd-pricing.ts";
+import { runStatus } from "./cmd-status.ts";
 import { runQuery } from "./cmd-query.ts";
 import { runResolve } from "./cmd-resolve.ts";
 import { runSyncPlan } from "./cmd-sync-plan.ts";
@@ -17,7 +20,7 @@ Usage: waybill <command> [options]
 Commands:
   init        Initialize $WAYBILL_HOME: git repo, config, identity map, retention check
   bootstrap   Render a bootstrap receipt from local git history (zero auth)
-                [--days 90] [--repo-path <dir>]...
+                [--days 90 | --from <date> [--to <date>]] [--repo-path <dir>]...
   mine        Process pending session captures (spawned by the SessionEnd hook)
                 [--queue | --all]
   meter       Meter transcripts into usage events (deterministic, incremental)
@@ -36,6 +39,10 @@ Commands:
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
+  status      One screen of ledger health: init, retention, mining, inbox, verify
+  export      Spend ledger as csv|json [--format csv|json] [--from/--to] [--audience]
+  pricing     show | set <model-id> --version <date> --input/--output/--cache-read/
+                --cache-5m/--cache-1h <usd per mtok>  (no rates ship; you cite yours)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -95,6 +102,12 @@ export async function main(argv: string[]): Promise<number> {
       return runQuery(cli.home, cli.args);
     case "pace":
       return runPace(cli.home, cli.args, cli.json);
+    case "status":
+      return runStatus(cli.home, cli.args, cli.json);
+    case "export":
+      return runExport(cli.home, cli.args);
+    case "pricing":
+      return runPricing(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

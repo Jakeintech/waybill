@@ -91,6 +91,7 @@ export function runSyncPlan(home: string, args: string[]): number {
     identityEmails: identity?.git_emails ?? [],
     githubLogin: identity?.github_login ?? null,
     jiraAccountId: identity?.jira_account_id ?? null,
+    projectKeys: config.tracker.project_keys,
   });
 
   let items: WorkItem[] = [];

@@ -28,7 +28,7 @@ export const gitLocalAdapter: GitHostAdapter = {
         repo,
         branch: null,
         merged_at: c.author_date,
-        keys: extractKeys(c.subject, ctx.keyPattern),
+        keys: extractKeys(c.subject, ctx.keyPattern, ctx.projectKeys),
       });
     }
     return sortChanges(out);

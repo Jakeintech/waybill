@@ -14,23 +14,25 @@ description: >
   narrative report around those numbers.) Produces a one-page,
   receipt-backed report; never invents numbers.
 metadata:
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # Report
 
 Turn ledger facts into a report a decision-maker can verify in two minutes.
+Brevity is part of the credibility: one page hard cap, every section has a
+line budget below, and when in doubt cut the sentence, not the number.
 Read `skills/ledger/references/methodology.md` first and enforce its
 language rules throughout; read `references/schema.md` for field semantics.
 
 The numbers come from the engine, never from estimation:
 
 ```bash
-WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
-$WAYBILL mine --all                 # catch-up metering first, always
-$WAYBILL query report --from <iso> --to <iso> [--audience <a>]
-$WAYBILL query spend  --from <iso> --to <iso>    # spend-ledger detail
-$WAYBILL query story <KEY>                       # "what did KEY cost"
+WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+node "$WAYBILL" mine --all                 # catch-up metering first, always
+node "$WAYBILL" query report --from <iso> --to <iso> [--audience <a>]
+node "$WAYBILL" query spend  --from <iso> --to <iso>    # spend-ledger detail
+node "$WAYBILL" query story <KEY>                       # "what did KEY cost"
 ```
 
 You write the prose; the engine writes the numbers. Never recompute or
@@ -58,7 +60,7 @@ adjust a number the query returned.
 
 If the ledger has fewer than 3 shipped entries for the window — or the user
 asks for a "bootstrap report" or their "first report" — do not pad and do
-not refuse. Run `$WAYBILL bootstrap` for the zero-auth receipt; if MCP
+not refuse. Run `node "$WAYBILL" bootstrap` for the zero-auth receipt; if MCP
 servers are connected, run the `sync` skill's flow for ~90 days first
 (confirm the window in one line), then produce a **facts-only** report.
 State plainly that no time-saved claims exist yet, and close with one line

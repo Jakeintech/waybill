@@ -546,6 +546,65 @@ function saveIdentity(home, identity) {
 
 // src/gitlocal/gitlocal.ts
 import { execFileSync as execFileSync2 } from "node:child_process";
+
+// src/core/keys.ts
+var PREFIX_STOPLIST = /* @__PURE__ */ new Set([
+  "SHA",
+  "MD",
+  "CRC",
+  "AES",
+  "RSA",
+  "HMAC",
+  "TLS",
+  "SSL",
+  "UTF",
+  "ISO",
+  "IEEE",
+  "RFC",
+  "ANSI",
+  "IETF",
+  "ECMA",
+  "CVE",
+  "HTTP",
+  "HTTPS",
+  "TCP",
+  "UDP",
+  "IP",
+  "IPV",
+  "DNS",
+  "FTP",
+  "SSH",
+  "UTC",
+  "GMT",
+  "BASE",
+  "OAUTH",
+  "SAML",
+  "X",
+  "ERR",
+  "E",
+  "P",
+  "S",
+  "HTML",
+  "CSS",
+  "ES",
+  "GPT",
+  "CPU",
+  "GPU",
+  "RAM",
+  "IOS",
+  "OSX"
+]);
+function keyPrefix(key) {
+  const dash = key.indexOf("-");
+  return dash === -1 ? key : key.slice(0, dash);
+}
+function isPlausibleTrackerKey(key, projectKeys) {
+  const prefix = keyPrefix(key);
+  if (projectKeys.length > 0) return projectKeys.includes(prefix);
+  return !PREFIX_STOPLIST.has(prefix);
+}
+
+// src/gitlocal/gitlocal.ts
 import { existsSync as existsSync3 } from "node:fs";
 var FIELD_SEP = "";
 var RECORD_SEP = "";
@@ -582,7 +641,7 @@ function parseGitLog(raw) {
   }
   return out;
 }
-function summarizeRepo(repo, path, commits, identityEmails, keyPattern) {
+function summarizeRepo(repo, path, commits, identityEmails, keyPattern, projectKeys = []) {
   const emails = new Set(identityEmails.map((e) => e.toLowerCase()));
   const mine = commits.filter((c) => emails.has(c.author_email.toLowerCase()));
   const keyRe = new RegExp(keyPattern, "g");
@@ -598,6 +657,7 @@ function summarizeRepo(repo, path, commits, identityEmails, keyPattern) {
     if (first === null || c.author_date < first) first = c.author_date;
     if (last === null || c.author_date > last) last = c.author_date;
     for (const k of c.subject.match(keyRe) ?? []) {
+      if (!isPlausibleTrackerKey(k, projectKeys)) continue;
       keyCounts.set(k, (keyCounts.get(k) ?? 0) + 1);
     }
     for (const ref of c.refs) {
@@ -637,7 +697,7 @@ import { homedir as homedir2 } from "node:os";
 import { join as join5 } from "node:path";
 
 // src/attribution/resolver.ts
-var RULES_VERSION = "1";
+var RULES_VERSION = "2";
 function keyFromBranch(branch, pattern) {
   if (!branch) return null;
   const m = branch.match(new RegExp(pattern));
@@ -696,7 +756,7 @@ function resolveTurn(turn, ctx) {
     };
   }
   const branchKey = keyFromBranch(turn.branchAtStart, ctx.branchKeyPattern);
-  if (branchKey) {
+  if (branchKey && isPlausibleTrackerKey(branchKey, ctx.projectKeys ?? [])) {
     return { attribution: attribution(`story:${branchKey}`, "session_branch", 0.6), ambiguity };
   }
   if (ctx.repo !== null) {
@@ -874,6 +934,7 @@ function parseTranscript(raw, options) {
         const tIdx = currentTurn?.index ?? turnIndex;
         if (block.command !== null) {
           for (const ev of evidenceFromCommand(block.command, keyPattern)) {
+            if (!isPlausibleTrackerKey(ev.key, options.projectKeys ?? [])) continue;
             evidence.push({ ...ev, turnIndex: tIdx });
           }
           const tally = commandTallies.get(tIdx) ?? /* @__PURE__ */ new Map();
@@ -1006,7 +1067,8 @@ function priceTokens(config, model, tokens) {
 }
 function meterTranscript(input) {
   const transcript = parseTranscript(input.raw, {
-    branchKeyPattern: input.config.metering.branch_key_pattern
+    branchKeyPattern: input.config.metering.branch_key_pattern,
+    projectKeys: input.config.tracker.project_keys
   });
   const sessionId = transcript.sessionId;
   const newUsage = [];
@@ -1039,6 +1101,7 @@ function meterTranscript(input) {
     openEntries,
     repoDefaults: input.config.metering.repo_defaults,
     evidence: transcript.evidence,
+    projectKeys: input.config.tracker.project_keys,
     ...input.turnOverrides ? { turnOverrides: input.turnOverrides } : {}
   };
   const existingUsageAuth = authoritative(input.existingUsage).filter(
@@ -1281,6 +1344,7 @@ function attributionFingerprint(ledgerEvents, exceptionEvents, config) {
       open,
       defaults: config.metering.repo_defaults,
       pattern: config.metering.branch_key_pattern,
+      project_keys: config.tracker.project_keys,
       resolutions
     })
   );
@@ -1321,13 +1385,17 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
   const fingerprint = attributionFingerprint(ledgerEvents, existingExceptions, config);
   const probedId = probeSessionId(raw);
   if (!force && probedId !== null && isCurrent(state, probedId, fileBytes, config.pricing.version, fingerprint)) {
-    return { session_id: probedId, transcript_path: transcriptPath, skipped: true, usage: 0, sessions: 0, exceptions: 0 };
+    return { session_id: probedId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
   }
-  const probe = parseTranscript(raw, { branchKeyPattern: config.metering.branch_key_pattern });
+  const probe = parseTranscript(raw, {
+    branchKeyPattern: config.metering.branch_key_pattern,
+    projectKeys: config.tracker.project_keys
+  });
   const sessionId = probe.sessionId;
   if (!force && sessionId !== null && sessionId !== probedId && isCurrent(state, sessionId, fileBytes, config.pricing.version, fingerprint)) {
-    return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, usage: 0, sessions: 0, exceptions: 0 };
+    return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
   }
+  const hadCheckpoint = sessionId !== null && state.sessions[sessionId] !== void 0;
   const repo = repoHint ?? repoFromCwd(probe.cwd);
   const existingUsage = readEvents(home, "usage");
   const existingSessions = readEvents(home, "sessions");
@@ -1363,6 +1431,7 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
     session_id: out.sessionId,
     transcript_path: transcriptPath,
     skipped: false,
+    remetered: hadCheckpoint,
     usage: out.newUsage.length,
     sessions: out.newSessions.length,
     exceptions: out.newExceptions.length
@@ -1448,10 +1517,14 @@ function collectTokens(home, sinceIso) {
 function runBootstrap(home, args, json) {
   let days = 90;
   let nowIso2 = null;
+  let fromIso = null;
+  let toIso = null;
   const repoPaths = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--days") days = Number(args[++i] ?? "90");
+    else if (a === "--from") fromIso = args[++i] ?? null;
+    else if (a === "--to") toIso = args[++i] ?? null;
     else if (a === "--repo-path") {
       const p = args[++i];
       if (p) repoPaths.push(p);
@@ -1469,8 +1542,13 @@ function runBootstrap(home, args, json) {
   const config = loadConfig(home);
   const identity = loadIdentity(home);
   const emails = identity?.git_emails ?? [];
-  const now = nowIso2 ? new Date(nowIso2) : /* @__PURE__ */ new Date();
-  const since = new Date(now.getTime() - days * 864e5);
+  if (fromIso && Number.isNaN(Date.parse(fromIso)) || toIso && Number.isNaN(Date.parse(toIso))) {
+    process.stderr.write("waybill bootstrap: --from/--to must be dates\n");
+    return 2;
+  }
+  const now = toIso ? new Date(toIso) : nowIso2 ? new Date(nowIso2) : /* @__PURE__ */ new Date();
+  const since = fromIso ? new Date(fromIso) : new Date(now.getTime() - days * 864e5);
+  if (fromIso) days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 864e5));
   const sinceIso = since.toISOString().slice(0, 19) + "Z";
   if (repoPaths.length === 0 && isGitRepo(process.cwd())) repoPaths.push(process.cwd());
   const repos = [];
@@ -1482,7 +1560,7 @@ function runBootstrap(home, args, json) {
     }
     const name = repoFromCwd(path) ?? path;
     const commits = parseGitLog(gitLogRaw(path, sinceIso));
-    repos.push(summarizeRepo(name, path, commits, emails, config.metering.branch_key_pattern));
+    repos.push(summarizeRepo(name, path, commits, emails, config.metering.branch_key_pattern, config.tracker.project_keys));
   }
   const data = {
     window_days: days,
@@ -1794,7 +1872,8 @@ function meterOtel(input) {
       pins,
       openEntries,
       repoDefaults: input.config.metering.repo_defaults,
-      evidence: []
+      evidence: [],
+      projectKeys: input.config.tracker.project_keys
     };
     for (const model of models) {
       const t = agg.models.get(model);
@@ -2041,10 +2120,13 @@ function runMine(home, args) {
   const queueDir = join8(home, "pending-sessions");
   mkdirSync4(queueDir, { recursive: true });
   if (!acquireLock(home)) {
-    process.stdout.write("mined 0 session(s) (another metering process is running \u2014 queue intact)\n");
+    process.stdout.write("mined: 0 new (another metering process is running \u2014 queue intact)\n");
     return 0;
   }
-  let mined = 0;
+  let minedNew = 0;
+  let remetered = 0;
+  let gaps = 0;
+  let alreadyCurrent = 0;
   try {
     const files = readdirSync3(queueDir).filter((f) => f.endsWith(".json")).sort();
     for (const f of files) {
@@ -2061,6 +2143,7 @@ function runMine(home, args) {
         if (typeof capture.session_id === "string") {
           recordGap(home, capture.session_id, gapTs(capture), "transcript_pruned");
         }
+        gaps += 1;
         capture.mined = "gap";
         writeFileSync5(path, JSON.stringify(capture) + "\n", "utf8");
         continue;
@@ -2071,7 +2154,9 @@ function runMine(home, args) {
         capture["mined_session_id"] = result.session_id;
         capture["mined_usage_events"] = result.usage;
         writeFileSync5(path, JSON.stringify(capture) + "\n", "utf8");
-        mined += 1;
+        if (result.skipped) alreadyCurrent += 1;
+        else if (result.remetered) remetered += 1;
+        else minedNew += 1;
       } catch (err) {
         process.stderr.write(`waybill mine: ${transcript}: ${err.message}
 `);
@@ -2081,7 +2166,9 @@ function runMine(home, args) {
       for (const t of listTranscripts(projectsDir)) {
         try {
           const r = meterFile(home, t, null);
-          if (!r.skipped) mined += 1;
+          if (r.skipped) alreadyCurrent += 1;
+          else if (r.remetered) remetered += 1;
+          else minedNew += 1;
         } catch (err) {
           process.stderr.write(`waybill mine: ${t}: ${err.message}
 `);
@@ -2091,15 +2178,13 @@ function runMine(home, args) {
   } finally {
     releaseLock(home);
   }
-  if (mined > 0) commitLedger(home);
-  process.stdout.write(`mined ${mined} session(s)
-`);
+  if (minedNew + remetered > 0) commitLedger(home);
+  process.stdout.write(
+    `mined: ${minedNew} new \xB7 ${remetered} re-metered (inputs changed) \xB7 ${gaps} gap(s) \xB7 ${alreadyCurrent} already current
+`
+  );
   return 0;
 }
-
-// src/cli/cmd-pace.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join9 } from "node:path";
 
 // src/projections/queries.ts
 function normalizeWindow(from, to) {
@@ -2279,7 +2364,7 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
   return {
     window,
     shipped,
-    totals: { points: points2, merged_prs: mergedPrs, deploys, metered_tokens: meteredTokens },
+    totals: { points: points2, merged_prs: mergedPrs, deploys, shipped_metered_tokens: meteredTokens },
     efficiency: {
       tokens_per_point: points2 > 0 && meteredTokens > 0 ? Math.round(meteredTokens / points2) : null,
       tokens_per_pr: mergedPrs > 0 && meteredTokens > 0 ? Math.round(meteredTokens / mergedPrs) : null
@@ -2346,6 +2431,211 @@ function forecastData(ledgerEvents, usageEvents, config) {
     utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null
   };
 }
+
+// src/report/redaction.ts
+var SESSION_KEYS = /* @__PURE__ */ new Set(["session_id", "transcript_path", "cwd", "sessions"]);
+var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes"]);
+function collectStrings(value, field, into) {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const v of value) collectStrings(v, field, into);
+    return;
+  }
+  for (const [k, v] of Object.entries(value)) {
+    if (k === field && typeof v === "string") into.add(v);
+    else collectStrings(v, field, into);
+  }
+}
+function redact(data, audience) {
+  if (audience === "self") return { data, mapping: {} };
+  const clone = JSON.parse(JSON.stringify(data));
+  stripKeys(clone, SESSION_KEYS);
+  if (audience === "internal") return { data: clone, mapping: {} };
+  const keys = /* @__PURE__ */ new Set();
+  collectStrings(clone, "tracker_key", keys);
+  collectStrings(clone, "key", keys);
+  collectAccountKeys(clone, keys);
+  const epicKeys = /* @__PURE__ */ new Set();
+  collectStrings(clone, "epic_key", epicKeys);
+  const epicNames = /* @__PURE__ */ new Set();
+  collectStrings(clone, "epic_name", epicNames);
+  const repos = /* @__PURE__ */ new Set();
+  collectStrings(clone, "repo", repos);
+  const adhocs = /* @__PURE__ */ new Set();
+  collectAdhocLabels(clone, adhocs);
+  const mapping = {};
+  let n = 0;
+  for (const k of [...keys].sort()) mapping[k] = `STORY-${++n}`;
+  n = 0;
+  for (const k of [...epicKeys].sort()) mapping[k] = `EPIC-${++n}`;
+  n = 0;
+  for (const k of [...epicNames].sort()) mapping[k] = `Epic ${++n}`;
+  n = 0;
+  for (const k of [...repos].sort()) mapping[k] = `repo-${++n}`;
+  n = 0;
+  for (const k of [...adhocs].sort()) mapping[`adhoc:${k}`] = `adhoc-${++n}`;
+  const redacted = rewrite(clone, mapping);
+  return { data: redacted, mapping };
+}
+function collectAdhocLabels(value, into) {
+  if (typeof value === "string") {
+    if (value.startsWith("adhoc:")) into.add(value.slice(6));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectAdhocLabels(v, into);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const v of Object.values(value)) collectAdhocLabels(v, into);
+  }
+}
+function collectAccountKeys(value, into) {
+  if (typeof value === "string") {
+    if (value.startsWith("story:")) into.add(value.slice(6));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectAccountKeys(v, into);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const v of Object.values(value)) collectAccountKeys(v, into);
+  }
+}
+function stripKeys(value, drop) {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const v of value) stripKeys(v, drop);
+    return;
+  }
+  const obj = value;
+  for (const k of Object.keys(obj)) {
+    if (drop.has(k) && typeof obj[k] !== "number") delete obj[k];
+    else stripKeys(obj[k], drop);
+  }
+}
+function rewrite(value, mapping) {
+  if (typeof value === "string") {
+    if (value.startsWith("story:")) {
+      const key = value.slice(6);
+      return `story:${mapping[key] ?? key}`;
+    }
+    if (value.startsWith("adhoc:")) {
+      return `adhoc:${mapping[value] ?? "redacted"}`;
+    }
+    return mapping[value] ?? value;
+  }
+  if (Array.isArray(value)) return value.map((v) => rewrite(v, mapping));
+  if (value !== null && typeof value === "object") {
+    const obj = value;
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (EXTERNAL_DROP.has(k)) continue;
+      out[k] = rewrite(v, mapping);
+    }
+    return out;
+  }
+  return value;
+}
+
+// src/cli/cmd-export.ts
+function csvCell(v) {
+  const s = v === null || v === void 0 ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+function runExport(home, args) {
+  let format = "csv";
+  let from = null;
+  let to = null;
+  let audience = null;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--format") {
+      const v = args[++i];
+      if (v !== "csv" && v !== "json") {
+        process.stderr.write("waybill export: --format must be csv or json\n");
+        return 2;
+      }
+      format = v;
+    } else if (a === "--from") from = args[++i] ?? null;
+    else if (a === "--to") to = args[++i] ?? null;
+    else if (a === "--audience") {
+      const v = args[++i];
+      if (v !== "self" && v !== "internal" && v !== "external") {
+        process.stderr.write("waybill export: --audience must be self, internal, or external\n");
+        return 2;
+      }
+      audience = v;
+    } else {
+      process.stderr.write(`waybill export: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  const config = loadConfig(home);
+  let window;
+  try {
+    window = normalizeWindow(from, to);
+  } catch (err) {
+    process.stderr.write(`waybill export: ${err.message}
+`);
+    return 2;
+  }
+  const spend = spendData(
+    readEvents(home, "usage"),
+    readEvents(home, "exceptions"),
+    readEvents(home, "ledger"),
+    config,
+    window
+  );
+  const aud = audience ?? config.audience_default;
+  const { data } = redact(spend, aud);
+  const redacted = data;
+  if (format === "json") {
+    process.stdout.write(JSON.stringify({ audience: aud, data: redacted }, null, 2) + "\n");
+    return 0;
+  }
+  const header = [
+    "account",
+    "tokens",
+    "input",
+    "output",
+    "cache_read",
+    "cache_creation",
+    "cost_usd",
+    "min_confidence",
+    "resolvers",
+    "sessions",
+    "waste_retried_commands",
+    "waste_repeated_reads"
+  ];
+  const lines = [header.join(",")];
+  for (const a of redacted.accounts) {
+    lines.push(
+      [
+        a.account,
+        a.tokens,
+        a.input,
+        a.output,
+        a.cache_read,
+        a.cache_creation,
+        a.cost_usd ?? "",
+        a.min_confidence,
+        a.resolvers.join("|"),
+        a.sessions,
+        a.waste.retried_commands,
+        a.waste.repeated_reads
+      ].map(csvCell).join(",")
+    );
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+  return 0;
+}
+
+// src/cli/cmd-pace.ts
+import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join9 } from "node:path";
 
 // src/projections/pace.ts
 function periodWindow(period, grantedAt) {
@@ -2556,111 +2846,184 @@ function runPace(home, args, json) {
   return 0;
 }
 
-// src/report/redaction.ts
-var SESSION_KEYS = /* @__PURE__ */ new Set(["session_id", "transcript_path", "cwd", "sessions"]);
-var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes"]);
-function collectStrings(value, field, into) {
-  if (value === null || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const v of value) collectStrings(v, field, into);
-    return;
-  }
-  for (const [k, v] of Object.entries(value)) {
-    if (k === field && typeof v === "string") into.add(v);
-    else collectStrings(v, field, into);
-  }
-}
-function redact(data, audience) {
-  if (audience === "self") return { data, mapping: {} };
-  const clone = JSON.parse(JSON.stringify(data));
-  stripKeys(clone, SESSION_KEYS);
-  if (audience === "internal") return { data: clone, mapping: {} };
-  const keys = /* @__PURE__ */ new Set();
-  collectStrings(clone, "tracker_key", keys);
-  collectStrings(clone, "key", keys);
-  collectAccountKeys(clone, keys);
-  const epicKeys = /* @__PURE__ */ new Set();
-  collectStrings(clone, "epic_key", epicKeys);
-  const epicNames = /* @__PURE__ */ new Set();
-  collectStrings(clone, "epic_name", epicNames);
-  const repos = /* @__PURE__ */ new Set();
-  collectStrings(clone, "repo", repos);
-  const adhocs = /* @__PURE__ */ new Set();
-  collectAdhocLabels(clone, adhocs);
-  const mapping = {};
-  let n = 0;
-  for (const k of [...keys].sort()) mapping[k] = `STORY-${++n}`;
-  n = 0;
-  for (const k of [...epicKeys].sort()) mapping[k] = `EPIC-${++n}`;
-  n = 0;
-  for (const k of [...epicNames].sort()) mapping[k] = `Epic ${++n}`;
-  n = 0;
-  for (const k of [...repos].sort()) mapping[k] = `repo-${++n}`;
-  n = 0;
-  for (const k of [...adhocs].sort()) mapping[`adhoc:${k}`] = `adhoc-${++n}`;
-  const redacted = rewrite(clone, mapping);
-  return { data: redacted, mapping };
-}
-function collectAdhocLabels(value, into) {
-  if (typeof value === "string") {
-    if (value.startsWith("adhoc:")) into.add(value.slice(6));
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const v of value) collectAdhocLabels(v, into);
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    for (const v of Object.values(value)) collectAdhocLabels(v, into);
-  }
-}
-function collectAccountKeys(value, into) {
-  if (typeof value === "string") {
-    if (value.startsWith("story:")) into.add(value.slice(6));
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const v of value) collectAccountKeys(v, into);
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    for (const v of Object.values(value)) collectAccountKeys(v, into);
-  }
-}
-function stripKeys(value, drop) {
-  if (value === null || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const v of value) stripKeys(v, drop);
-    return;
-  }
-  const obj = value;
-  for (const k of Object.keys(obj)) {
-    if (drop.has(k) && typeof obj[k] !== "number") delete obj[k];
-    else stripKeys(obj[k], drop);
-  }
-}
-function rewrite(value, mapping) {
-  if (typeof value === "string") {
-    if (value.startsWith("story:")) {
-      const key = value.slice(6);
-      return `story:${mapping[key] ?? key}`;
+// src/cli/cmd-pricing.ts
+function runPricing(home, args, json) {
+  const [verb, ...rest] = args;
+  const config = loadConfig(home);
+  if (verb === "show" || verb === void 0) {
+    if (json) process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
+    else if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
+      process.stdout.write(
+        "No pricing configured \u2014 tokens stay the native unit (by design).\nTo label USD list-price equivalents:\n  waybill pricing set <model-id> --version <YYYY-MM-DD> \\\n    --input <usd/mtok> --output <usd/mtok> --cache-read <usd/mtok> \\\n    --cache-5m <usd/mtok> --cache-1h <usd/mtok>\nRates come from your provider's price list; cite the date as the version.\n"
+      );
+    } else {
+      process.stdout.write(`pricing_version: ${config.pricing.version}
+`);
+      for (const [model2, r] of Object.entries(config.pricing.models).sort()) {
+        process.stdout.write(
+          `  ${model2}: in ${r.input_per_mtok} \xB7 out ${r.output_per_mtok} \xB7 cache-read ${r.cache_read_per_mtok} \xB7 5m ${r.cache_write_5m_per_mtok} \xB7 1h ${r.cache_write_1h_per_mtok}  (USD/mtok)
+`
+        );
+      }
+      process.stdout.write("Re-meter to price existing events: waybill meter --all\n");
     }
-    if (value.startsWith("adhoc:")) {
-      return `adhoc:${mapping[value] ?? "redacted"}`;
-    }
-    return mapping[value] ?? value;
+    return 0;
   }
-  if (Array.isArray(value)) return value.map((v) => rewrite(v, mapping));
-  if (value !== null && typeof value === "object") {
-    const obj = value;
-    const out = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (EXTERNAL_DROP.has(k)) continue;
-      out[k] = rewrite(v, mapping);
-    }
-    return out;
+  if (verb !== "set") {
+    process.stderr.write("waybill pricing: pass `show` or `set <model-id> [rates]`\n");
+    return 2;
   }
-  return value;
+  const model = rest[0];
+  if (!model || model.startsWith("--")) {
+    process.stderr.write("waybill pricing set: pass the model id first\n");
+    return 2;
+  }
+  const rates = {};
+  let version = null;
+  const FLAGS = {
+    "--input": "input_per_mtok",
+    "--output": "output_per_mtok",
+    "--cache-read": "cache_read_per_mtok",
+    "--cache-5m": "cache_write_5m_per_mtok",
+    "--cache-1h": "cache_write_1h_per_mtok"
+  };
+  for (let i = 1; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--version") {
+      version = rest[++i] ?? null;
+      continue;
+    }
+    const field = FLAGS[a];
+    if (!field) {
+      process.stderr.write(`waybill pricing set: unknown option ${a}
+`);
+      return 2;
+    }
+    const v = Number(rest[++i]);
+    if (!Number.isFinite(v) || v < 0) {
+      process.stderr.write(`waybill pricing set: ${a} needs a non-negative number (USD per million tokens)
+`);
+      return 2;
+    }
+    rates[field] = v;
+  }
+  for (const field of Object.values(FLAGS)) {
+    if (!(field in rates)) {
+      process.stderr.write(
+        "waybill pricing set: all five rates are required (--input --output --cache-read --cache-5m --cache-1h) \u2014 no rate is ever guessed\n"
+      );
+      return 2;
+    }
+  }
+  const effectiveVersion = version ?? config.pricing.version;
+  if (!effectiveVersion) {
+    process.stderr.write(
+      "waybill pricing set: pass --version <YYYY-MM-DD> (the price-list date \u2014 it labels every derived USD figure)\n"
+    );
+    return 2;
+  }
+  config.pricing.version = effectiveVersion;
+  config.pricing.models[model] = {
+    input_per_mtok: rates["input_per_mtok"],
+    output_per_mtok: rates["output_per_mtok"],
+    cache_read_per_mtok: rates["cache_read_per_mtok"],
+    cache_write_5m_per_mtok: rates["cache_write_5m_per_mtok"],
+    cache_write_1h_per_mtok: rates["cache_write_1h_per_mtok"]
+  };
+  saveConfig(home, config);
+  if (json) {
+    process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
+  } else {
+    process.stdout.write(
+      `priced ${model} (version ${effectiveVersion}). Existing events re-price on the next meter run: waybill meter --all
+`
+    );
+  }
+  return 0;
+}
+
+// src/cli/cmd-status.ts
+import { existsSync as existsSync9, readFileSync as readFileSync11, readdirSync as readdirSync4 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { join as join10 } from "node:path";
+function fmtInt2(n) {
+  return n.toLocaleString("en-US");
+}
+function runStatus(home, args, json) {
+  let claudeSettings = join10(homedir4(), ".claude", "settings.json");
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
+    else {
+      process.stderr.write(`waybill status: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  const initialized = existsSync9(join10(home, "config.json"));
+  const config = loadConfig(home);
+  const retention = checkRetention(claudeSettings);
+  let pendingUnmined = 0;
+  const queueDir = join10(home, "pending-sessions");
+  if (existsSync9(queueDir)) {
+    for (const f of readdirSync4(queueDir)) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const capture = JSON.parse(readFileSync11(join10(queueDir, f), "utf8"));
+        if (capture.mined !== true && typeof capture.mined !== "string") pendingUnmined += 1;
+      } catch {
+        pendingUnmined += 1;
+      }
+    }
+  }
+  const ledger = readEvents(home, "ledger");
+  const usage = readEvents(home, "usage");
+  const exceptions = readEvents(home, "exceptions");
+  const spend = spendData(usage, exceptions, ledger, config, { from: null, to: null });
+  const state = loadState(home);
+  const lastMine = Object.values(state.sessions).map((s) => s.metered_through_ts ?? "").filter((t) => t !== "").sort().pop() ?? null;
+  const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
+  const findings = verifyHome(home);
+  const data = {
+    home,
+    initialized,
+    retention,
+    metering: {
+      sessions_metered: Object.keys(state.sessions).length,
+      last_metered_through: lastMine,
+      pending_unmined: pendingUnmined,
+      meter_gaps: gaps
+    },
+    spend: {
+      total_tokens: spend.total_tokens,
+      unattributed_pct: spend.unattributed_pct,
+      attributed_pct_conf_060: spend.attribution_health.attributed_pct_conf_060,
+      inbox_open: spend.attribution_health.inbox_open
+    },
+    verify: { findings: findings.length, ok: findings.length === 0 }
+  };
+  if (json) {
+    process.stdout.write(JSON.stringify({ data }, null, 2) + "\n");
+    return findings.length === 0 ? 0 : 1;
+  }
+  const lines = [];
+  lines.push(`waybill status \u2014 ${home}`);
+  lines.push(initialized ? "initialized: yes (git-backed, append-only)" : "initialized: NO \u2014 run: waybill init");
+  lines.push(
+    `retention: ${retention.effective}` + (retention.recommendation ? ` \u2014 recommend: ${retention.recommendation}` : "")
+  );
+  if (retention.warning) lines.push(`  WARNING: ${retention.warning}`);
+  lines.push(
+    `metering: ${fmtInt2(data.metering.sessions_metered)} session(s) metered` + (lastMine ? `, through ${lastMine}` : "") + (pendingUnmined > 0 ? `; ${pendingUnmined} capture(s) waiting \u2014 run: waybill mine --queue` : "") + (gaps > 0 ? `; ${gaps} gap(s) (transcripts pruned before mining)` : "")
+  );
+  lines.push(
+    `spend: ${fmtInt2(spend.total_tokens)} tokens, ${spend.unattributed_pct}% unattributed (${spend.attribution_health.attributed_pct_conf_060}% attributed at conf \u2265 0.6)` + (spend.attribution_health.inbox_open > 0 ? `; ${spend.attribution_health.inbox_open} in the attribution inbox \u2014 see: waybill query inbox` : "")
+  );
+  lines.push(
+    findings.length === 0 ? "verify: all checks pass" : `verify: ${findings.length} finding(s) \u2014 run: waybill verify`
+  );
+  process.stdout.write(lines.join("\n") + "\n");
+  return findings.length === 0 ? 0 : 1;
 }
 
 // src/cli/cmd-query.ts
@@ -2753,7 +3116,7 @@ function runQuery(home, args) {
 
 // src/cli/cmd-resolve.ts
 import { execFileSync as execFileSync6 } from "node:child_process";
-import { existsSync as existsSync9 } from "node:fs";
+import { existsSync as existsSync10 } from "node:fs";
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -2852,7 +3215,7 @@ function runResolve(home, args, json) {
   let corrected = 0;
   const checkpoint = loadState(home).sessions[ambiguity.session_id];
   const transcriptPath = checkpoint?.transcript_path ?? authoritative(readEvents(home, "sessions")).find((s) => s.kind === "session" && s.session_id === ambiguity.session_id)?.transcript_path ?? null;
-  if (transcriptPath && existsSync9(transcriptPath)) {
+  if (transcriptPath && existsSync10(transcriptPath)) {
     if (acquireLock(home)) {
       try {
         const result = meterFile(home, transcriptPath, null, true);
@@ -2889,7 +3252,7 @@ function runResolve(home, args, json) {
 
 // src/cli/cmd-sync-plan.ts
 import { execFileSync as execFileSync7 } from "node:child_process";
-import { readFileSync as readFileSync11 } from "node:fs";
+import { readFileSync as readFileSync12 } from "node:fs";
 
 // src/adapters/contract.ts
 function defaultContext(partial = {}) {
@@ -2898,14 +3261,16 @@ function defaultContext(partial = {}) {
     identityEmails: [],
     githubLogin: null,
     jiraAccountId: null,
+    projectKeys: [],
     pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
     sprintFields: ["customfield_10020", "customfield_10010"],
     ...partial
   };
 }
-function extractKeys(text, keyPattern) {
+function extractKeys(text, keyPattern, projectKeys = []) {
   const out = [];
   for (const k of text.match(new RegExp(keyPattern, "g")) ?? []) {
+    if (!isPlausibleTrackerKey(k, projectKeys)) continue;
     if (!out.includes(k)) out.push(k);
   }
   return out;
@@ -3103,7 +3468,7 @@ var githubAdapter = {
         repo,
         branch,
         merged_at: mergedAt,
-        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern)
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys)
       });
     }
     return sortChanges(out);
@@ -3128,7 +3493,7 @@ var gitLocalAdapter = {
         repo,
         branch: null,
         merged_at: c.author_date,
-        keys: extractKeys(c.subject, ctx.keyPattern)
+        keys: extractKeys(c.subject, ctx.keyPattern, ctx.projectKeys)
       });
     }
     return sortChanges(out);
@@ -3170,7 +3535,7 @@ var gitlabAdapter = {
         repo,
         branch,
         merged_at: mergedAt,
-        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern)
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys)
       });
     }
     return sortChanges(out);
@@ -3421,7 +3786,7 @@ function runSyncPlan(home, args) {
   }
   const config = loadConfig(home);
   if (applyPath) {
-    const plan2 = JSON.parse(readFileSync11(applyPath, "utf8"));
+    const plan2 = JSON.parse(readFileSync12(applyPath, "utf8"));
     const bodies = [
       ...plan2.shipped,
       ...plan2.corrections.map((c) => c.body),
@@ -3460,7 +3825,8 @@ function runSyncPlan(home, args) {
     keyPattern: config.metering.branch_key_pattern,
     identityEmails: identity?.git_emails ?? [],
     githubLogin: identity?.github_login ?? null,
-    jiraAccountId: identity?.jira_account_id ?? null
+    jiraAccountId: identity?.jira_account_id ?? null,
+    projectKeys: config.tracker.project_keys
   });
   let items = [];
   if (itemsPath) {
@@ -3469,7 +3835,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync11(itemsPath, "utf8")), ctx);
+    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync12(itemsPath, "utf8")), ctx);
   }
   let changes = [];
   if (changesPath) {
@@ -3478,7 +3844,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync11(changesPath, "utf8")), ctx);
+    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync12(changesPath, "utf8")), ctx);
   }
   if (localRepos.length > 0) {
     const sinceIso = since ?? config.last_sync ?? new Date(Date.parse(now) - 90 * 864e5).toISOString().slice(0, 19) + "Z";
@@ -3517,7 +3883,7 @@ Usage: waybill <command> [options]
 Commands:
   init        Initialize $WAYBILL_HOME: git repo, config, identity map, retention check
   bootstrap   Render a bootstrap receipt from local git history (zero auth)
-                [--days 90] [--repo-path <dir>]...
+                [--days 90 | --from <date> [--to <date>]] [--repo-path <dir>]...
   mine        Process pending session captures (spawned by the SessionEnd hook)
                 [--queue | --all]
   meter       Meter transcripts into usage events (deterministic, incremental)
@@ -3536,6 +3902,10 @@ Commands:
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
+  status      One screen of ledger health: init, retention, mining, inbox, verify
+  export      Spend ledger as csv|json [--format csv|json] [--from/--to] [--audience]
+  pricing     show | set <model-id> --version <date> --input/--output/--cache-read/
+                --cache-5m/--cache-1h <usd per mtok>  (no rates ship; you cite yours)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -3587,6 +3957,12 @@ async function main(argv) {
       return runQuery(cli.home, cli.args);
     case "pace":
       return runPace(cli.home, cli.args, cli.json);
+    case "status":
+      return runStatus(cli.home, cli.args, cli.json);
+    case "export":
+      return runExport(cli.home, cli.args);
+    case "pricing":
+      return runPricing(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

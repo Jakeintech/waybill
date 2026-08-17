@@ -247,7 +247,9 @@ export interface ReportData {
     points: number;
     merged_prs: number;
     deploys: number;
-    metered_tokens: number;
+    /** Tokens attributed to the SHIPPED items in the window — not all
+     * in-window spend; that is costs.window_tokens. */
+    shipped_metered_tokens: number;
   };
   efficiency: {
     tokens_per_point: number | null;
@@ -321,7 +323,7 @@ export function reportData(
   return {
     window,
     shipped,
-    totals: { points, merged_prs: mergedPrs, deploys, metered_tokens: meteredTokens },
+    totals: { points, merged_prs: mergedPrs, deploys, shipped_metered_tokens: meteredTokens },
     efficiency: {
       tokens_per_point: points > 0 && meteredTokens > 0 ? Math.round(meteredTokens / points) : null,
       tokens_per_pr: mergedPrs > 0 && meteredTokens > 0 ? Math.round(meteredTokens / mergedPrs) : null,

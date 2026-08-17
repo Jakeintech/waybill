@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveTurn, type ResolverContext } from "../../src/attribution/resolver.ts";
+import { resolveTurn, RULES_VERSION, type ResolverContext } from "../../src/attribution/resolver.ts";
 import type { Turn } from "../../src/meter/transcript.ts";
 import { finalizeEvent, SCHEMA_VERSION, type LedgerEntry, type PinEntry } from "../../src/core/events.ts";
 import { meterTranscript } from "../../src/meter/meter.ts";
@@ -192,7 +192,7 @@ for (const c of CASES) {
     assert.equal(r.attribution.account, c.expect.account);
     assert.equal(r.attribution.resolver, c.expect.resolver);
     assert.equal(r.attribution.confidence, c.expect.confidence);
-    assert.equal(r.attribution.rules_version, "1");
+    assert.equal(r.attribution.rules_version, RULES_VERSION);
     if (c.expect.account.startsWith("story:")) {
       assert.equal(r.attribution.tracker_key, c.expect.account.slice("story:".length));
     } else {

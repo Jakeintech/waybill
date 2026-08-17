@@ -9,7 +9,7 @@ description: >
   Works zero-config from local git history; the Atlassian and/or GitHub MCP
   servers bundled with this plugin (or equivalents) upgrade it.
 metadata:
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # Sync
@@ -20,7 +20,7 @@ itself is deterministic: MCP tools fetch raw JSON, the engine normalizes and
 diffs it, you present the plan, one confirmation applies it.
 
 ```bash
-WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
 ```
 
 ## Scope rule (non-negotiable)
@@ -51,13 +51,13 @@ own data.
    `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Save the
    raw JSON to a temp file. **No MCP servers?** Use the git-local floor —
    the engine reads local history itself, no files needed:
-   `$WAYBILL sync-plan --local-repo <path-to-repo> --baseline` (repeat
+   `node "$WAYBILL" sync-plan --local-repo <path-to-repo> --baseline` (repeat
    `--local-repo` per repo; `--since <iso>` overrides the window). Or skip
    changes entirely — do the half that works.
 4. **Plan (deterministic):**
 
    ```bash
-   $WAYBILL sync-plan --tracker jira --items /tmp/waybill-items.json \
+   node "$WAYBILL" sync-plan --tracker jira --items /tmp/waybill-items.json \
      --git github --changes /tmp/waybill-changes.json --baseline \
      > /tmp/waybill-plan.json
    ```
@@ -75,7 +75,7 @@ own data.
    same flow: `--tracker linear`, `--git gitlab`.
 5. Present the plan as a short table and get **one confirmation**. If the
    user excludes rows, delete them from the plan JSON before applying.
-6. **Apply:** `$WAYBILL sync-plan --apply /tmp/waybill-plan.json` — appends
+6. **Apply:** `node "$WAYBILL" sync-plan --apply /tmp/waybill-plan.json` — appends
    the entries with deterministic ids (re-applying is a safe no-op), updates
    `config.baseline` if derived, sets `last_sync`, and commits.
 7. Close with a two-line summary: entries added/corrected, orphans and

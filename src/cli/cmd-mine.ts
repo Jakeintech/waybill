@@ -75,11 +75,14 @@ export function runMine(home: string, args: string[]): number {
   mkdirSync(queueDir, { recursive: true });
   if (!acquireLock(home)) {
     // Another metering process is live; the queue survives untouched.
-    process.stdout.write("mined 0 session(s) (another metering process is running — queue intact)\n");
+    process.stdout.write("mined: 0 new (another metering process is running — queue intact)\n");
     return 0;
   }
 
-  let mined = 0;
+  let minedNew = 0;
+  let remetered = 0;
+  let gaps = 0;
+  let alreadyCurrent = 0;
   try {
     const files = readdirSync(queueDir)
       .filter((f) => f.endsWith(".json"))
@@ -98,6 +101,7 @@ export function runMine(home: string, args: string[]): number {
         if (typeof capture.session_id === "string") {
           recordGap(home, capture.session_id, gapTs(capture), "transcript_pruned");
         }
+        gaps += 1;
         capture.mined = "gap";
         writeFileSync(path, JSON.stringify(capture) + "\n", "utf8");
         continue;
@@ -108,7 +112,9 @@ export function runMine(home: string, args: string[]): number {
         capture["mined_session_id"] = result.session_id;
         capture["mined_usage_events"] = result.usage;
         writeFileSync(path, JSON.stringify(capture) + "\n", "utf8");
-        mined += 1;
+        if (result.skipped) alreadyCurrent += 1;
+        else if (result.remetered) remetered += 1;
+        else minedNew += 1;
       } catch (err) {
         process.stderr.write(`waybill mine: ${transcript}: ${(err as Error).message}\n`);
       }
@@ -118,7 +124,9 @@ export function runMine(home: string, args: string[]): number {
       for (const t of listTranscripts(projectsDir)) {
         try {
           const r = meterFile(home, t, null);
-          if (!r.skipped) mined += 1;
+          if (r.skipped) alreadyCurrent += 1;
+          else if (r.remetered) remetered += 1;
+          else minedNew += 1;
         } catch (err) {
           process.stderr.write(`waybill mine: ${t}: ${(err as Error).message}\n`);
         }
@@ -128,7 +136,11 @@ export function runMine(home: string, args: string[]): number {
     releaseLock(home);
   }
 
-  if (mined > 0) commitLedger(home);
-  process.stdout.write(`mined ${mined} session(s)\n`);
+  if (minedNew + remetered > 0) commitLedger(home);
+  // One reconciling line: what happened to every session this run touched.
+  process.stdout.write(
+    `mined: ${minedNew} new · ${remetered} re-metered (inputs changed) · ` +
+      `${gaps} gap(s) · ${alreadyCurrent} already current\n`,
+  );
   return 0;
 }

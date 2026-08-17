@@ -7,9 +7,9 @@ frontmatter *description* carries the trigger phrases and does the discovery.
 The deterministic engine is intentionally **not** a skill — it is a single
 dependency-free executable, `bin/waybill.mjs` (subcommands: `init`,
 `bootstrap`, `mine`, `meter`, `append`, `resolve`, `verify`, `query`,
-`pace`, `sync-plan`), invoked by hooks and skills, so the automatic path
-never depends on a model call (see the [product spec](product-spec.md),
-§5.7).
+`pace`, `status`, `export`, `pricing`, `sync-plan`), invoked by hooks and
+skills, so the automatic path never depends on a model call (see the
+[product spec](product-spec.md), §5.7).
 
 ## The skills
 
@@ -32,7 +32,8 @@ never depends on a model call (see the [product spec](product-spec.md),
   structure rather than performing an action.
 - **Reserved words never used as skill names:** `waybill` (the plugin),
   every engine subcommand (`init`, `bootstrap`, `mine`, `meter`, `append`,
-  `resolve`, `verify`, `query`, `pace`, `sync-plan`), `inbox` (a surface
+  `resolve`, `verify`, `query`, `pace`, `status`, `export`, `pricing`,
+  `sync-plan`), `inbox` (a surface
   inside `spend`, not a skill), and the brand concept names
   (`evidence tiers`, `open spend`, `pre-registration`).
 

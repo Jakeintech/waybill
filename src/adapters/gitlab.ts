@@ -59,7 +59,7 @@ export const gitlabAdapter: GitHostAdapter = {
         repo,
         branch,
         merged_at: mergedAt,
-        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern),
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys),
       });
     }
     return sortChanges(out);

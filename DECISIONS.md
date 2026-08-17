@@ -322,3 +322,31 @@ window on the chain-origin ts so corrections never re-date commitments.
 
 **Rationale.** The chain is the truth the schema freeze promises; surface
 kinds are just the latest edit.
+
+## 2026-08-17 — Tested-user-feedback batch (1.1.0)
+
+**Question.** A hands-on external-perspective run surfaced: the documented
+`$WAYBILL verify` idiom silently fails on zsh; the liberal key pattern
+minted `story:SHA-256` (118M tokens) from this repo's own commit messages;
+ledger health required ~6 hand-assembled commands; `mine` output didn't
+reconcile; `totals.metered_tokens` next to `costs.window_tokens` invited a
+"0 tokens metered" headline; no export, no pricing onboarding, no
+bootstrap windowing.
+
+**Choice.** Skills invoke `node "$WAYBILL" <cmd>` (path in the variable,
+never the command string). A key-plausibility gate (core/keys: a stoplist
+of technical prefixes — SHA, UTF, ISO, HTTP… — and, when
+`tracker.project_keys` is configured, an authoritative prefix allowlist)
+filters every extraction site; this changes attribution, so
+`rules_version` bumped to "2" and the per-session checkpoints re-meter
+everything stale, superseding phantom accounts. New verbs: `status` (one
+screen of health), `export` (spend ledger as csv/json, audience-redacted),
+`pricing show/set` (all five rates plus a cited version required — no
+rates ever ship with the plugin). `mine` prints a reconciling
+new/re-metered/gaps/current line; `bootstrap` accepts `--from/--to`;
+report totals renamed to `shipped_metered_tokens` (projections are not
+frozen). Spend/report skills gained an explicit brevity default.
+
+**Rationale.** Every item was reproduced, not speculated; the fixes keep
+the deterministic core untouched and make the honest numbers easier to
+reach than the wrong ones.

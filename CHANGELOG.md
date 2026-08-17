@@ -7,6 +7,45 @@ compatibility surface.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-17
+
+Driven by a hands-on user critique — every item below was reproduced in a
+real session before it was fixed.
+
+### Added
+- **`waybill status`** — one screen of ledger health: initialized?,
+  retention (with the exact settings edit), sessions metered and through
+  when, unmined captures, meter gaps, unattributed %, inbox size, and a
+  verify verdict. The command to run when unsure.
+- **`waybill export`** — the spend ledger as CSV or JSON
+  (`--from/--to`, `--audience` redaction included): receipts you can hand
+  over without hand-written jq.
+- **`waybill pricing show|set`** — pricing onboarding without editing
+  config.json. All five rates plus a cited `--version` date are required;
+  no prices ship with the plugin — an accounting tool doesn't guess rates.
+- **`bootstrap --from/--to`** — align the receipt window with
+  `query report` windows.
+
+### Fixed
+- **zsh-safe skill invocations** — the documented `$WAYBILL verify` idiom
+  silently failed on zsh (no word splitting of parameter expansions);
+  every skill now uses `node "$WAYBILL" <command>`.
+- **Key plausibility gating (rules_version 2)** — the liberal key pattern
+  let a commit message mentioning SHA-256 mint a `story:SHA-256` account
+  holding real tokens. A stoplist of technical prefixes (SHA, UTF, ISO,
+  HTTP, RFC, BASE, …) filters every extraction site, and configured
+  `tracker.project_keys` become an authoritative prefix allowlist. The
+  rules bump re-meters stale sessions on the next run, superseding
+  phantom attributions — history preserved, as always.
+- **Reconciling `mine` output** — `mined: N new · M re-metered (inputs
+  changed) · K gap(s) · P already current`, so back-to-back runs explain
+  themselves.
+- **Report field naming** — `totals.metered_tokens` (shipped-work scope)
+  is now `totals.shipped_metered_tokens`, so nobody headlines "0 tokens
+  metered" while `costs.window_tokens` sits at billions.
+- Spend/report skills carry an explicit brevity default: the number
+  first, at most three supporting lines, expand only on request.
+
 ## [1.0.1] - 2026-08-16
 
 A second adversarial review pass (four lenses over the 0.4/1.0 delta, one
@@ -250,7 +289,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Jakeintech/waybill/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Jakeintech/waybill/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Jakeintech/waybill/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/Jakeintech/waybill/compare/v0.3.0...v0.4.0

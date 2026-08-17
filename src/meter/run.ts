@@ -24,6 +24,8 @@ export interface MeterRunResult {
   session_id: string | null;
   transcript_path: string;
   skipped: boolean;
+  /** This session had been metered before (checkpoint existed) — this run superseded stale events. */
+  remetered: boolean;
   usage: number;
   sessions: number;
   exceptions: number;
@@ -97,6 +99,7 @@ export function attributionFingerprint(
       open,
       defaults: config.metering.repo_defaults,
       pattern: config.metering.branch_key_pattern,
+      project_keys: config.tracker.project_keys,
       resolutions,
     }),
   );
@@ -160,10 +163,13 @@ export function meterFile(
     probedId !== null &&
     isCurrent(state, probedId, fileBytes, config.pricing.version, fingerprint)
   ) {
-    return { session_id: probedId, transcript_path: transcriptPath, skipped: true, usage: 0, sessions: 0, exceptions: 0 };
+    return { session_id: probedId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
   }
 
-  const probe = parseTranscript(raw, { branchKeyPattern: config.metering.branch_key_pattern });
+  const probe = parseTranscript(raw, {
+    branchKeyPattern: config.metering.branch_key_pattern,
+    projectKeys: config.tracker.project_keys,
+  });
   const sessionId = probe.sessionId;
   if (
     !force &&
@@ -171,9 +177,10 @@ export function meterFile(
     sessionId !== probedId &&
     isCurrent(state, sessionId, fileBytes, config.pricing.version, fingerprint)
   ) {
-    return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, usage: 0, sessions: 0, exceptions: 0 };
+    return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
   }
 
+  const hadCheckpoint = sessionId !== null && state.sessions[sessionId] !== undefined;
   const repo = repoHint ?? repoFromCwd(probe.cwd);
   const existingUsage = readEvents<UsageEvent>(home, "usage");
   const existingSessions = readEvents<SessionEvent>(home, "sessions");
@@ -213,6 +220,7 @@ export function meterFile(
     session_id: out.sessionId,
     transcript_path: transcriptPath,
     skipped: false,
+    remetered: hadCheckpoint,
     usage: out.newUsage.length,
     sessions: out.newSessions.length,
     exceptions: out.newExceptions.length,

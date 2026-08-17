@@ -8,7 +8,7 @@ description: >
   another waybill skill (log, spend, sync, report, forecast) needs to read
   or write ledger data.
 metadata:
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # The Waybill Ledger
@@ -26,15 +26,18 @@ never hand-build ids or hand-append JSONL (hand-built events fail
 verification):
 
 ```bash
-WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+# Always invoke as: node "$WAYBILL" <command>   (an unquoted $WAYBILL breaks
+# on zsh, which does not word-split parameter expansions.)
 # If CLAUDE_PLUGIN_ROOT is empty in this context, locate the installed copy:
-#   WAYBILL="node $(ls -d ~/.claude/plugins/cache/waybill/waybill/*/ | sort -V | tail -1)bin/waybill.mjs"
-$WAYBILL init         # create/refresh the ledger home
-$WAYBILL bootstrap    # receipt from local git history (zero auth)
-$WAYBILL mine --all   # catch-up: meter every local transcript
-$WAYBILL append --stream ledger --event '<json>' --commit   # the write path
-$WAYBILL verify       # full integrity + conservation check
-$WAYBILL query <question> --json   # projections for reports (see report skill)
+#   WAYBILL="$(ls -d ~/.claude/plugins/cache/waybill/waybill/*/ | sort -V | tail -1)bin/waybill.mjs"
+node "$WAYBILL" init         # create/refresh the ledger home
+node "$WAYBILL" bootstrap    # receipt from local git history (zero auth)
+node "$WAYBILL" mine --all   # catch-up: meter every local transcript
+node "$WAYBILL" append --stream ledger --event '<json>' --commit   # the write path
+node "$WAYBILL" status       # one screen of ledger health — run this first when unsure
+node "$WAYBILL" verify       # full integrity + conservation check
+node "$WAYBILL" query <question> --json   # projections for reports (see report skill)
 ```
 
 ## Storage layout
@@ -65,7 +68,7 @@ time saved or work "with vs. without Claude".
 
 When the user asks to initialize or set up the ledger:
 
-1. Run `$WAYBILL init`. It creates the home as a git repo, seeds
+1. Run `node "$WAYBILL" init`. It creates the home as a git repo, seeds
    `identity.json` from `git config` (plus `gh` login if already
    authenticated — never start an auth flow), seeds the repo scope from the
    current repo, and reports the transcript-retention setting.
@@ -74,7 +77,7 @@ When the user asks to initialize or set up the ledger:
    sessions mined before deletion; otherwise recommend raising it (e.g.
    99999) so history stays meterable. Never change the user's Claude Code
    settings yourself; tell them the exact edit.
-3. Offer the zero-auth first value immediately: `$WAYBILL bootstrap` renders
+3. Offer the zero-auth first value immediately: `node "$WAYBILL" bootstrap` renders
    a receipt from local git history in under a minute.
 4. Only then, optionally interview for the upgrade path (one question at a
    time, skip anything derivable): Jira project keys, GitHub repos, default
@@ -101,7 +104,7 @@ Use `jq` over `streams/*/*.jsonl` for ad-hoc reads. Rules:
 1. Construct the event body per `references/schema.md` — without an `id`
    (ids are derived from content). Unknown values are `null`, never guessed.
    Never invent tracker keys, points, or PR URLs.
-2. Append via `$WAYBILL append --stream <stream> --event '<json>' --commit`.
+2. Append via `node "$WAYBILL" append --stream <stream> --event '<json>' --commit`.
    It validates the envelope, seals pre-registered estimates with a SHA-256
    escrow hash, refuses backdated pre-registration, assigns the ULID,
    appends to the right shard, and commits.
@@ -119,5 +122,5 @@ Use `jq` over `streams/*/*.jsonl` for ad-hoc reads. Rules:
 - **Own data only.** The ledger records the user's work. Never query, store,
   or compare individual colleagues' issues, PRs, or stats — decline and point
   to `references/methodology.md` if asked.
-- On any doubt about ledger health, run `$WAYBILL verify` and report its
+- On any doubt about ledger health, run `node "$WAYBILL" verify` and report its
   findings verbatim.
