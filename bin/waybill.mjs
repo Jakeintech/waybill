@@ -500,13 +500,14 @@ function defaultConfig() {
     allocations: [],
     metering: {
       enabled: true,
-      sources: ["transcript"],
       branch_key_pattern: "[A-Z][A-Z0-9]+-[0-9]+",
       repo_defaults: {}
     },
     pricing: { version: null, unknown_model_policy: "tokens_only", models: {} },
     budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14 },
+    notices: { level: "normal" },
     audience_default: "self",
+    detail_default: "standard",
     last_sync: null
   };
 }
@@ -526,7 +527,8 @@ function loadConfig(home) {
     baseline: { ...base.baseline, ...raw.baseline },
     metering: { ...base.metering, ...raw.metering },
     pricing: { ...base.pricing, ...raw.pricing },
-    budgets: { ...base.budgets, ...raw.budgets }
+    budgets: { ...base.budgets, ...raw.budgets },
+    notices: { ...base.notices, ...raw.notices }
   };
 }
 function saveConfig(home, config) {
@@ -2222,6 +2224,12 @@ async function runMeter(home, args, json) {
     process.stderr.write("waybill meter: pass --transcript <path>, --otel <export.jsonl>, or --all\n");
     return 2;
   }
+  if (loadConfig(home).metering.enabled === false) {
+    process.stdout.write(
+      json ? JSON.stringify({ paused: true, results: [], failures: 0 }) + "\n" : "metering: PAUSED (config.metering.enabled = false) \u2014 nothing metered\n"
+    );
+    return 0;
+  }
   if (otel) {
     if (!await acquireLockWait(home)) {
       process.stderr.write("waybill meter: another metering process is running; try again shortly\n");
@@ -2333,7 +2341,7 @@ function recordGap(home, sessionId, ts, reason) {
   };
   appendEvents(home, "exceptions", [finalizeEvent("exceptions", body)]);
 }
-function runMine(home, args) {
+function runMine(home, args, json) {
   let all = false;
   let projectsDir = defaultProjectsDir();
   for (let i = 0; i < args.length; i++) {
@@ -2347,10 +2355,18 @@ function runMine(home, args) {
       return 2;
     }
   }
+  if (loadConfig(home).metering.enabled === false) {
+    process.stdout.write(
+      json ? JSON.stringify({ paused: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n" : "metering: PAUSED (config.metering.enabled = false) \u2014 nothing metered\n"
+    );
+    return 0;
+  }
   const queueDir = join9(home, "pending-sessions");
   mkdirSync4(queueDir, { recursive: true });
   if (!acquireLock(home)) {
-    process.stdout.write("mined: 0 new (another metering process is running \u2014 queue intact)\n");
+    process.stdout.write(
+      json ? JSON.stringify({ locked: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n" : "mined: 0 new (another metering process is running \u2014 queue intact)\n"
+    );
     return 0;
   }
   let minedNew = 0;
@@ -2409,6 +2425,17 @@ function runMine(home, args) {
     releaseLock(home);
   }
   if (minedNew + remetered > 0) commitLedger(home);
+  if (json) {
+    process.stdout.write(
+      JSON.stringify({
+        mined_new: minedNew,
+        remetered,
+        gaps,
+        already_current: alreadyCurrent
+      }) + "\n"
+    );
+    return 0;
+  }
   process.stdout.write(
     `mined: ${minedNew} new \xB7 ${remetered} re-metered (inputs changed) \xB7 ${gaps} gap(s) \xB7 ${alreadyCurrent} already current
 `
@@ -2774,8 +2801,8 @@ function csvCell(v) {
   const s = v === null || v === void 0 ? "" : String(v);
   return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
-function runExport(home, args) {
-  let format = "csv";
+function runExport(home, args, json) {
+  let format = json ? "json" : "csv";
   let from = null;
   let to = null;
   let audience = null;
@@ -2785,6 +2812,10 @@ function runExport(home, args) {
       const v = args[++i];
       if (v !== "csv" && v !== "json") {
         process.stderr.write("waybill export: --format must be csv or json\n");
+        return 2;
+      }
+      if (json && v === "csv") {
+        process.stderr.write("waybill export: --json conflicts with --format csv \u2014 pick one\n");
         return 2;
       }
       format = v;
@@ -3016,6 +3047,22 @@ function loadPaceState(home) {
     return null;
   }
 }
+function firstRunFile(home) {
+  return join10(home, "rollups", "first-run.json");
+}
+function loadFirstRun(home) {
+  const p = firstRunFile(home);
+  if (!existsSync9(p)) return {};
+  try {
+    return JSON.parse(readFileSync11(p, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function saveFirstRun(home, state) {
+  mkdirSync5(join10(home, "rollups"), { recursive: true });
+  writeFileSync6(firstRunFile(home), JSON.stringify(state) + "\n", "utf8");
+}
 function runPace(home, args, json) {
   let notice = false;
   let nowIso2 = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -3035,37 +3082,62 @@ function runPace(home, args, json) {
   const exceptions = readEvents(home, "exceptions");
   const pace = paceData(ledger, usage, exceptions, config, nowIso2);
   if (notice) {
-    if (!pace.allocation) return 0;
-    const prior = loadPaceState(home);
-    const samePeriod = prior !== null && prior.period === pace.allocation.period;
-    const already = samePeriod ? prior.notified_thresholds : [];
-    const fresh = pace.thresholds_crossed.filter((t) => !already.includes(t));
-    const reminderDays = config.budgets.renewal_reminder_days;
-    const renewalDue = pace.days_to_renewal !== null && pace.days_to_renewal >= 0 && pace.days_to_renewal <= reminderDays && !(samePeriod && prior.renewal_notified === true);
-    const lines = [];
-    if (fresh.length > 0) {
-      const top = Math.max(...fresh);
-      lines.push(
-        `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` + (pace.shipped_pct_of_committed !== null ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped` : "") + (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") + ". Worth a look, not an alarm."
-      );
+    const level = config.notices.level;
+    if (level === "off") return 0;
+    if (pace.allocation) {
+      const prior = loadPaceState(home);
+      const samePeriod = prior !== null && prior.period === pace.allocation.period;
+      const already = samePeriod ? prior.notified_thresholds : [];
+      const fresh = pace.thresholds_crossed.filter((t) => !already.includes(t));
+      const reminderDays = config.budgets.renewal_reminder_days;
+      const renewalDue = level === "normal" && pace.days_to_renewal !== null && pace.days_to_renewal >= 0 && pace.days_to_renewal <= reminderDays && !(samePeriod && prior.renewal_notified === true);
+      const lines = [];
+      if (fresh.length > 0) {
+        const top = Math.max(...fresh);
+        lines.push(
+          `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` + (pace.shipped_pct_of_committed !== null ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped` : "") + (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") + ". Worth a look, not an alarm."
+        );
+      }
+      if (renewalDue) {
+        lines.push(
+          `waybill: the ${pace.allocation.period} grant renews in ${pace.days_to_renewal} day(s) \u2014 a good moment to build the token pitch while the receipts are fresh.`
+        );
+      }
+      if (lines.length > 0) {
+        process.stdout.write(lines.join("\n") + "\n");
+        mkdirSync5(join10(home, "rollups"), { recursive: true });
+        writeFileSync6(
+          stateFile(home),
+          JSON.stringify({
+            period: pace.allocation.period,
+            notified_thresholds: [.../* @__PURE__ */ new Set([...already, ...fresh])].sort((a, b) => a - b),
+            renewal_notified: samePeriod && prior.renewal_notified === true || renewalDue
+          }) + "\n",
+          "utf8"
+        );
+        return 0;
+      }
     }
-    if (renewalDue) {
-      lines.push(
-        `waybill: the ${pace.allocation.period} grant renews in ${pace.days_to_renewal} day(s) \u2014 a good moment to build the token pitch while the receipts are fresh.`
-      );
+    if (level !== "normal") return 0;
+    const firstRun = loadFirstRun(home);
+    if (!existsSync9(configPath(home))) {
+      if (firstRun.uninitialized_announced !== true) {
+        process.stdout.write(
+          'waybill: not initialized. Say "initialize my waybill ledger" \u2014 60s, no auth.\n'
+        );
+        saveFirstRun(home, { ...firstRun, uninitialized_announced: true });
+      }
+      return 0;
     }
-    if (lines.length === 0) return 0;
-    process.stdout.write(lines.join("\n") + "\n");
-    mkdirSync5(join10(home, "rollups"), { recursive: true });
-    writeFileSync6(
-      stateFile(home),
-      JSON.stringify({
-        period: pace.allocation.period,
-        notified_thresholds: [.../* @__PURE__ */ new Set([...already, ...fresh])].sort((a, b) => a - b),
-        renewal_notified: samePeriod && prior.renewal_notified === true || renewalDue
-      }) + "\n",
-      "utf8"
-    );
+    const sessionsMetered = Object.keys(loadState(home).sessions).length;
+    const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
+    if (sessionsMetered > 0 && entriesLogged === 0 && firstRun.unlogged_announced !== true) {
+      process.stdout.write(
+        `waybill: ${sessionsMetered} session(s) metered, nothing logged yet. Say "sync my ledger" for a receipt from your git history.
+`
+      );
+      saveFirstRun(home, { ...firstRun, unlogged_announced: true });
+    }
     return 0;
   }
   if (json) {
@@ -3126,6 +3198,18 @@ function runStatus(home, args, json) {
     ghCliAvailable = true;
   } catch {
   }
+  const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
+  const next = [];
+  if (!initialized) {
+    next.push('"initialize my waybill ledger" \u2014 60s, no auth');
+  } else {
+    if (spend.attribution_health.inbox_open > 0)
+      next.push(`"resolve my attribution inbox" (${spend.attribution_health.inbox_open} open)`);
+    if (pendingUnmined > 0) next.push(`"process my pending sessions" (${pendingUnmined} waiting)`);
+    next.push(
+      entriesLogged === 0 ? '"sync my ledger" \u2014 a receipt from your git history' : '"build my token pitch"'
+    );
+  }
   const data = {
     home,
     initialized,
@@ -3135,6 +3219,7 @@ function runStatus(home, args, json) {
       gh_cli_authenticated: ghCliAvailable
     },
     metering: {
+      enabled: config.metering.enabled,
       sessions_metered: Object.keys(state.sessions).length,
       last_metered_through: lastMine,
       pending_unmined: pendingUnmined,
@@ -3146,7 +3231,8 @@ function runStatus(home, args, json) {
       attributed_pct_conf_060: spend.attribution_health.attributed_pct_conf_060,
       inbox_open: spend.attribution_health.inbox_open
     },
-    verify: { findings: findings.length, ok: findings.length === 0 }
+    verify: { findings: findings.length, ok: findings.length === 0 },
+    next: next.slice(0, 2)
   };
   if (json) {
     process.stdout.write(JSON.stringify({ data }, null, 2) + "\n");
@@ -3160,7 +3246,7 @@ function runStatus(home, args, json) {
   );
   if (retention.warning) lines.push(`  WARNING: ${retention.warning}`);
   lines.push(
-    `metering: ${fmtInt2(data.metering.sessions_metered)} session(s) metered` + (lastMine ? `, through ${lastMine}` : "") + (pendingUnmined > 0 ? `; ${pendingUnmined} capture(s) waiting \u2014 run: waybill mine --queue` : "") + (gaps > 0 ? `; ${gaps} gap(s) (transcripts pruned before mining)` : "")
+    (config.metering.enabled ? `metering: ${fmtInt2(data.metering.sessions_metered)} session(s) metered` : `metering: PAUSED (config.metering.enabled = false) \u2014 ${fmtInt2(data.metering.sessions_metered)} session(s) metered before the pause`) + (lastMine ? `, through ${lastMine}` : "") + (pendingUnmined > 0 ? `; ${pendingUnmined} capture(s) waiting \u2014 run: waybill mine --queue` : "") + (gaps > 0 ? `; ${gaps} gap(s) (transcripts pruned before mining)` : "")
   );
   lines.push(
     `spend: ${fmtInt2(spend.total_tokens)} tokens, ${spend.unattributed_pct}% unattributed (${spend.attribution_health.attributed_pct_conf_060}% attributed at conf \u2265 0.6)` + (spend.attribution_health.inbox_open > 0 ? `; ${spend.attribution_health.inbox_open} in the attribution inbox \u2014 see: waybill query inbox` : "")
@@ -3177,17 +3263,20 @@ function runStatus(home, args, json) {
     );
     lines.push("  (Atlassian needs no token \u2014 run /mcp in Claude Code and complete its OAuth.)");
   }
+  if (data.next.length > 0) lines.push(`next: ${data.next.join(" \xB7 ")}`);
   process.stdout.write(lines.join("\n") + "\n");
   return findings.length === 0 ? 0 : 1;
 }
 
 // src/cli/cmd-query.ts
 var AUDIENCES = ["self", "internal", "external"];
+var DETAILS = ["terse", "standard", "full"];
 function runQuery(home, args) {
   const [what, ...rest] = args;
   let from = null;
   let to = null;
   let audience = null;
+  let detail = null;
   const positional = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
@@ -3201,10 +3290,19 @@ function runQuery(home, args) {
         return 2;
       }
       audience = v;
+    } else if (a === "--detail") {
+      const v = rest[++i];
+      if (!v || !DETAILS.includes(v)) {
+        process.stderr.write(`waybill query: --detail must be one of ${DETAILS.join(", ")}
+`);
+        return 2;
+      }
+      detail = v;
     } else positional.push(a);
   }
   const config = loadConfig(home);
   const aud = audience ?? config.audience_default;
+  const det = detail ?? config.detail_default;
   let window;
   try {
     window = normalizeWindow(from, to);
@@ -3264,7 +3362,7 @@ function runQuery(home, args) {
       return 2;
   }
   const { data, mapping } = redact(payload, aud);
-  const out = aud === "external" ? { audience: aud, data, redaction_note: "identifiers pseudonymized; internal version available on request", mapping_size: Object.keys(mapping).length } : { audience: aud, data };
+  const out = aud === "external" ? { audience: aud, detail: det, data, redaction_note: "identifiers pseudonymized; internal version available on request", mapping_size: Object.keys(mapping).length } : { audience: aud, detail: det, data };
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
   return 0;
 }
@@ -4031,7 +4129,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "1.2.0" : "dev";
+var ENGINE_VERSION = true ? "1.3.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
@@ -4056,6 +4154,7 @@ Commands:
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
+                [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
   status      One screen of ledger health: init, retention, mining, inbox, verify
@@ -4109,7 +4208,7 @@ Update: claude plugin update waybill@waybill  (then restart Claude Code)
     case "bootstrap":
       return runBootstrap(cli.home, cli.args, cli.json);
     case "mine":
-      return runMine(cli.home, cli.args);
+      return runMine(cli.home, cli.args, cli.json);
     case "meter":
       return runMeter(cli.home, cli.args, cli.json);
     case "append":
@@ -4125,7 +4224,7 @@ Update: claude plugin update waybill@waybill  (then restart Claude Code)
     case "status":
       return runStatus(cli.home, cli.args, cli.json);
     case "export":
-      return runExport(cli.home, cli.args);
+      return runExport(cli.home, cli.args, cli.json);
     case "pricing":
       return runPricing(cli.home, cli.args, cli.json);
     case "verify": {

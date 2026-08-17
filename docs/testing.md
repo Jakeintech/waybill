@@ -86,7 +86,7 @@ independently proves the committed engine matches `src/`.
 |---|---|---|
 | **Real-machine retro run** (blocking) | fresh `WAYBILL_HOME=$(mktemp -d)`, `mine --all` over real `~/.claude/projects`, then `verify` | every release; last: 16 sessions, ~1.9B tokens, green |
 | **Installed-plugin e2e** (blocking) | install from the GitHub marketplace, run `init`/`bootstrap`/`status` from the installed root, fire the SessionEnd hook with a real capture, confirm the detached miner processes it | done at 1.0.0/1.1.0 |
-| **zsh invocation smoke** (blocking) | `zsh -c 'WAYBILL=./bin/waybill.mjs; node "$WAYBILL" status'` | added after the 1.1.0 incident |
+| **launcher smoke** (blocking) | `./bin/waybill status` and `zsh -c './bin/waybill status'` | the launcher replaced the `node "$WAYBILL"` idiom (1.3.0); zsh case kept from the 1.1.0 incident |
 | Skill trigger evals | `claude login` then `claude plugin eval waybill@waybill --threshold 0.8` (cases in `evals/`, incl. an overtrigger negative) | authored; pass rate unmeasured (needs an authenticated CLI) |
 | Live adapter runs | real Linear / GitLab accounts through sync end-to-end | conformance-tested on fixtures only; adapters.md says exactly that |
 | Linux / WSL pass | the CI engine job covers Linux; a manual WSL smoke of hook + miner is wanted | open |

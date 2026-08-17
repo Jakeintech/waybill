@@ -31,6 +31,17 @@ export async function runMeter(home: string, args: string[], json: boolean): Pro
     return 2;
   }
 
+  // The pause switch: metering.enabled = false stops every metering path
+  // (transcript, --all, --otel) until the user flips it back.
+  if (loadConfig(home).metering.enabled === false) {
+    process.stdout.write(
+      json
+        ? JSON.stringify({ paused: true, results: [], failures: 0 }) + "\n"
+        : "metering: PAUSED (config.metering.enabled = false) — nothing metered\n",
+    );
+    return 0;
+  }
+
   if (otel) {
     if (!(await acquireLockWait(home))) {
       process.stderr.write("waybill meter: another metering process is running; try again shortly\n");

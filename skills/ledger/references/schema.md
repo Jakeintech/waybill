@@ -212,7 +212,6 @@ work, never anyone else's:
   "allocations": [],
   "metering": {
     "enabled": true,
-    "sources": ["transcript"],
     "branch_key_pattern": "[A-Z][A-Z0-9]+-[0-9]+",
     "repo_defaults": {}
   },
@@ -222,7 +221,9 @@ work, never anyone else's:
     "models": {}
   },
   "budgets": { "allocation": "inherit", "epics": {}, "renewal_reminder_days": 14 },
+  "notices": { "level": "normal" },
   "audience_default": "self",
+  "detail_default": "standard",
   "last_sync": null
 }
 ```
@@ -245,6 +246,18 @@ work, never anyone else's:
 - `audience_default`: `self` | `internal` | `external` — the redaction level
   reports use when none is requested (see `docs/skills.md` and the report
   skill for what each level strips).
+- `metering.enabled`: the pause switch. `false` stops capture, mining, and
+  metering entirely (nothing recorded) until flipped back; existing data is
+  untouched and `waybill status` reports the paused state.
+- `notices.level`: `normal` | `minimal` | `off` — everything Waybill says
+  unprompted. `normal` (default): pacing thresholds, the renewal reminder,
+  and the two first-run lines. `minimal`: pacing thresholds and errors
+  only. `off`: metering still runs; Waybill never speaks first.
+- `detail_default`: `terse` | `standard` | `full` — output length for
+  rendered answers/reports (a rendering rule, not a data rule; `waybill
+  query --detail` overrides per invocation). `terse` may never drop
+  unattributed %, confidence values, `low_confidence` labels, evidence-tier
+  labels, or ranges.
 
 ## `meter_state.json`
 

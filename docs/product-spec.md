@@ -220,9 +220,10 @@ so the schema round-trips cleanly to a warehouse later (team mode).
 **Config v2 additions:**
 
 ```json
-{"metering":{"enabled":true,"sources":["transcript"],
+{"metering":{"enabled":true,
              "branch_key_pattern":"[A-Z][A-Z0-9]+-[0-9]+",
              "repo_defaults":{"acme/platform":null}},
+ "notices":{"level":"normal"},"detail_default":"standard",
  "pricing":{"version":"2026-08-17","unknown_model_policy":"tokens_only",
             "models":{"claude-sonnet-4-6":{"input_per_mtok":3000,"output_per_mtok":15000,
               "cache_read_per_mtok":300,"cache_write_5m_per_mtok":3750,

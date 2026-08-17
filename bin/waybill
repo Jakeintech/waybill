@@ -1,0 +1,6 @@
+#!/bin/sh
+# waybill launcher — resolves its own directory and execs the bundled
+# engine, so callers never need the `node <path>.mjs` incantation (or its
+# zsh word-splitting caveat). POSIX sh; no dependencies beyond node.
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 2
+exec node "$dir/waybill.mjs" "$@"

@@ -26,18 +26,15 @@ never hand-build ids or hand-append JSONL (hand-built events fail
 verification):
 
 ```bash
-WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
-# Always invoke as: node "$WAYBILL" <command>   (an unquoted $WAYBILL breaks
-# on zsh, which does not word-split parameter expansions.)
 # If CLAUDE_PLUGIN_ROOT is empty in this context, locate the installed copy:
-#   WAYBILL="$(ls -d ~/.claude/plugins/cache/waybill/waybill/*/ | sort -V | tail -1)bin/waybill.mjs"
-node "$WAYBILL" init         # create/refresh the ledger home
-node "$WAYBILL" bootstrap    # receipt from local git history (zero auth)
-node "$WAYBILL" mine --all   # catch-up: meter every local transcript
-node "$WAYBILL" append --stream ledger --event '<json>' --commit   # the write path
-node "$WAYBILL" status       # one screen of ledger health — run this first when unsure
-node "$WAYBILL" verify       # full integrity + conservation check
-node "$WAYBILL" query <question> --json   # projections for reports (see report skill)
+#   ls -d ~/.claude/plugins/cache/waybill/waybill/*/ | sort -V | tail -1   → use <that>/bin/waybill
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" init         # create/refresh the ledger home
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" bootstrap    # receipt from local git history (zero auth)
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" mine --all   # catch-up: meter every local transcript
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" append --stream ledger --event '<json>' --commit   # the write path
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" status       # one screen of ledger health — run this first when unsure
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" verify       # full integrity + conservation check
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query <question> --json   # projections for reports (see report skill)
 ```
 
 ## Storage layout
@@ -68,7 +65,7 @@ time saved or work "with vs. without Claude".
 
 When the user asks to initialize or set up the ledger:
 
-1. Run `node "$WAYBILL" init`. It creates the home as a git repo, seeds
+1. Run `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" init`. It creates the home as a git repo, seeds
    `identity.json` from `git config` (plus `gh` login if already
    authenticated — never start an auth flow), seeds the repo scope from the
    current repo, auto-imports bundled Anthropic list-price rates (so USD
@@ -83,7 +80,7 @@ When the user asks to initialize or set up the ledger:
    mined before deletion; otherwise recommend raising it (e.g. 99999) so
    history stays meterable. Never change the user's Claude Code settings
    yourself; tell them the exact edit.
-4. Offer the zero-auth first value immediately: `node "$WAYBILL" bootstrap` renders
+4. Offer the zero-auth first value immediately: `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" bootstrap` renders
    a receipt from local git history in under a minute.
 5. Only then, optionally interview for the upgrade path (one question at a
    time, skip anything derivable): Jira project keys, GitHub repos, default
@@ -110,7 +107,7 @@ Use `jq` over `streams/*/*.jsonl` for ad-hoc reads. Rules:
 1. Construct the event body per `references/schema.md` — without an `id`
    (ids are derived from content). Unknown values are `null`, never guessed.
    Never invent tracker keys, points, or PR URLs.
-2. Append via `node "$WAYBILL" append --stream <stream> --event '<json>' --commit`.
+2. Append via `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" append --stream <stream> --event '<json>' --commit`.
    It validates the envelope, seals pre-registered estimates with a SHA-256
    escrow hash, refuses backdated pre-registration, assigns the ULID,
    appends to the right shard, and commits.
@@ -128,5 +125,5 @@ Use `jq` over `streams/*/*.jsonl` for ad-hoc reads. Rules:
 - **Own data only.** The ledger records the user's work. Never query, store,
   or compare individual colleagues' issues, PRs, or stats — decline and point
   to `references/methodology.md` if asked.
-- On any doubt about ledger health, run `node "$WAYBILL" verify` and report its
+- On any doubt about ledger health, run `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" verify` and report its
   findings verbatim.

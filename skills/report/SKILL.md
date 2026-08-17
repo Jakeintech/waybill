@@ -22,17 +22,22 @@ metadata:
 Turn ledger facts into a report a decision-maker can verify in two minutes.
 Brevity is part of the credibility: one page hard cap, every section has a
 line budget below, and when in doubt cut the sentence, not the number.
+The **detail level** scales the budgets (`config.detail_default`, or
+`--detail` / the user asking for a terse or full version): `terse` = the
+headline numbers in 1–3 lines per section (never dropping unattributed %,
+confidence, `low_confidence` labels, evidence tiers, or ranges — shorter
+never means less honest); `standard` = the budgets below; `full` = no
+collapse, every receipt and caveat rendered, still one claim per line.
 Read `skills/ledger/references/methodology.md` first and enforce its
 language rules throughout; read `references/schema.md` for field semantics.
 
 The numbers come from the engine, never from estimation:
 
 ```bash
-WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
-node "$WAYBILL" mine --all                 # catch-up metering first, always
-node "$WAYBILL" query report --from <iso> --to <iso> [--audience <a>]
-node "$WAYBILL" query spend  --from <iso> --to <iso>    # spend-ledger detail
-node "$WAYBILL" query story <KEY>                       # "what did KEY cost"
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" mine --all                 # catch-up metering first, always
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query report --from <iso> --to <iso> [--audience <a>]
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query spend  --from <iso> --to <iso>    # spend-ledger detail
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query story <KEY>                       # "what did KEY cost"
 ```
 
 You write the prose; the engine writes the numbers. Never recompute or
@@ -60,7 +65,7 @@ adjust a number the query returned.
 
 If the ledger has fewer than 3 shipped entries for the window — or the user
 asks for a "bootstrap report" or their "first report" — do not pad and do
-not refuse. Run `node "$WAYBILL" bootstrap` for the zero-auth receipt; if MCP
+not refuse. Run `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" bootstrap` for the zero-auth receipt; if MCP
 servers are connected, run the `sync` skill's flow for ~90 days first
 (confirm the window in one line), then produce a **facts-only** report.
 State plainly that no time-saved claims exist yet, and close with one line

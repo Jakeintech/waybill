@@ -17,6 +17,16 @@ export interface Allocation {
 
 export type Audience = "self" | "internal" | "external";
 
+/** How much Waybill says unprompted (SessionStart lines, renewal nudges).
+ * normal: everything; minimal: pacing thresholds and errors only; off:
+ * metering runs, Waybill never speaks first. */
+export type NoticesLevel = "normal" | "minimal" | "off";
+
+/** Output length for rendered reports/answers. terse: 1–3 lines (may never
+ * drop unattributed %, confidence, low_confidence labels, evidence-tier
+ * labels, or ranges); standard: the default; full: no collapse. */
+export type Detail = "terse" | "standard" | "full";
+
 export interface Config {
   schema_version: number;
   tracker: { kind: string | null; project_keys: string[]; base_url: string | null };
@@ -29,8 +39,9 @@ export interface Config {
   };
   allocations: Allocation[];
   metering: {
+    /** The pause switch: false short-circuits capture, mine, and meter —
+     * nothing recorded until re-enabled. `status` reports the paused state. */
     enabled: boolean;
-    sources: string[];
     branch_key_pattern: string;
     repo_defaults: Record<string, string | null>;
   };
@@ -46,7 +57,9 @@ export interface Config {
      * reminder (draft-the-pitch nudge). */
     renewal_reminder_days: number;
   };
+  notices: { level: NoticesLevel };
   audience_default: Audience;
+  detail_default: Detail;
   last_sync: string | null;
 }
 
@@ -64,13 +77,14 @@ export function defaultConfig(): Config {
     allocations: [],
     metering: {
       enabled: true,
-      sources: ["transcript"],
       branch_key_pattern: "[A-Z][A-Z0-9]+-[0-9]+",
       repo_defaults: {},
     },
     pricing: { version: null, unknown_model_policy: "tokens_only", models: {} },
     budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14 },
+    notices: { level: "normal" },
     audience_default: "self",
+    detail_default: "standard",
     last_sync: null,
   };
 }
@@ -94,6 +108,7 @@ export function loadConfig(home: string): Config {
     metering: { ...base.metering, ...raw.metering },
     pricing: { ...base.pricing, ...raw.pricing },
     budgets: { ...base.budgets, ...raw.budgets },
+    notices: { ...base.notices, ...raw.notices },
   };
 }
 

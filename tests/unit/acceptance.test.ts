@@ -92,7 +92,13 @@ test("flow 3 (pacing nudge): one line at the threshold, then silence", () => {
     cli(home, ["meter", "--transcript", join(FIXTURES, "v2.1/basic.jsonl"), "--repo", "acme/platform"]);
     const notice = cli(home, ["pace", "--notice", "--now", "2026-08-16T00:00:00Z"]);
     assert.match(notice, /% of the 2026-Q3 token grant is spent/);
-    assert.equal(cli(home, ["pace", "--notice", "--now", "2026-08-16T01:00:00Z"]), "");
+    // The threshold is spent; the next session gets the one-shot first-run
+    // nudge (sessions metered, nothing logged) — once ever — then silence.
+    assert.match(
+      cli(home, ["pace", "--notice", "--now", "2026-08-16T01:00:00Z"]),
+      /nothing logged yet/,
+    );
+    assert.equal(cli(home, ["pace", "--notice", "--now", "2026-08-16T02:00:00Z"]), "");
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

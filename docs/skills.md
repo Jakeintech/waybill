@@ -9,7 +9,10 @@ dependency-free executable, `bin/waybill.mjs` (subcommands: `init`,
 `bootstrap`, `mine`, `meter`, `append`, `resolve`, `verify`, `query`,
 `pace`, `status`, `export`, `pricing`, `sync-plan`), invoked by hooks and
 skills, so the automatic path never depends on a model call (see the
-[product spec](product-spec.md), §5.7).
+[product spec](product-spec.md), §5.7). Skills invoke it through the
+`bin/waybill` launcher (`"${CLAUDE_PLUGIN_ROOT}/bin/waybill" <command>`) —
+never `node <path>.mjs`, whose unquoted-variable form silently broke on
+zsh; the validator enforces this.
 
 **The export-pack boundary** (same principle, output side): document
 rendering stays out of the engine. The engine emits numbers and structured

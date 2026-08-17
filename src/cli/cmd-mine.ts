@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadConfig } from "../core/config.ts";
 import { finalizeEvent, SCHEMA_VERSION, type ExceptionEvent, type MeterGapEvent } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLock, releaseLock } from "../meter/lock.ts";
@@ -57,7 +58,7 @@ function recordGap(home: string, sessionId: string, ts: string, reason: MeterGap
   appendEvents(home, "exceptions", [finalizeEvent("exceptions", body)]);
 }
 
-export function runMine(home: string, args: string[]): number {
+export function runMine(home: string, args: string[], json: boolean): number {
   let all = false;
   let projectsDir = defaultProjectsDir();
   for (let i = 0; i < args.length; i++) {
@@ -71,11 +72,26 @@ export function runMine(home: string, args: string[]): number {
     }
   }
 
+  // The pause switch (metering.enabled = false): nothing metered, queue
+  // untouched, exit 0 — the hook path stays silent and cheap.
+  if (loadConfig(home).metering.enabled === false) {
+    process.stdout.write(
+      json
+        ? JSON.stringify({ paused: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n"
+        : "metering: PAUSED (config.metering.enabled = false) — nothing metered\n",
+    );
+    return 0;
+  }
+
   const queueDir = join(home, "pending-sessions");
   mkdirSync(queueDir, { recursive: true });
   if (!acquireLock(home)) {
     // Another metering process is live; the queue survives untouched.
-    process.stdout.write("mined: 0 new (another metering process is running — queue intact)\n");
+    process.stdout.write(
+      json
+        ? JSON.stringify({ locked: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n"
+        : "mined: 0 new (another metering process is running — queue intact)\n",
+    );
     return 0;
   }
 
@@ -137,6 +153,17 @@ export function runMine(home: string, args: string[]): number {
   }
 
   if (minedNew + remetered > 0) commitLedger(home);
+  if (json) {
+    process.stdout.write(
+      JSON.stringify({
+        mined_new: minedNew,
+        remetered,
+        gaps,
+        already_current: alreadyCurrent,
+      }) + "\n",
+    );
+    return 0;
+  }
   // One reconciling line: what happened to every session this run touched.
   process.stdout.write(
     `mined: ${minedNew} new · ${remetered} re-metered (inputs changed) · ` +

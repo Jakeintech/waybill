@@ -1,5 +1,5 @@
 {
-  "description": "SessionEnd queues session metadata and spawns the detached, dependency-free miner, which meters the transcript into the ledger immediately. SessionStart surfaces a one-line budget-pacing notice when a threshold is newly crossed. Neither ever blocks or slows a session.",
+  "description": "SessionEnd queues session metadata and spawns the detached, dependency-free miner, which meters the transcript into the ledger immediately (skipped entirely while metering is paused). SessionStart surfaces at most one line: a budget-pacing notice on a fresh threshold, or a one-shot first-run pointer (config.notices.level governs both). Neither ever blocks or slows a session.",
   "hooks": {
     "SessionStart": [
       {

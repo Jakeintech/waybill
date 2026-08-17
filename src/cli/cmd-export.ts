@@ -13,8 +13,9 @@ function csvCell(v: unknown): string {
  * Share the spend ledger without hand-written jq: one row per account,
  * every number the receipts back, redacted to the chosen audience.
  */
-export function runExport(home: string, args: string[]): number {
-  let format: "csv" | "json" = "csv";
+export function runExport(home: string, args: string[], json: boolean): number {
+  // The global --json flag is honest here: it means --format json.
+  let format: "csv" | "json" = json ? "json" : "csv";
   let from: string | null = null;
   let to: string | null = null;
   let audience: Audience | null = null;
@@ -24,6 +25,10 @@ export function runExport(home: string, args: string[]): number {
       const v = args[++i];
       if (v !== "csv" && v !== "json") {
         process.stderr.write("waybill export: --format must be csv or json\n");
+        return 2;
+      }
+      if (json && v === "csv") {
+        process.stderr.write("waybill export: --json conflicts with --format csv — pick one\n");
         return 2;
       }
       format = v;

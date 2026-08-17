@@ -99,6 +99,10 @@ test("pace with no allocation says so plainly and never notifies", () => {
   const home = mkdtempSync(join(tmpdir(), "wb-pace0-"));
   try {
     assert.match(cli(home, ["pace"]), /No allocation configured/);
+    // Uninitialized home: the one first-run line, once ever, then silence —
+    // no pacing notice is ever emitted without an allocation.
+    assert.match(cli(home, ["pace", "--notice"]), /not initialized/);
+    assert.equal(cli(home, ["pace", "--notice"]), "");
     assert.equal(cli(home, ["pace", "--notice"]), "");
   } finally {
     rmSync(home, { recursive: true, force: true });

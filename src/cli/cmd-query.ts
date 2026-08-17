@@ -1,4 +1,4 @@
-import { loadConfig, type Audience } from "../core/config.ts";
+import { loadConfig, type Audience, type Detail } from "../core/config.ts";
 import type { ExceptionEvent, LedgerEntry, PinEntry, UsageEvent } from "../core/events.ts";
 import { readEvents } from "../core/streams.ts";
 import {
@@ -12,12 +12,14 @@ import {
 import { redact } from "../report/redaction.ts";
 
 const AUDIENCES: Audience[] = ["self", "internal", "external"];
+const DETAILS: Detail[] = ["terse", "standard", "full"];
 
 export function runQuery(home: string, args: string[]): number {
   const [what, ...rest] = args;
   let from: string | null = null;
   let to: string | null = null;
   let audience: Audience | null = null;
+  let detail: Detail | null = null;
   const positional: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
@@ -30,11 +32,19 @@ export function runQuery(home: string, args: string[]): number {
         return 2;
       }
       audience = v as Audience;
+    } else if (a === "--detail") {
+      const v = rest[++i];
+      if (!v || !DETAILS.includes(v as Detail)) {
+        process.stderr.write(`waybill query: --detail must be one of ${DETAILS.join(", ")}\n`);
+        return 2;
+      }
+      detail = v as Detail;
     } else positional.push(a);
   }
 
   const config = loadConfig(home);
   const aud = audience ?? config.audience_default;
+  const det = detail ?? config.detail_default;
   let window: Window;
   try {
     window = normalizeWindow(from, to);
@@ -109,10 +119,12 @@ export function runQuery(home: string, args: string[]): number {
   }
 
   const { data, mapping } = redact(payload, aud);
+  // `detail` is echoed for the rendering layer (skills): the engine returns
+  // full data either way — length is a rendering decision, never a data one.
   const out =
     aud === "external"
-      ? { audience: aud, data, redaction_note: "identifiers pseudonymized; internal version available on request", mapping_size: Object.keys(mapping).length }
-      : { audience: aud, data };
+      ? { audience: aud, detail: det, data, redaction_note: "identifiers pseudonymized; internal version available on request", mapping_size: Object.keys(mapping).length }
+      : { audience: aud, detail: det, data };
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
   return 0;
 }

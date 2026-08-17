@@ -42,6 +42,7 @@ Commands:
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
+                [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
   status      One screen of ledger health: init, retention, mining, inbox, verify
@@ -101,7 +102,7 @@ export async function main(argv: string[]): Promise<number> {
     case "bootstrap":
       return runBootstrap(cli.home, cli.args, cli.json);
     case "mine":
-      return runMine(cli.home, cli.args);
+      return runMine(cli.home, cli.args, cli.json);
     case "meter":
       return runMeter(cli.home, cli.args, cli.json);
     case "append":
@@ -117,7 +118,7 @@ export async function main(argv: string[]): Promise<number> {
     case "status":
       return runStatus(cli.home, cli.args, cli.json);
     case "export":
-      return runExport(cli.home, cli.args);
+      return runExport(cli.home, cli.args, cli.json);
     case "pricing":
       return runPricing(cli.home, cli.args, cli.json);
     case "verify": {

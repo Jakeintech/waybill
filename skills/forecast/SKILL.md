@@ -29,9 +29,8 @@ same honesty rules as reports.
 ## Compute historical rates (metered, never manual)
 
 ```bash
-WAYBILL="${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
-node "$WAYBILL" mine --all          # catch-up metering first
-node "$WAYBILL" query forecast
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" mine --all          # catch-up metering first
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query forecast
 ```
 
 The engine returns, from metered + attributed usage joined to shipped

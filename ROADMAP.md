@@ -20,7 +20,7 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.2.0 (2026-08)
+## Shipped — 1.3.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
@@ -32,7 +32,11 @@ freeze ([migration policy](docs/migration.md)).
 1.1.x added `waybill status`, `waybill export`, and `waybill pricing`.
 1.2.0 reversed D6: **bundled Anthropic list rates** auto-import on
 `waybill init`; `waybill pricing import` refreshes on demand. Pricing is
-configured by default, not an onboarding hurdle.
+configured by default, not an onboarding hurdle. 1.3.0 closed the whole
+UX-issue batch (#6–#15): a real metering pause switch, `notices.level`,
+first-run one-shot lines, the `detail` axis, the `bin/waybill` launcher,
+honest `--json`, the status next-actions menu, and the documented exit
+path.
 
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.

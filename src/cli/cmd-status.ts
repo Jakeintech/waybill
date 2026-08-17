@@ -72,6 +72,23 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     // gh missing or unauthenticated — fine
   }
 
+  // The menu, not just the health screen: state-derived trigger phrases —
+  // what to *say* next, chosen from what the ledger actually needs.
+  const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
+  const next: string[] = [];
+  if (!initialized) {
+    next.push('"initialize my waybill ledger" — 60s, no auth');
+  } else {
+    if (spend.attribution_health.inbox_open > 0)
+      next.push(`"resolve my attribution inbox" (${spend.attribution_health.inbox_open} open)`);
+    if (pendingUnmined > 0) next.push(`"process my pending sessions" (${pendingUnmined} waiting)`);
+    next.push(
+      entriesLogged === 0
+        ? '"sync my ledger" — a receipt from your git history'
+        : '"build my token pitch"',
+    );
+  }
+
   const data = {
     home,
     initialized,
@@ -81,6 +98,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       gh_cli_authenticated: ghCliAvailable,
     },
     metering: {
+      enabled: config.metering.enabled,
       sessions_metered: Object.keys(state.sessions).length,
       last_metered_through: lastMine,
       pending_unmined: pendingUnmined,
@@ -93,6 +111,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       inbox_open: spend.attribution_health.inbox_open,
     },
     verify: { findings: findings.length, ok: findings.length === 0 },
+    next: next.slice(0, 2),
   };
 
   if (json) {
@@ -109,7 +128,10 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   );
   if (retention.warning) lines.push(`  WARNING: ${retention.warning}`);
   lines.push(
-    `metering: ${fmtInt(data.metering.sessions_metered)} session(s) metered` +
+    (config.metering.enabled
+      ? `metering: ${fmtInt(data.metering.sessions_metered)} session(s) metered`
+      : `metering: PAUSED (config.metering.enabled = false) — ` +
+        `${fmtInt(data.metering.sessions_metered)} session(s) metered before the pause`) +
       (lastMine ? `, through ${lastMine}` : "") +
       (pendingUnmined > 0 ? `; ${pendingUnmined} capture(s) waiting — run: waybill mine --queue` : "") +
       (gaps > 0 ? `; ${gaps} gap(s) (transcripts pruned before mining)` : ""),
@@ -137,6 +159,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     );
     lines.push("  (Atlassian needs no token — run /mcp in Claude Code and complete its OAuth.)");
   }
+  if (data.next.length > 0) lines.push(`next: ${data.next.join(" · ")}`);
   process.stdout.write(lines.join("\n") + "\n");
   return findings.length === 0 ? 0 : 1;
 }

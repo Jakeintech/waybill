@@ -15,6 +15,14 @@ set -u
 LEDGER_HOME="${WAYBILL_HOME:-$HOME/.waybill}"
 QUEUE_DIR="$LEDGER_HOME/pending-sessions"
 
+# The pause switch: metering.enabled = false means nothing captured at all.
+if [ -f "$LEDGER_HOME/config.json" ] && command -v node >/dev/null 2>&1; then
+  if node -e 'try{const c=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.exit(c?.metering?.enabled===false?0:1)}catch{process.exit(1)}' \
+       "$LEDGER_HOME/config.json" 2>/dev/null; then
+    exit 0
+  fi
+fi
+
 mkdir -p "$QUEUE_DIR" 2>/dev/null || exit 0
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo unknown)"

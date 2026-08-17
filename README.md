@@ -119,6 +119,31 @@ with deterministic pseudonymization before anything leaves the org.
 
 These are commitments, not gaps. See [ROADMAP.md](ROADMAP.md#non-goals).
 
+## Pausing, quieting, leaving
+
+Trust in a tool that logs your work includes knowing exactly how to stop
+it. The full exit path, from turning it down to walking away:
+
+- **Pause metering** (client engagement, shared machine, debugging): set
+  `"metering": { "enabled": false }` in `~/.waybill/config.json`. Nothing
+  is captured or metered while paused — `waybill status` reports
+  `metering: PAUSED` so the state is never silent. Existing data is
+  untouched; flip it back to resume.
+- **Turn down the talking**: `"notices": { "level": "minimal" }` keeps
+  only budget-threshold lines (`"off"` silences everything Waybill says
+  unprompted — metering still runs). The renewal reminder
+  (`budgets.renewal_reminder_days`, default 14) obeys the same switch.
+- **Take your data**: `waybill export --format json` (or `csv`) emits the
+  spend ledger; the entire ledger is already plain JSONL in `~/.waybill/`
+  — a local git repo you own. Copy it anywhere; nothing is proprietary.
+- **Uninstall the tool, keep the data**:
+  `claude plugin uninstall waybill@waybill`, then restart Claude Code.
+  Hooks and skills go away; `~/.waybill/` stays yours.
+- **Delete everything**: `rm -rf ~/.waybill` (or `$WAYBILL_HOME` if you
+  set one). That is the whole footprint — Waybill keeps no other state.
+  Session transcripts under `~/.claude/` belong to Claude Code, not
+  Waybill, and are governed by its `cleanupPeriodDays` setting.
+
 ## Compared to the alternatives
 
 | | Memory / a spreadsheet brag doc | Org admin dashboards | Waybill |

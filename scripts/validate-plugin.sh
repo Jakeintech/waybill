@@ -133,6 +133,29 @@ else
   fail "bin/waybill.mjs missing — run npm run build"
 fi
 
+if [ -f bin/waybill ]; then
+  if [ -x bin/waybill ]; then
+    ok "bin/waybill launcher is executable"
+  else
+    fail "bin/waybill launcher is not executable (chmod +x)"
+  fi
+  if head -1 bin/waybill | grep -q '^#!/bin/sh'; then
+    ok "bin/waybill launcher has a POSIX sh shebang"
+  else
+    fail "bin/waybill launcher must start with #!/bin/sh"
+  fi
+else
+  fail "bin/waybill launcher missing — skills invoke the engine through it"
+fi
+
+# The launcher exists so skills never need the node-prefix incantation;
+# a reintroduced WAYBILL= variable resurrects the zsh word-splitting bug class.
+if grep -rn 'WAYBILL="\|node "\$WAYBILL"' skills/ >/dev/null 2>&1; then
+  fail "skills reference the old node/\$WAYBILL incantation — use \"\${CLAUDE_PLUGIN_ROOT}/bin/waybill\" instead"
+else
+  ok "skills invoke the engine via the bin/waybill launcher only"
+fi
+
 # --- Scripts ---------------------------------------------------------------
 
 for script in scripts/*.sh; do

@@ -5,6 +5,57 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [1.3.0] - 2026-08-17
+
+The open-issue batch: every UX issue filed against 1.1.1 (#6–#15),
+implemented with a regression test each.
+
+### Added
+- **A real pause switch (#6)** — `metering.enabled: false` now stops
+  everything: the SessionEnd hook captures nothing, `mine` and `meter`
+  (all paths, `--otel` included) exit 0 without touching the ledger, and
+  `waybill status` reports `metering: PAUSED` so the state is never
+  silent. The never-read `metering.sources` field is removed rather than
+  left as a decoy; old configs carrying it load unchanged.
+- **First-run one-shots (#8)** — the SessionStart path now speaks at the
+  two highest-intent moments: not-initialized (“say 'initialize my
+  waybill ledger' — 60s, no auth”) and metered-but-nothing-logged (“say
+  'sync my ledger' for a receipt from your git history”). At most one
+  line per session, each state at most once ever, never stacked on a
+  pacing notice.
+- **`notices.level` (#9)** — one switch for everything Waybill says
+  first: `normal` (default), `minimal` (pacing thresholds and errors
+  only — the renewal reminder obeys it), `off` (metering runs, Waybill
+  never speaks unprompted). Documented in the README next to the privacy
+  commitments, with `budgets.renewal_reminder_days` surfaced alongside.
+- **`detail` level (#10)** — `terse` / `standard` / `full`, mirroring
+  `audience`: `detail_default` in config, `--detail` on `query`, echoed
+  in the query envelope for the rendering layer, with rendering tables in
+  the spend/report skills. Floor rule: `terse` may never drop
+  unattributed %, confidence values, `low_confidence` labels,
+  evidence-tier labels, or ranges — shorter never means less honest.
+- **`bin/waybill` launcher (#11)** — a POSIX-sh launcher execs the
+  bundled engine, so every skill now invokes
+  `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" <command>` — the `node <path>.mjs`
+  incantation, its zsh word-splitting caveat, and the per-skill setup
+  block are gone. The validator rejects any reintroduction of the old
+  idiom.
+- **Status is the menu (#15)** — `waybill status` ends with a
+  state-derived `next:` line of skill trigger phrases (resolve the inbox
+  when it has items, process pending captures when they wait, sync for
+  the first receipt, build the pitch once entries exist), so the health
+  screen teaches the conversational UI, not just engine subcommands.
+- **The exit path, documented (#7)** — a README section covering pause,
+  quiet, export, uninstall (`claude plugin uninstall waybill@waybill`),
+  and full deletion (`rm -rf ~/.waybill` is the whole footprint).
+
+### Fixed
+- **`--json` is honest everywhere (#13)** — `mine --json` emits the
+  structured run summary (`mined_new`, `remetered`, `gaps`,
+  `already_current`, plus `paused`/`locked` states), `export --json`
+  means `--format json`, and contradictory flags (`--json --format csv`)
+  are an exit-2 error instead of a silent choice.
+
 ## [1.2.0] - 2026-08-17
 
 ### Added
@@ -337,7 +388,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Jakeintech/waybill/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Jakeintech/waybill/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Jakeintech/waybill/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Jakeintech/waybill/compare/v1.0.1...v1.1.0
