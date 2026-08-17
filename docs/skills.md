@@ -6,9 +6,9 @@ it acts, noun where it informs.** The plugin prefix carries the brand
 frontmatter *description* carries the trigger phrases and does the discovery.
 The deterministic engine is intentionally **not** a skill — it is a single
 dependency-free executable, `bin/waybill.mjs` (subcommands: `init`,
-`bootstrap`, `mine`, `meter`, `verify`, `query`, `sync-plan`), invoked by
-hooks and skills, so the automatic path never depends on a model call
-(see the [product spec](product-spec.md), §5.7).
+`bootstrap`, `mine`, `meter`, `append`, `verify`, `query`, `sync-plan`),
+invoked by hooks and skills, so the automatic path never depends on a model
+call (see the [product spec](product-spec.md), §5.7).
 
 ## The skills
 
