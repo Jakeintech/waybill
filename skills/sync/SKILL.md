@@ -49,15 +49,20 @@ own data.
 3. **Git host (GitHub MCP):** search PRs authored by the user in configured
    repos merged since `last_sync` into the default branch (e.g.
    `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Save the
-   raw JSON to a temp file. **No MCP servers?** Use the git-local floor:
-   `git log` output via the engine's git-local adapter (`--git local`), or
-   skip changes entirely — do the half that works.
+   raw JSON to a temp file. **No MCP servers?** Use the git-local floor —
+   the engine reads local history itself, no files needed:
+   `$WAYBILL sync-plan --local-repo <path-to-repo> --baseline` (repeat
+   `--local-repo` per repo; `--since <iso>` overrides the window). Or skip
+   changes entirely — do the half that works.
 4. **Plan (deterministic):**
 
    ```bash
    $WAYBILL sync-plan --tracker jira --items /tmp/waybill-items.json \
-     --git github --changes /tmp/waybill-changes.json --baseline
+     --git github --changes /tmp/waybill-changes.json --baseline \
+     > /tmp/waybill-plan.json
    ```
+
+   (The plan prints to stdout — the redirect is what step 6 applies.)
 
    The plan JSON contains: `shipped` proposals (open entries whose issue is
    Done and PR merged — escrow and estimates carried forward), `corrections`

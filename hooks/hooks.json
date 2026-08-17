@@ -1,6 +1,17 @@
 {
-  "description": "Queues session metadata at session end so the log skill can later mine transcripts for accomplishments and token usage. Never blocks or slows the session.",
+  "description": "SessionEnd queues session metadata and spawns the detached, dependency-free miner, which meters the transcript into the ledger immediately. SessionStart surfaces a one-line budget-pacing notice when a threshold is newly crossed. Neither ever blocks or slows a session.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [

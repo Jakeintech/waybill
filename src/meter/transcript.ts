@@ -237,6 +237,16 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         }
       }
       if (typeof msg.id !== "string" || !msg.usage) continue;
+      // Zero-usage messages (e.g. synthetic error placeholders) meter
+      // nothing; skipping them keeps zero-token events out of the streams.
+      const probe = tokensFromUsage(msg.usage);
+      if (
+        probe.input === 0 && probe.output === 0 &&
+        probe.cache_read === 0 && probe.cache_creation === 0 &&
+        !byMessage.has(msg.id)
+      ) {
+        continue;
+      }
       const model = typeof msg.model === "string" ? msg.model : "unknown";
       const ts = typeof line.timestamp === "string" ? line.timestamp : "";
       const prior = byMessage.get(msg.id);

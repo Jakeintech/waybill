@@ -6,9 +6,10 @@ it acts, noun where it informs.** The plugin prefix carries the brand
 frontmatter *description* carries the trigger phrases and does the discovery.
 The deterministic engine is intentionally **not** a skill — it is a single
 dependency-free executable, `bin/waybill.mjs` (subcommands: `init`,
-`bootstrap`, `mine`, `meter`, `append`, `verify`, `query`, `sync-plan`),
-invoked by hooks and skills, so the automatic path never depends on a model
-call (see the [product spec](product-spec.md), §5.7).
+`bootstrap`, `mine`, `meter`, `append`, `resolve`, `verify`, `query`,
+`pace`, `sync-plan`), invoked by hooks and skills, so the automatic path
+never depends on a model call (see the [product spec](product-spec.md),
+§5.7).
 
 ## The skills
 
@@ -19,7 +20,7 @@ call (see the [product spec](product-spec.md), §5.7).
 | `sync` | `/waybill:sync` | action | Reconcile the ledger with your Jira issues and GitHub PRs; derive baselines; first run offers the bootstrap report | "sync my ledger", "import my history", "reconcile my ledger" |
 | `report` | `/waybill:report` | action | One-page, receipt-linked outputs: `token-pitch`, `perf-review`, `sprint-recap`, `quarterly`, bootstrap | "build my token pitch", "sprint recap", "help me with my performance review" |
 | `forecast` | `/waybill:forecast` | action | Size the next token ask from committed work × your historical rates | "how many tokens should I ask for", "draft my token request" |
-| `spend` *(ships in 0.4)* | `/waybill:spend` | action | Spend analytics ("what did PLAT-482 cost?") and the attribution inbox | "where am I spending", "how's my burn", "resolve my attribution inbox" |
+| `spend` | `/waybill:spend` | action | Spend analytics ("what did PLAT-482 cost?"), budget pacing, and the attribution inbox | "where am I spending", "how's my burn", "resolve my attribution inbox" |
 
 ## Naming decisions (recorded)
 

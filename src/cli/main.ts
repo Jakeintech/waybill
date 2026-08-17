@@ -5,7 +5,9 @@ import { runBootstrap } from "./cmd-bootstrap.ts";
 import { runInit } from "./cmd-init.ts";
 import { runMeter } from "./cmd-meter.ts";
 import { runMine } from "./cmd-mine.ts";
+import { runPace } from "./cmd-pace.ts";
 import { runQuery } from "./cmd-query.ts";
+import { runResolve } from "./cmd-resolve.ts";
 import { runSyncPlan } from "./cmd-sync-plan.ts";
 
 const USAGE = `waybill — token accounting for AI-assisted work. Bring receipts.
@@ -20,13 +22,18 @@ Commands:
                 [--queue | --all]
   meter       Meter transcripts into usage events (deterministic, incremental)
                 --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
+                [--force  re-meter even when checkpoints say current]
   append      Validate, seal, id, and append one event (the skills' write path)
-                --stream <name> --event '<json>' [--commit]
+                --stream <name> (--event '<json>' | --stdin) [--commit]
+  resolve     File an attribution-inbox item and re-attribute its turns
+                --ambiguity <id> --account <acct> [--pin | --repo-default <org/name>]
   sync-plan   Reconcile normalized tracker/git payloads into proposed entries
                 --tracker jira --items <raw.json> --git github|local --changes <raw.json>
-                [--baseline] | --apply <plan.json>
+                [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
-                [--from <iso>] [--to <iso>] [--audience self|internal|external]
+                [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
+  pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
+                per-epic envelopes) [--notice  one line, only on a fresh threshold]
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -78,10 +85,14 @@ export async function main(argv: string[]): Promise<number> {
       return runMeter(cli.home, cli.args, cli.json);
     case "append":
       return runAppend(cli.home, cli.args, cli.json);
+    case "resolve":
+      return runResolve(cli.home, cli.args, cli.json);
     case "sync-plan":
       return runSyncPlan(cli.home, cli.args);
     case "query":
       return runQuery(cli.home, cli.args);
+    case "pace":
+      return runPace(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

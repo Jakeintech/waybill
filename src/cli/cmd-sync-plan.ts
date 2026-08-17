@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { defaultContext } from "../adapters/contract.ts";
+import { defaultContext, sortChanges } from "../adapters/contract.ts";
 import { jiraAdapter } from "../adapters/jira.ts";
 import { githubAdapter } from "../adapters/github.ts";
 import { gitLocalAdapter } from "../adapters/gitlocal-adapter.ts";
 import { loadConfig, loadIdentity, saveConfig } from "../core/config.ts";
 import { finalizeEvent, type Envelope, type LedgerEntry, type PinEntry } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
+import { gitLogRaw, isGitRepo } from "../gitlocal/gitlocal.ts";
+import { repoFromCwd } from "../meter/run.ts";
 import { reconcile, type EntryBody, type SyncPlan } from "../sync/reconcile.ts";
 import type { MergedChange, WorkItem } from "../adapters/contract.ts";
 
@@ -20,6 +22,8 @@ export function runSyncPlan(home: string, args: string[]): number {
   let changesPath: string | null = null;
   let applyPath: string | null = null;
   let baseline = false;
+  let since: string | null = null;
+  const localRepos: string[] = [];
   let now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -27,6 +31,10 @@ export function runSyncPlan(home: string, args: string[]): number {
     else if (a === "--git") gitHost = (args[++i] ?? null) as keyof typeof GIT_HOSTS | null;
     else if (a === "--items") itemsPath = args[++i] ?? null;
     else if (a === "--changes") changesPath = args[++i] ?? null;
+    else if (a === "--local-repo") {
+      const p = args[++i];
+      if (p) localRepos.push(p);
+    } else if (a === "--since") since = args[++i] ?? null;
     else if (a === "--apply") applyPath = args[++i] ?? null;
     else if (a === "--baseline") baseline = true;
     else if (a === "--now") now = args[++i] ?? now;
@@ -79,6 +87,8 @@ export function runSyncPlan(home: string, args: string[]): number {
   const ctx = defaultContext({
     keyPattern: config.metering.branch_key_pattern,
     identityEmails: identity?.git_emails ?? [],
+    githubLogin: identity?.github_login ?? null,
+    jiraAccountId: identity?.jira_account_id ?? null,
   });
 
   let items: WorkItem[] = [];
@@ -97,8 +107,25 @@ export function runSyncPlan(home: string, args: string[]): number {
     }
     changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync(changesPath, "utf8")), ctx);
   }
-  if (!itemsPath && !changesPath) {
-    process.stderr.write("waybill sync-plan: pass --items and/or --changes (or --apply <plan.json>)\n");
+  // The zero-auth floor, self-contained: read local git history directly.
+  if (localRepos.length > 0) {
+    const sinceIso = since ?? config.last_sync ?? new Date(Date.parse(now) - 90 * 86400_000).toISOString().slice(0, 19) + "Z";
+    for (const path of localRepos) {
+      if (!isGitRepo(path)) {
+        process.stderr.write(`waybill sync-plan: not a git repo, skipping: ${path}\n`);
+        continue;
+      }
+      const name = repoFromCwd(path) ?? path;
+      changes.push(
+        ...gitLocalAdapter.normalizeChanges({ repo: name, log: gitLogRaw(path, sinceIso) }, ctx),
+      );
+    }
+    changes = sortChanges(changes);
+  }
+  if (!itemsPath && !changesPath && localRepos.length === 0) {
+    process.stderr.write(
+      "waybill sync-plan: pass --items, --changes, or --local-repo (or --apply <plan.json>)\n",
+    );
     return 2;
   }
 

@@ -27,6 +27,8 @@ verification):
 
 ```bash
 WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+# If CLAUDE_PLUGIN_ROOT is empty in this context, locate the installed copy:
+#   WAYBILL="node $(ls -d ~/.claude/plugins/cache/waybill/waybill/*/ | sort -V | tail -1)bin/waybill.mjs"
 $WAYBILL init         # create/refresh the ledger home
 $WAYBILL bootstrap    # receipt from local git history (zero auth)
 $WAYBILL mine --all   # catch-up: meter every local transcript

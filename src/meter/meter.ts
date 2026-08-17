@@ -25,6 +25,8 @@ export interface MeterInput {
   existingUsage: UsageEvent[];
   existingSessions: SessionEvent[];
   existingExceptions: ExceptionEvent[];
+  /** Applied inbox resolutions for this session (turn index → account). */
+  turnOverrides?: Map<number, string>;
 }
 
 export interface MeterOutput {
@@ -114,6 +116,7 @@ export function meterTranscript(input: MeterInput): MeterOutput {
     openEntries,
     repoDefaults: input.config.metering.repo_defaults,
     evidence: transcript.evidence,
+    ...(input.turnOverrides ? { turnOverrides: input.turnOverrides } : {}),
   };
 
   const existingUsageAuth = authoritative(input.existingUsage).filter(
@@ -175,11 +178,17 @@ export function meterTranscript(input: MeterInput): MeterOutput {
         transcript_version: transcript.version,
         raw_extra: extras,
       };
+      // Unchanged means "same content modulo the supersedes link" — an event
+      // that already supersedes an older one must not be re-superseded by an
+      // identical recomputation (that would grow the chain on every forced
+      // re-meter).
+      if (prior) {
+        const asPrior = finalizeEvent("usage", { ...body, supersedes: prior.supersedes }) as UsageEvent;
+        if (asPrior.id === prior.id) continue; // unchanged
+      }
       let event = finalizeEvent("usage", body) as UsageEvent;
-      if (prior && prior.id !== event.id) {
+      if (prior) {
         event = finalizeEvent("usage", { ...body, supersedes: prior.id }) as UsageEvent;
-      } else if (prior && prior.id === event.id) {
-        continue; // unchanged
       }
       if (!existingIds.has(event.id)) newUsage.push(event);
     }
@@ -224,12 +233,18 @@ export function meterTranscript(input: MeterInput): MeterOutput {
     totals: transcript.totals,
     source: "transcript" as const,
   };
-  let receipt = finalizeEvent("sessions", receiptBody) as SessionEvent;
-  if (priorReceipt && priorReceipt.id !== receipt.id) {
-    receipt = finalizeEvent("sessions", { ...receiptBody, supersedes: priorReceipt.id }) as SessionEvent;
-    newSessions.push(receipt);
-  } else if (!priorReceipt) {
-    newSessions.push(receipt);
+  if (priorReceipt) {
+    const asPrior = finalizeEvent("sessions", {
+      ...receiptBody,
+      supersedes: priorReceipt.supersedes,
+    }) as SessionEvent;
+    if (asPrior.id !== priorReceipt.id) {
+      newSessions.push(
+        finalizeEvent("sessions", { ...receiptBody, supersedes: priorReceipt.id }) as SessionEvent,
+      );
+    }
+  } else {
+    newSessions.push(finalizeEvent("sessions", receiptBody) as SessionEvent);
   }
 
   return { sessionId, transcript, newUsage, newSessions, newExceptions };

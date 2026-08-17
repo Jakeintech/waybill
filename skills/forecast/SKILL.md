@@ -18,8 +18,6 @@ user's own historical token cost per unit of work, with the buffer stated.
 Read `skills/ledger/references/methodology.md` first; forecasts follow the
 same honesty rules as reports.
 
-Let `LEDGER_HOME` mean `${WAYBILL_HOME:-$HOME/.waybill}`.
-
 ## Gather upcoming work
 
 1. Preferred: via Atlassian MCP, pull issues assigned to the user in the next

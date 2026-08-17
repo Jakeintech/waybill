@@ -33,7 +33,10 @@ fi
 if command -v jq >/dev/null 2>&1; then
   BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
   REMOTE="$(git remote get-url origin 2>/dev/null || echo "")"
-  REPO="$(printf '%s' "$REMOTE" | sed -E 's#.*[:/]([^/:]+/[^/:]+?)(\.git)?$#\1#' 2>/dev/null || echo "")"
+  # Two-step: strip a .git suffix, then keep the last org/name segments.
+  # (Single-step lazy quantifiers are not portable to BSD sed.)
+  REPO="$(printf '%s' "$REMOTE" | sed -E 's#\.git$##; s#.*[:/]([^/:]+/[^/:]+)$#\1#' 2>/dev/null || echo "")"
+  printf '%s' "$REPO" | grep -Eq '^[^/:[:space:]]+/[^/:[:space:]]+$' || REPO=""
   TMP="$(mktemp 2>/dev/null)" || exit 0
   if jq --arg branch "$BRANCH" --arg repo "$REPO" --arg captured_at "$STAMP" \
         '. + {git_branch: $branch, repo: (if $repo == "" then null else $repo end), captured_at: $captured_at, mined: false}' \

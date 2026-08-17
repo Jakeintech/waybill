@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { finalizeEvent, SCHEMA_VERSION, type ExceptionEvent, type MeterGapEvent } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
+import { acquireLock, releaseLock } from "../meter/lock.ts";
 import { defaultProjectsDir, listTranscripts, meterFile } from "../meter/run.ts";
 
 interface Capture {
@@ -11,37 +12,9 @@ interface Capture {
   cwd?: string;
   git_branch?: string;
   repo?: string;
+  captured_at?: string;
   mined?: boolean | string;
   [k: string]: unknown;
-}
-
-function lockPath(home: string): string {
-  return join(home, "pending-sessions", ".miner.lock");
-}
-
-function acquireLock(home: string): boolean {
-  const p = lockPath(home);
-  if (existsSync(p)) {
-    try {
-      const pid = Number(readFileSync(p, "utf8").trim());
-      if (Number.isInteger(pid) && pid > 0) {
-        process.kill(pid, 0); // throws if the process is gone
-        return false; // a live miner holds the lock
-      }
-    } catch {
-      // stale lock — take over
-    }
-  }
-  writeFileSync(p, String(process.pid), "utf8");
-  return true;
-}
-
-function releaseLock(home: string): void {
-  try {
-    unlinkSync(lockPath(home));
-  } catch {
-    // already gone
-  }
 }
 
 function commitLedger(home: string): void {
@@ -56,21 +29,32 @@ function commitLedger(home: string): void {
   }
 }
 
-function recordGap(home: string, sessionId: string, reason: MeterGapEvent["reason"]): void {
+/** Stamp gaps with the capture time, not the wall clock: replays stay byte-identical. */
+function gapTs(capture: Capture): string {
+  const captured = capture.captured_at;
+  if (typeof captured === "string") {
+    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(captured);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`;
+    if (!Number.isNaN(Date.parse(captured))) return captured;
+  }
+  return "1970-01-01T00:00:00Z";
+}
+
+function recordGap(home: string, sessionId: string, ts: string, reason: MeterGapEvent["reason"]): void {
   const existing = readEvents<ExceptionEvent>(home, "exceptions");
+  const already = existing.some(
+    (e) => e.kind === "meter_gap" && (e as MeterGapEvent).session_id === sessionId,
+  );
+  if (already) return;
   const body = {
-    ts: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    ts,
     kind: "meter_gap" as const,
     schema_version: SCHEMA_VERSION,
     supersedes: null,
     session_id: sessionId,
     reason,
   };
-  // Deterministic dedupe on (session, reason) regardless of wall-clock ts:
-  const already = existing.some(
-    (e) => e.kind === "meter_gap" && (e as MeterGapEvent).session_id === sessionId,
-  );
-  if (!already) appendEvents(home, "exceptions", [finalizeEvent("exceptions", body)]);
+  appendEvents(home, "exceptions", [finalizeEvent("exceptions", body)]);
 }
 
 export function runMine(home: string, args: string[]): number {
@@ -89,7 +73,7 @@ export function runMine(home: string, args: string[]): number {
 
   const queueDir = join(home, "pending-sessions");
   mkdirSync(queueDir, { recursive: true });
-  if (!acquireLock(home)) return 0; // another miner is live; the queue survives
+  if (!acquireLock(home)) return 0; // another metering process is live; the queue survives
 
   let mined = 0;
   try {
@@ -108,7 +92,7 @@ export function runMine(home: string, args: string[]): number {
       const transcript = capture.transcript_path;
       if (typeof transcript !== "string" || !existsSync(transcript)) {
         if (typeof capture.session_id === "string") {
-          recordGap(home, capture.session_id, "transcript_pruned");
+          recordGap(home, capture.session_id, gapTs(capture), "transcript_pruned");
         }
         capture.mined = "gap";
         writeFileSync(path, JSON.stringify(capture) + "\n", "utf8");
@@ -117,7 +101,7 @@ export function runMine(home: string, args: string[]): number {
       try {
         const result = meterFile(home, transcript, typeof capture.repo === "string" ? capture.repo : null);
         capture.mined = true;
-        capture["mined_session_id"] = result.sessionId;
+        capture["mined_session_id"] = result.session_id;
         capture["mined_usage_events"] = result.usage;
         writeFileSync(path, JSON.stringify(capture) + "\n", "utf8");
         mined += 1;
@@ -143,9 +127,4 @@ export function runMine(home: string, args: string[]): number {
   if (mined > 0) commitLedger(home);
   process.stdout.write(`mined ${mined} session(s)\n`);
   return 0;
-}
-
-/** Test hook: remove a home's lock (used by unit tests only). */
-export function _clearLock(home: string): void {
-  rmSync(lockPath(home), { force: true });
 }

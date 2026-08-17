@@ -16,6 +16,7 @@ interface RawPr {
   base?: { repo?: { full_name?: string } };
   repository_url?: string;
   repository?: { full_name?: string };
+  user?: { login?: string };
 }
 
 function str(v: unknown): string | null {
@@ -54,6 +55,10 @@ export const githubAdapter: GitHostAdapter = {
       const url = str(pr.html_url);
       const repo = repoOf(pr);
       if (!mergedAt || !url || !repo) continue;
+      // Own data only: a PR that names another author is dropped, even if
+      // a mis-scoped query fetched it.
+      const author = str(pr.user?.login);
+      if (ctx.githubLogin && author && author !== ctx.githubLogin) continue;
       const title = str(pr.title) ?? url;
       const branch = str(pr.head?.ref);
       out.push({

@@ -4,6 +4,14 @@ export const SCHEMA_VERSION = 2;
 
 export type StreamName = "ledger" | "usage" | "sessions" | "exceptions";
 
+/** The kinds each stream accepts — the single source for validation. */
+export const STREAM_KINDS: Record<StreamName, ReadonlySet<string>> = {
+  ledger: new Set(["opened", "progress", "shipped", "correction", "pin"]),
+  usage: new Set(["usage", "correction"]),
+  sessions: new Set(["session", "correction"]),
+  exceptions: new Set(["ambiguity", "resolution", "meter_discrepancy", "meter_gap"]),
+};
+
 export interface Envelope {
   id: string;
   ts: string;

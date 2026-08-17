@@ -15,6 +15,12 @@ export interface ResolverContext {
   repoDefaults: Record<string, string | null>;
   /** All evidence keys found in the session, in encounter order. */
   evidence: EvidenceKey[];
+  /**
+   * Inbox resolutions applied to specific turns of this session
+   * (turn index → account). A user assertion: outranks every rule,
+   * confidence 1.0, and survives any future re-meter.
+   */
+  turnOverrides?: Map<number, string>;
 }
 
 export interface Resolution {
@@ -56,6 +62,13 @@ function attribution(
  */
 export function resolveTurn(turn: Turn, ctx: ResolverContext): Resolution {
   let ambiguity: Resolution["ambiguity"] = null;
+
+  // Rule 0 — an applied inbox resolution for this turn. Same standing as a
+  // pin (a user assertion), and it must keep winning on every re-meter.
+  const override = ctx.turnOverrides?.get(turn.index);
+  if (override !== undefined) {
+    return { attribution: attribution(override, "pin", 1.0), ambiguity: null };
+  }
 
   // Rule 1 — pin. A whole-session pin or one whose range covers the turn.
   const turnTs = turn.models.reduce((max, m) => (m.lastTs > max ? m.lastTs : max), "");

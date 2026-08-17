@@ -42,6 +42,7 @@ export function redact(data: unknown, audience: Audience): RedactionResult {
   // external: build deterministic pseudonym maps.
   const keys = new Set<string>();
   collectStrings(clone, "tracker_key", keys);
+  collectStrings(clone, "key", keys); // e.g. the story-cost payload's key field
   collectAccountKeys(clone, keys); // keys inside "story:<KEY>" account strings
   const epicKeys = new Set<string>();
   collectStrings(clone, "epic_key", epicKeys);
@@ -49,6 +50,9 @@ export function redact(data: unknown, audience: Audience): RedactionResult {
   collectStrings(clone, "epic_name", epicNames);
   const repos = new Set<string>();
   collectStrings(clone, "repo", repos);
+
+  const adhocs = new Set<string>();
+  collectAdhocLabels(clone, adhocs);
 
   const mapping: Record<string, string> = {};
   let n = 0;
@@ -59,9 +63,25 @@ export function redact(data: unknown, audience: Audience): RedactionResult {
   for (const k of [...epicNames].sort()) mapping[k] = `Epic ${++n}`;
   n = 0;
   for (const k of [...repos].sort()) mapping[k] = `repo-${++n}`;
+  n = 0;
+  for (const k of [...adhocs].sort()) mapping[`adhoc:${k}`] = `adhoc-${++n}`;
 
   const redacted = rewrite(clone, mapping);
   return { data: redacted, mapping };
+}
+
+function collectAdhocLabels(value: unknown, into: Set<string>): void {
+  if (typeof value === "string") {
+    if (value.startsWith("adhoc:")) into.add(value.slice(6));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectAdhocLabels(v, into);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const v of Object.values(value)) collectAdhocLabels(v, into);
+  }
 }
 
 function collectAccountKeys(value: unknown, into: Set<string>): void {
@@ -86,7 +106,9 @@ function stripKeys(value: unknown, drop: Set<string>): void {
   }
   const obj = value as Record<string, unknown>;
   for (const k of Object.keys(obj)) {
-    if (drop.has(k)) delete obj[k];
+    // Strip identifier-bearing values only: AccountSpend.sessions is a
+    // plain count and stays.
+    if (drop.has(k) && typeof obj[k] !== "number") delete obj[k];
     else stripKeys(obj[k], drop);
   }
 }
@@ -98,7 +120,11 @@ function rewrite(value: unknown, mapping: Record<string, string>): unknown {
       const key = value.slice(6);
       return `story:${mapping[key] ?? key}`;
     }
-    if (value.startsWith("adhoc:")) return "adhoc:redacted";
+    if (value.startsWith("adhoc:")) {
+      // Distinct labels stay distinguishable (adhoc-1, adhoc-2, …) without
+      // leaking what they were called.
+      return `adhoc:${mapping[value] ?? "redacted"}`;
+    }
     return mapping[value] ?? value;
   }
   if (Array.isArray(value)) return value.map((v) => rewrite(v, mapping));

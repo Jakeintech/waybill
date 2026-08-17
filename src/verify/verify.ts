@@ -6,6 +6,7 @@ import type {
   TokenCounts,
   UsageEvent,
 } from "../core/events.ts";
+import { STREAM_KINDS } from "../core/events.ts";
 import { canonicalJson } from "../core/canonical.ts";
 import { checkEscrow } from "../core/escrow.ts";
 import { authoritative, readStream, shardFor } from "../core/streams.ts";
@@ -26,13 +27,6 @@ export interface Finding {
   id: string | null;
   message: string;
 }
-
-const STREAM_KINDS: Record<StreamName, Set<string>> = {
-  ledger: new Set(["opened", "progress", "shipped", "correction", "pin"]),
-  usage: new Set(["usage", "correction"]),
-  sessions: new Set(["session", "correction"]),
-  exceptions: new Set(["ambiguity", "resolution", "meter_discrepancy", "meter_gap"]),
-};
 
 const STREAMS: StreamName[] = ["ledger", "usage", "sessions", "exceptions"];
 
@@ -194,7 +188,9 @@ export function verifyHome(home: string): Finding[] {
     }
   }
   for (const [sessionId, receipt] of [...receipts.entries()].sort()) {
-    if (!observed.has(sessionId) && (receipt.totals.input > 0 || receipt.totals.output > 0)) {
+    const t = receipt.totals;
+    const any = t.input > 0 || t.output > 0 || t.cache_read > 0 || t.cache_creation > 0;
+    if (!observed.has(sessionId) && any) {
       findings.push({
         check: "conservation", stream: "sessions", shard: null, id: receipt.id,
         message: `session ${sessionId}: receipt has totals but no usage events`,
@@ -205,10 +201,18 @@ export function verifyHome(home: string): Finding[] {
   return findings;
 }
 
+export function isEmptyHome(home: string): boolean {
+  return STREAMS.every((s) => readStream(home, s).length === 0);
+}
+
 export function renderFindings(findings: Finding[], home: string): string {
   const lines: string[] = [];
   if (findings.length === 0) {
     lines.push(`waybill verify: ${home}`);
+    if (isEmptyHome(home)) {
+      lines.push("Empty ledger — no streams to check yet. (Wrong --home? This is not a failure.)");
+      return lines.join("\n");
+    }
     lines.push("All checks passed. Every escrow seal recomputes; every metered token is accounted for.");
     return lines.join("\n");
   }

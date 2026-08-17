@@ -38,9 +38,9 @@ export function renderReceipt(d: BootstrapData): string {
   for (const r of d.repos) {
     out.push(`REPO      ${r.repo}`);
     out.push("ITEMS");
-    out.push(`  COMMITS         ${fmtInt(r.commits).padStart(8)}`);
-    out.push(`  MERGES          ${fmtInt(r.merges).padStart(8)}`);
-    out.push(`  ACTIVE DAYS     ${fmtInt(r.active_days).padStart(8)}`);
+    out.push(`  COMMITS         ${fmtInt(r.commits).padStart(11)}`);
+    out.push(`  MERGES          ${fmtInt(r.merges).padStart(11)}`);
+    out.push(`  ACTIVE DAYS     ${fmtInt(r.active_days).padStart(11)}`);
     if (r.first_date !== null) {
       out.push(`  FIRST → LAST    ${r.first_date} → ${r.last_date}`);
     }
@@ -61,12 +61,12 @@ export function renderReceipt(d: BootstrapData): string {
   } else {
     const t = d.tokens.totals;
     out.push(`TOKENS    ${d.tokens.metered_sessions} metered session(s)`);
-    out.push(`  INPUT           ${fmtInt(t.input).padStart(12)}`);
-    out.push(`  OUTPUT          ${fmtInt(t.output).padStart(12)}`);
-    out.push(`  CACHE READ      ${fmtInt(t.cache_read).padStart(12)}`);
-    out.push(`  CACHE WRITE     ${fmtInt(t.cache_creation).padStart(12)}`);
+    out.push(`  INPUT           ${fmtInt(t.input).padStart(15)}`);
+    out.push(`  OUTPUT          ${fmtInt(t.output).padStart(15)}`);
+    out.push(`  CACHE READ      ${fmtInt(t.cache_read).padStart(15)}`);
+    out.push(`  CACHE WRITE     ${fmtInt(t.cache_creation).padStart(15)}`);
     for (const a of d.tokens.by_account.slice(0, 5)) {
-      out.push(`  ${a.account.padEnd(20)} ${fmtInt(a.tokens).padStart(12)}`);
+      out.push(`  ${a.account.padEnd(16)}${fmtInt(a.tokens).padStart(15)}`);
     }
   }
   out.push(LINE);

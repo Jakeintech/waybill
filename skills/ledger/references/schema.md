@@ -244,30 +244,39 @@ work, never anyone else's:
 ```json
 {
   "schema_version": 2,
-  "rules_version": "1",
-  "pricing_version": null,
   "sessions": {
     "9f4c1e2a-77aa-4b02-9d31-5c2f8ab9d001": {
       "transcript_path": "~/.claude/projects/acme-platform/9f4c1e2a.jsonl",
+      "file_bytes": 183220,
       "last_message_id": "msg_01AAC",
-      "byte_offset": 183220,
       "transcript_version": "2.1.229",
-      "metered_through_ts": "2026-08-17T10:15:03Z"
+      "metered_through_ts": "2026-08-17T10:15:03Z",
+      "rules_version": "1",
+      "pricing_version": "2026-08-01",
+      "attribution_inputs": "9d24f5…"
     }
   }
 }
 ```
 
-Checkpoints make the meter incremental and idempotent: re-running processes
-only new bytes; a full re-run from empty state reproduces the identical fact
-stream (same inputs + `rules_version` + `pricing_version` ⇒ byte-identical
-output — the determinism harness asserts this in CI).
+Checkpoints make the meter incremental and idempotent. A session is skipped
+only when **all** of these are unchanged: the transcript's byte size, the
+`rules_version` and `pricing_version` it was last metered under (compared
+per session, so a version bump re-meters every stale session), and
+`attribution_inputs` — a fingerprint of the pins, open entries, repo
+defaults, and applied inbox resolutions. Pinning or resolving after a
+session ends changes the fingerprint, so the next meter run emits
+superseding corrected events. A stale session is fully re-parsed;
+unchanged events recompute to identical ids and are skipped, changed ones
+supersede. A full re-run from empty state reproduces the identical fact
+stream (the determinism harness asserts this in CI).
 
 ## Pending-session capture shape
 
 Files in `pending-sessions/` contain the raw SessionEnd hook JSON from
 Claude Code (fields such as `session_id`, `transcript_path`, `cwd`,
-`reason`), plus `git_branch`, `captured_at`, and `mined` added by the
+`reason`), plus `git_branch`, `repo` (org/name from the cwd's git remote —
+the miner's attribution hint), `captured_at`, and `mined` added by the
 capture script when `jq` is available. Treat any file without
 `"mined": true` as unprocessed. After mining, the miner rewrites the file
 with `"mined": true` rather than deleting it. Session identity always comes

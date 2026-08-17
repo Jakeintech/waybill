@@ -3,9 +3,10 @@ name: log
 description: >
   This skill should be used when the user wants to record work in their waybill
   ledger — when they say "log this to my ledger", "log my work", "log today's
-  work", "record what we shipped", "add this to the waybill ledger", "open a
-  ledger entry for this ticket", "I'm starting PLAT-123, log it", "process my
-  pending sessions", "pin this session to PLAT-123", or "unpin this session".
+  work", "record what we shipped", "log this — the PR merged", "add this to
+  the waybill ledger", "open a ledger entry for this ticket", "I'm starting
+  PLAT-123, log it", "process my pending sessions", "pin this session to
+  PLAT-123", or "unpin this session".
   Also use it at a natural stopping point after shipping something in a
   session, by offering (once, briefly) to log it.
 metadata:
@@ -83,8 +84,16 @@ initialization first (see the `ledger` skill).
 A pin binds this session's spend to an account at confidence 1.0 — the top
 of the attribution ladder.
 
-1. Identify the session id: the current Claude Code session's id, or the
-   most recent session receipt in `streams/sessions/`.
+1. Identify the session id. For "this session" / "that last session", take
+   the most recent capture or receipt — either works:
+
+   ```bash
+   jq -r '.session_id // empty' "${WAYBILL_HOME:-$HOME/.waybill}"/pending-sessions/*.json 2>/dev/null | tail -1
+   ```
+
+   or the newest `session_id` in `streams/sessions/*.jsonl`. If both are
+   empty (the session hasn't ended yet), say so and offer to pin the most
+   recent *metered* session instead — never guess an id.
 2. Append the pin:
 
 ```bash
@@ -96,8 +105,10 @@ $WAYBILL append --stream ledger --commit --event '{
 }'
 ```
 
-3. Re-meter so the pin takes effect: `$WAYBILL mine --all`. Corrected usage
-   events supersede the old attribution; history is preserved.
+3. Re-meter so the pin takes effect: `$WAYBILL mine --all`. The pin changes
+   the attribution-inputs fingerprint, so the affected session re-meters
+   even though its transcript hasn't grown; corrected usage events
+   supersede the old attribution and history is preserved.
 4. **Unpin** = append a `correction` superseding the pin's id, then
    `$WAYBILL mine --all` again.
 5. For "everything after 3pm belongs to X", set

@@ -1,5 +1,6 @@
 {
   "name": "waybill",
+  "description": "Token accounting for AI-assisted work: deterministic metering, story-level spend attribution, and receipt-backed reports for Claude Code.",
   "owner": {
     "name": "Jakeintech",
     "url": "https://github.com/Jakeintech"

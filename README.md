@@ -123,7 +123,7 @@ These are commitments, not gaps. See [ROADMAP.md](ROADMAP.md#non-goals).
 
 ## Contributing
 
-Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), the [roadmap](ROADMAP.md), and issues labeled `good first issue`. Adapter configs for other trackers are the most-wanted contribution. Please read the [Code of Conduct](CODE_OF_CONDUCT.md); security reports go through [SECURITY.md](SECURITY.md).
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), the [roadmap](ROADMAP.md), and issues labeled `good first receipt`. Adapter configs for other trackers are the most-wanted contribution. Please read the [Code of Conduct](CODE_OF_CONDUCT.md); security reports go through [SECURITY.md](SECURITY.md).
 
 ## License
 

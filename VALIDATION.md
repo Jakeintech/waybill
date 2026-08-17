@@ -35,8 +35,7 @@ shellcheck scripts/*.sh tests/*.sh && bash tests/test-capture-session.sh`.
   ids, and content whose id does not recompute (tamper evidence).
 - **No LLM / no network in the metering path (invariant 6).** The engine
   is a single stdlib-only bundle (`bin/waybill.mjs`); the validator fails
-  if it references `node_modules`; the only child processes are local
-  `git` invocations.
+  if it references `node_modules`; the only child processes are local `git` invocations (init and sync additionally use local `git`/`gh` — never the metering path).
 - **Escrow (D13).** Pre-registered estimates are SHA-256-sealed at the
   write path, refused when backdated, verified by `waybill verify`, and
   carried forward through sync (`tests/unit/m0.test.ts`,

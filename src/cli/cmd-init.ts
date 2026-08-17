@@ -136,7 +136,11 @@ export function runInit(home: string, args: string[], json: boolean): number {
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
-    process.stdout.write(`Initialized ${home} (git repo, append-only streams)\n`);
+    process.stdout.write(
+      freshConfig
+        ? `Initialized ${home} (git repo, append-only streams)\n`
+        : `Refreshed ${home} (already initialized; config preserved)\n`,
+    );
     process.stdout.write(`Identity: ${identity.git_emails.join(", ") || "(no git email found)"}` +
       (identity.github_login ? ` · GitHub: ${identity.github_login}` : "") + "\n");
     process.stdout.write(`Repos in scope: ${config.git.repos.join(", ") || "(none yet)"}\n`);

@@ -1,7 +1,14 @@
 import { loadConfig, type Audience } from "../core/config.ts";
 import type { ExceptionEvent, LedgerEntry, PinEntry, UsageEvent } from "../core/events.ts";
 import { readEvents } from "../core/streams.ts";
-import { forecastData, reportData, spendData, type Window } from "../projections/queries.ts";
+import {
+  effectiveShipped,
+  forecastData,
+  normalizeWindow,
+  reportData,
+  spendData,
+  type Window,
+} from "../projections/queries.ts";
 import { redact } from "../report/redaction.ts";
 
 const AUDIENCES: Audience[] = ["self", "internal", "external"];
@@ -28,7 +35,13 @@ export function runQuery(home: string, args: string[]): number {
 
   const config = loadConfig(home);
   const aud = audience ?? config.audience_default;
-  const window: Window = { from, to };
+  let window: Window;
+  try {
+    window = normalizeWindow(from, to);
+  } catch (err) {
+    process.stderr.write(`waybill query: ${(err as Error).message}\n`);
+    return 2;
+  }
   const ledger = readEvents<LedgerEntry | PinEntry>(home, "ledger");
   const usage = readEvents<UsageEvent>(home, "usage");
   const exceptions = readEvents<ExceptionEvent>(home, "exceptions");
@@ -52,10 +65,12 @@ export function runQuery(home: string, args: string[]): number {
       }
       const spend = spendData(usage, exceptions, ledger, config, window);
       const account = spend.accounts.find((a) => a.account === `story:${key}`) ?? null;
-      const entry =
-        readEvents<LedgerEntry>(home, "ledger")
-          .filter((e) => e.kind === "shipped" && e.tracker_key === key)
-          .sort((a, b) => (a.ts < b.ts ? -1 : 1))
+      // Supersession-aware: the latest authoritative view of the item, even
+      // if that view is a correction over the shipped entry.
+      const view =
+        effectiveShipped(ledger)
+          .filter((s) => s.entry.tracker_key === key)
+          .sort((a, b) => (a.shipped_ts < b.shipped_ts ? -1 : 1))
           .pop() ?? null;
       payload = {
         key,
@@ -64,11 +79,18 @@ export function runQuery(home: string, args: string[]): number {
           account && account.tokens > 0
             ? Math.round((account.cache_read / account.tokens) * 1000) / 10
             : null,
-        shipped: entry
-          ? { id: entry.id, ts: entry.ts, points: entry.points, prs: entry.artifacts.prs }
+        shipped: view
+          ? {
+              id: view.entry.id,
+              ts: view.shipped_ts,
+              points: view.entry.points,
+              prs: view.entry.artifacts.prs,
+            }
           : null,
         tokens_per_point:
-          account && entry && entry.points ? Math.round(account.tokens / entry.points) : null,
+          account && view && view.entry.points
+            ? Math.round(account.tokens / view.entry.points)
+            : null,
       };
       break;
     }

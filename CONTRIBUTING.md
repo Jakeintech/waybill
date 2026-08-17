@@ -86,7 +86,7 @@ in the tested-configs table.
 
 ## Where to start
 
-Issues labeled `good first issue`, or any of: a new report preset, more hook
+Issues labeled `good first receipt`, or any of: a new report preset, more hook
 test cases, an adapter, README typo fixes. Questions → GitHub Discussions.
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).

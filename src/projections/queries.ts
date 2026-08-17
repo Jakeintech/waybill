@@ -14,6 +14,25 @@ export interface Window {
   to: string | null;
 }
 
+/**
+ * Normalize user-supplied bounds: a bare date means the whole day (a
+ * date-only `to` is inclusive of that day, not a midnight cutoff), and
+ * unparseable bounds are an error rather than a silently empty window.
+ */
+export function normalizeWindow(from: string | null, to: string | null): Window {
+  const check = (v: string | null, name: string): string | null => {
+    if (v === null) return null;
+    if (Number.isNaN(Date.parse(v))) {
+      throw new Error(`--${name} is not a date: ${v}`);
+    }
+    return v;
+  };
+  const f = check(from, "from");
+  let t = check(to, "to");
+  if (t !== null && /^\d{4}-\d{2}-\d{2}$/.test(t)) t = `${t}T23:59:59.999Z`;
+  return { from: f, to: t };
+}
+
 function inWindow(ts: string, w: Window): boolean {
   if (w.from !== null && ts < w.from) return false;
   if (w.to !== null && ts > w.to) return false;
@@ -22,6 +41,40 @@ function inWindow(ts: string, w: Window): boolean {
 
 function totalTokens(u: UsageEvent): number {
   return u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation;
+}
+
+export interface ShippedView {
+  /** The authoritative event for the item — possibly a correction. */
+  entry: LedgerEntry;
+  /** When the item actually shipped: the ts of the chain's shipped event. */
+  shipped_ts: string;
+}
+
+/**
+ * Shipped items, supersession-aware: a correction that supersedes a shipped
+ * entry keeps the item shipped (with the corrected fields) instead of
+ * making it vanish from reports. Window filtering uses the ship time, not
+ * the correction time.
+ */
+export function effectiveShipped(events: Array<LedgerEntry | PinEntry>): ShippedView[] {
+  const byId = new Map<string, LedgerEntry | PinEntry>(events.map((e) => [e.id, e]));
+  const out: ShippedView[] = [];
+  for (const e of authoritative(events)) {
+    if (e.kind !== "shipped" && e.kind !== "correction") continue;
+    let cur: LedgerEntry | PinEntry | undefined = e;
+    const seen = new Set<string>();
+    let shippedTs: string | null = null;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      if (cur.kind === "shipped") {
+        shippedTs = cur.ts;
+        break;
+      }
+      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : undefined;
+    }
+    if (shippedTs !== null) out.push({ entry: e as LedgerEntry, shipped_ts: shippedTs });
+  }
+  return out;
 }
 
 export interface AccountSpend {
@@ -72,7 +125,7 @@ export function spendData(
   window: Window,
 ): SpendData {
   const usage = authoritative(usageEvents).filter(
-    (u) => u.kind === "usage" && inWindow(u.ts, window),
+    (u) => u.kind === "usage" && inWindow(u.ts, window) && totalTokens(u) > 0,
   );
   const accounts = new Map<string, AccountSpend>();
   const models = new Map<string, { tokens: number; cost: number; priced: boolean }>();
@@ -120,9 +173,8 @@ export function spendData(
   }
 
   const shippedKeys = new Set(
-    authoritative(ledgerEvents)
-      .filter((e): e is LedgerEntry => e.kind === "shipped")
-      .map((e) => e.tracker_key)
+    effectiveShipped(ledgerEvents)
+      .map((s) => s.entry.tracker_key)
       .filter((k): k is string => k !== null),
   );
   const openSpend = [...accounts.values()]
@@ -215,17 +267,15 @@ export function reportData(
   config: Config,
   window: Window,
 ): ReportData {
-  const entries = authoritative(ledgerEvents).filter(
-    (e): e is LedgerEntry => e.kind === "shipped" && inWindow(e.ts, window),
-  );
+  const views = effectiveShipped(ledgerEvents).filter((s) => inWindow(s.shipped_ts, window));
   const spend = spendData(usageEvents, exceptionEvents, ledgerEvents, config, window);
   const tokensByKey = new Map<string, number>();
   for (const a of spend.accounts) {
     if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
   }
 
-  const shipped = entries
-    .map((e) => ({
+  const shipped = views
+    .map(({ entry: e, shipped_ts }) => ({
       id: e.id,
       tracker_key: e.tracker_key,
       title: e.title,
@@ -234,12 +284,13 @@ export function reportData(
       points: e.points,
       prs: e.artifacts.prs,
       deploy: e.artifacts.deploy,
-      ts: e.ts,
+      ts: shipped_ts,
       claude_role: e.claude_role,
       metered_tokens: e.tracker_key !== null ? (tokensByKey.get(e.tracker_key) ?? null) : null,
       escrowed: e.escrow !== null,
     }))
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  const entries = views.map((v) => v.entry);
 
   const points = shipped.reduce((n, s) => n + (s.points ?? 0), 0);
   const mergedPrs = shipped.reduce((n, s) => n + s.prs.length, 0);
@@ -305,16 +356,16 @@ export function forecastData(
   for (const a of spend.accounts) {
     if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
   }
-  const shipped = authoritative(ledgerEvents)
+  const shipped = effectiveShipped(ledgerEvents)
     .filter(
-      (e): e is LedgerEntry =>
-        e.kind === "shipped" &&
-        e.points !== null &&
-        e.points > 0 &&
-        e.tracker_key !== null &&
-        tokensByKey.has(e.tracker_key),
+      (s) =>
+        s.entry.points !== null &&
+        s.entry.points > 0 &&
+        s.entry.tracker_key !== null &&
+        tokensByKey.has(s.entry.tracker_key),
     )
-    .sort((a, b) => (a.ts < b.ts ? -1 : 1));
+    .sort((a, b) => (a.shipped_ts < b.shipped_ts ? -1 : 1))
+    .map((s) => s.entry);
   const recent = shipped.slice(-Math.max(5, Math.min(shipped.length, 10)));
   const rates = recent
     .map((e) => tokensByKey.get(e.tracker_key!)! / e.points!)

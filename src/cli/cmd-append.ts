@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { finalizeEvent, SCHEMA_VERSION, type Envelope, type LedgerEntry, type StreamName } from "../core/events.ts";
+import { finalizeEvent, SCHEMA_VERSION, STREAM_KINDS, type Envelope, type LedgerEntry, type StreamName } from "../core/events.ts";
 import { sealEstimate } from "../core/escrow.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
 
@@ -53,8 +53,10 @@ export function runAppend(home: string, args: string[], json: boolean): number {
     process.stderr.write("waybill append: event needs an ISO 8601 ts\n");
     return 2;
   }
-  if (typeof body["kind"] !== "string") {
-    process.stderr.write("waybill append: event needs a kind\n");
+  if (typeof body["kind"] !== "string" || !STREAM_KINDS[stream].has(body["kind"])) {
+    process.stderr.write(
+      `waybill append: kind must be one of ${[...STREAM_KINDS[stream]].join(", ")} for stream "${stream}"\n`,
+    );
     return 2;
   }
   body["schema_version"] = SCHEMA_VERSION;

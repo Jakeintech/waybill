@@ -78,6 +78,12 @@ export const jiraAdapter: TrackerAdapter = {
       const key = str(issue.key);
       if (!key || !keyRe.test(key)) continue;
       const fields = issue.fields ?? {};
+      // Own data only: an issue assigned to someone else is dropped, even
+      // if a mis-scoped JQL fetched it.
+      const assignee = str(
+        (fields["assignee"] as Record<string, unknown> | undefined)?.["accountId"],
+      );
+      if (ctx.jiraAccountId && assignee && assignee !== ctx.jiraAccountId) continue;
       const status = fields["status"] as Record<string, unknown> | undefined;
       const statusName = str(status?.["name"]) ?? "unknown";
       const category = (status?.["statusCategory"] as Record<string, unknown> | undefined)?.["key"];

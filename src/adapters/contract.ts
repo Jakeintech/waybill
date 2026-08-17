@@ -32,6 +32,11 @@ export interface AdapterContext {
   keyPattern: string;
   /** Identity for own-data checks where the raw payload carries authorship. */
   identityEmails: string[];
+  /** Defense-in-depth (methodology §6): when the raw payload names an
+   * author/assignee and these are set, records for other people are
+   * dropped even if a mis-scoped query fetched them. */
+  githubLogin: string | null;
+  jiraAccountId: string | null;
   /** Candidate custom field ids for story points (Jira instances vary). */
   pointsFields: string[];
   /** Candidate custom field ids for sprint. */
@@ -42,6 +47,8 @@ export function defaultContext(partial: Partial<AdapterContext> = {}): AdapterCo
   return {
     keyPattern: "[A-Z][A-Z0-9]+-[0-9]+",
     identityEmails: [],
+    githubLogin: null,
+    jiraAccountId: null,
     pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
     sprintFields: ["customfield_10020", "customfield_10010"],
     ...partial,

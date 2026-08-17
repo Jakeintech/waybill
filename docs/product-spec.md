@@ -118,9 +118,12 @@ analytics.
   pruned files). Each usage event records its `source`; a session never
   mixes sources.
 - **FR-M3 — Incremental & idempotent.** `meter_state.json` checkpoints each
-  session (last processed message id + byte offset). Re-running the meter
-  processes only new messages; a full re-run from empty state reproduces the
-  identical fact stream (given the same `rules_version` and inputs).
+  session: transcript size, last message id, and the rules/pricing versions
+  and attribution-inputs fingerprint it was metered under. Unchanged
+  sessions are skipped; stale ones are re-parsed, with unchanged events
+  recomputing to identical ids (skipped) and changed ones superseding. A
+  full re-run from empty state reproduces the identical fact stream (given
+  the same `rules_version` and inputs).
 - **FR-M4 — Automatic trigger.** The SessionEnd hook queues the session and
   invokes the meter asynchronously (fire-and-forget; never blocks or fails
   the session). Any spend/report/forecast skill first runs a catch-up pass,
@@ -147,7 +150,7 @@ analytics.
   | 1 | `pin` | User pinned this session/time-range to a key ("pin this session to PLAT-482") | 1.00 |
   | 2 | `active_entry` | Exactly one `opened` ledger entry matches the session's repo | 0.90 |
   | 3 | `transcript_evidence` | Tracker key in branch checkouts, commit messages, or PR operations found in the session's tool calls; applies forward from the evidence point | 0.75 |
-  | 4 | `session_branch` | Key parsed (via `branch_key_pattern`) from the git branch captured by the SessionEnd hook | 0.60 |
+  | 4 | `session_branch` | Key parsed (via `branch_key_pattern`) from the git branch recorded on the turn's own transcript lines | 0.60 |
   | 5 | `repo_default` | `config.metering.repo_defaults[repo]` mapping | 0.40 |
   | 6 | `none` | — | `unattributed`, 1.00 |
 
@@ -157,9 +160,10 @@ analytics.
 - **FR-A4 — Ambiguity handling.** If a rule yields multiple candidates
   (e.g. two open entries for the repo), the resolver falls through to the
   next rule and appends the turn to an **attribution inbox**. The next
-  interactive spend/log session presents queued exceptions for one-tap
-  resolution; resolutions are written as `correction` events and, at the
-  user's option, as a durable pin or repo default.
+  interactive spend/log session presents queued items for one-tap
+  resolution; each answer is written as a `resolution` event that becomes a
+  resolver input (the affected turns re-meter to superseding corrected
+  usage events) and, at the user's option, a durable pin or repo default.
 - **FR-A5 — Re-attribution.** Corrections are new events with `supersedes`.
   Changing rules or configs never rewrites history; the user may request a
   re-run that emits corrections computed under the new `rules_version`.
