@@ -11,6 +11,10 @@ export interface LocalCommit {
   parents: number;
   refs: string[];
   subject: string;
+  /** Commit body (%b) — where closing keywords ("Fixes #12") live in
+   * squash-merge workflows. Empty for logs captured in the pre-body
+   * format. */
+  body: string;
 }
 
 export interface RepoSummary {
@@ -33,7 +37,7 @@ export function gitLogRaw(path: string, sinceIso: string): string {
     "git",
     [
       "-C", path, "log", `--since=${sinceIso}`, "--date=iso-strict",
-      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%P%x1f%D%x1f%s%x1e",
+      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%P%x1f%D%x1f%s%x1f%b%x1e",
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 30000, maxBuffer: 64 * 1024 * 1024 },
   );
@@ -46,7 +50,7 @@ export function parseGitLog(raw: string): LocalCommit[] {
     if (line.trim() === "") continue;
     const parts = line.split(FIELD_SEP);
     if (parts.length < 6) continue;
-    const [sha, email, date, parents, refs, ...subject] = parts;
+    const [sha, email, date, parents, refs, subject, ...body] = parts;
     out.push({
       sha: sha!,
       author_email: email!,
@@ -56,7 +60,8 @@ export function parseGitLog(raw: string): LocalCommit[] {
         .split(",")
         .map((r) => r.trim())
         .filter((r) => r !== ""),
-      subject: subject.join(FIELD_SEP),
+      subject: subject!,
+      body: body.join(FIELD_SEP), // "" for pre-body-format logs
     });
   }
   return out;

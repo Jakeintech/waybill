@@ -26,6 +26,11 @@ export interface MergedChange {
   branch: string | null;
   merged_at: string;
   keys: string[];
+  /** Explicit closing references ("Fixes #12" in a PR/commit body),
+   * expanded to `owner/repo#number` form. GitHub's real issue↔PR linkage
+   * lives here, not in titles or branch names. Optional: adapters for
+   * hosts without closing-keyword semantics simply omit it. */
+  closes?: string[];
 }
 
 export interface AdapterContext {
@@ -85,6 +90,28 @@ export interface TrackerAdapter {
 export interface GitHostAdapter {
   kind: string;
   normalizeChanges(raw: unknown, ctx: AdapterContext): MergedChange[];
+}
+
+/** GitHub/GitLab closing-keyword grammar: a keyword closes exactly the one
+ * reference that follows it ("Fixes #1, #2" closes only #1 — mirroring
+ * GitHub's actual semantics, not a looser guess). */
+const CLOSING_RE =
+  /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+((?:[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+)?#[0-9]+)/gi;
+
+/**
+ * Extract closing references from PR/commit text. Bare `#15` expands
+ * against the change's own repo (`owner/repo#15`); a full cross-repo
+ * `other/repo#15` is kept verbatim. Deterministic, deduped, in order of
+ * first appearance.
+ */
+export function extractCloses(text: string, repo: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(CLOSING_RE)) {
+    const ref = m[1]!;
+    const full = ref.startsWith("#") ? `${repo}${ref}` : ref;
+    if (!out.includes(full)) out.push(full);
+  }
+  return out;
 }
 
 export function extractKeys(text: string, keyPattern: string, projectKeys: string[] = []): string[] {

@@ -136,11 +136,14 @@ export function reconcile(
   const changesByKey = new Map<string, MergedChange[]>();
   const unmatched: MergedChange[] = [];
   for (const c of changes) {
-    if (c.keys.length === 0) {
+    // Pairing refs: pattern keys from title/branch, plus explicit closing
+    // references ("Fixes #12") — GitHub's actual issue↔PR linkage.
+    const refs = [...new Set([...c.keys, ...(c.closes ?? [])])];
+    if (refs.length === 0) {
       unmatched.push(c);
       continue;
     }
-    for (const k of c.keys) {
+    for (const k of refs) {
       changesByKey.set(k, [...(changesByKey.get(k) ?? []), c]);
     }
   }

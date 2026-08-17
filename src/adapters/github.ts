@@ -1,4 +1,5 @@
 import {
+  extractCloses,
   extractKeys,
   sortChanges,
   type AdapterContext,
@@ -9,6 +10,7 @@ import {
 interface RawPr {
   html_url?: string;
   title?: string;
+  body?: string | null;
   merged_at?: string | null;
   closed_at?: string | null;
   pull_request?: { merged_at?: string | null };
@@ -68,6 +70,8 @@ export const githubAdapter: GitHostAdapter = {
         branch,
         merged_at: mergedAt,
         keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys),
+        // GitHub's real issue linkage: closing keywords in the title/body.
+        closes: extractCloses(`${title}\n${str(pr.body) ?? ""}`, repo),
       });
     }
     return sortChanges(out);

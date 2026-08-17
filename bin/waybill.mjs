@@ -619,7 +619,7 @@ function gitLogRaw(path, sinceIso) {
       "log",
       `--since=${sinceIso}`,
       "--date=iso-strict",
-      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%P%x1f%D%x1f%s%x1e"
+      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%P%x1f%D%x1f%s%x1f%b%x1e"
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3e4, maxBuffer: 64 * 1024 * 1024 }
   );
@@ -631,14 +631,16 @@ function parseGitLog(raw) {
     if (line.trim() === "") continue;
     const parts = line.split(FIELD_SEP);
     if (parts.length < 6) continue;
-    const [sha, email, date, parents, refs, ...subject] = parts;
+    const [sha, email, date, parents, refs, subject, ...body] = parts;
     out.push({
       sha,
       author_email: email,
       author_date: date,
       parents: parents.trim() === "" ? 0 : parents.trim().split(" ").length,
       refs: refs.split(",").map((r) => r.trim()).filter((r) => r !== ""),
-      subject: subject.join(FIELD_SEP)
+      subject,
+      body: body.join(FIELD_SEP)
+      // "" for pre-body-format logs
     });
   }
   return out;
@@ -3520,6 +3522,16 @@ function defaultContext(partial = {}) {
     ...partial
   };
 }
+var CLOSING_RE = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+((?:[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+)?#[0-9]+)/gi;
+function extractCloses(text, repo) {
+  const out = [];
+  for (const m of text.matchAll(CLOSING_RE)) {
+    const ref = m[1];
+    const full = ref.startsWith("#") ? `${repo}${ref}` : ref;
+    if (!out.includes(full)) out.push(full);
+  }
+  return out;
+}
 function extractKeys(text, keyPattern, projectKeys = []) {
   const out = [];
   for (const k of text.match(new RegExp(keyPattern, "g")) ?? []) {
@@ -3721,7 +3733,10 @@ var githubAdapter = {
         repo,
         branch,
         merged_at: mergedAt,
-        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys)
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys),
+        // GitHub's real issue linkage: closing keywords in the title/body.
+        closes: extractCloses(`${title}
+${str3(pr.body) ?? ""}`, repo)
       });
     }
     return sortChanges(out);
@@ -3800,8 +3815,10 @@ var gitLocalAdapter = {
     const emails = new Set(ctx.identityEmails.map((e) => e.toLowerCase()));
     const out = [];
     for (const c of parseGitLog(log)) {
-      if (c.parents <= 1) continue;
       if (emails.size > 0 && !emails.has(c.author_email.toLowerCase())) continue;
+      const closes = extractCloses(`${c.subject}
+${c.body}`, repo);
+      if (c.parents <= 1 && closes.length === 0) continue;
       out.push({
         url: null,
         // local history has no web URL; the sha is the receipt
@@ -3809,7 +3826,8 @@ var gitLocalAdapter = {
         repo,
         branch: null,
         merged_at: c.author_date,
-        keys: extractKeys(c.subject, ctx.keyPattern, ctx.projectKeys)
+        keys: extractKeys(c.subject, ctx.keyPattern, ctx.projectKeys),
+        closes
       });
     }
     return sortChanges(out);
@@ -3851,7 +3869,10 @@ var gitlabAdapter = {
         repo,
         branch,
         merged_at: mergedAt,
-        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys)
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys),
+        // GitLab MR descriptions use the same closing-keyword grammar.
+        closes: extractCloses(`${title}
+${str5(mr.description) ?? ""}`, repo)
       });
     }
     return sortChanges(out);
@@ -3966,11 +3987,12 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
   const changesByKey = /* @__PURE__ */ new Map();
   const unmatched = [];
   for (const c of changes) {
-    if (c.keys.length === 0) {
+    const refs = [.../* @__PURE__ */ new Set([...c.keys, ...c.closes ?? []])];
+    if (refs.length === 0) {
       unmatched.push(c);
       continue;
     }
-    for (const k of c.keys) {
+    for (const k of refs) {
       changesByKey.set(k, [...changesByKey.get(k) ?? [], c]);
     }
   }

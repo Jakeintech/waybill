@@ -1,4 +1,5 @@
 import {
+  extractCloses,
   extractKeys,
   sortChanges,
   type AdapterContext,
@@ -12,6 +13,7 @@ import {
 interface RawMr {
   web_url?: string;
   title?: string;
+  description?: string | null;
   source_branch?: string;
   merged_at?: string | null;
   state?: string;
@@ -60,6 +62,8 @@ export const gitlabAdapter: GitHostAdapter = {
         branch,
         merged_at: mergedAt,
         keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys),
+        // GitLab MR descriptions use the same closing-keyword grammar.
+        closes: extractCloses(`${title}\n${str(mr.description) ?? ""}`, repo),
       });
     }
     return sortChanges(out);

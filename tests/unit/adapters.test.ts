@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultContext } from "../../src/adapters/contract.ts";
+import { defaultContext, extractCloses } from "../../src/adapters/contract.ts";
 import { jiraAdapter } from "../../src/adapters/jira.ts";
 import { githubAdapter } from "../../src/adapters/github.ts";
 import { githubIssuesAdapter } from "../../src/adapters/github-issues.ts";
@@ -141,6 +141,79 @@ test("conformance kit: derived keys pass only when the URL leaf re-derives them"
   };
   const report = checkTrackerAdapter(lying, raw, CTX);
   assert.ok(report.failures.some((f) => f.includes("fabricated")));
+});
+
+test("extractCloses: GitHub's keyword-per-reference grammar, expanded against the repo", () => {
+  const t = (s: string) => extractCloses(s, "o/r");
+  assert.deepEqual(t("Fixes #12"), ["o/r#12"]);
+  assert.deepEqual(t("fixed #3 and closes #4"), ["o/r#3", "o/r#4"]);
+  assert.deepEqual(t("Resolves other/repo#9"), ["other/repo#9"]);
+  assert.deepEqual(t("Closes: #7"), ["o/r#7"]);
+  // A keyword closes only the one ref that follows it — GitHub's actual rule.
+  assert.deepEqual(t("closes #1, #2"), ["o/r#1"]);
+  // Mentions without a keyword are not closures.
+  assert.deepEqual(t("see #5 and PR #6"), []);
+  assert.deepEqual(t("fix everything eventually"), []);
+  // Deduped, first-appearance order.
+  assert.deepEqual(t("fixes #2\nFixes #2\ncloses #1"), ["o/r#2", "o/r#1"]);
+});
+
+test("closing-keyword linkage: PR bodies and squash commits pair with github-issues items", () => {
+  // github adapter: the closing ref lives in the body, not title or branch.
+  const prs = [{
+    html_url: "https://github.com/o/r/pull/40",
+    title: "Tighten the widget",
+    body: "Refactors the frobnicator.\n\nFixes #12",
+    merged_at: "2026-08-15T10:00:00Z",
+    head: { ref: "tighten-widget" },
+    base: { repo: { full_name: "o/r" } },
+  }];
+  const changes = githubAdapter.normalizeChanges(prs, CTX);
+  assert.deepEqual(changes[0]!.keys, []); // nothing in title/branch — the old dead end
+  assert.deepEqual(changes[0]!.closes, ["o/r#12"]);
+  assert.deepEqual(checkGitHostAdapter(githubAdapter, prs, CTX).failures, []);
+
+  // git-local: a single-parent squash commit whose body closes an issue is
+  // a merged change; a plain commit without a closing ref stays invisible.
+  const F = "";
+  const R = "";
+  const localRaw = {
+    repo: "o/r",
+    log:
+      `abc1234abc${F}me@example.com${F}2026-08-14T12:00:00+00:00${F}p1${F}${F}feat: the widget${F}Long story.\n\nCloses #12${R}\n` +
+      `def5678def${F}me@example.com${F}2026-08-14T13:00:00+00:00${F}p1${F}${F}chore: tidy${F}${R}`,
+  };
+  const local = gitLocalAdapter.normalizeChanges(localRaw, CTX);
+  assert.equal(local.length, 1);
+  assert.deepEqual(local[0]!.closes, ["o/r#12"]);
+  assert.deepEqual(checkGitHostAdapter(gitLocalAdapter, localRaw, CTX).failures, []);
+
+  // reconcile pairs via closes: the done item's orphan carries the receipts.
+  const items = githubIssuesAdapter.normalizeItems(
+    [{
+      number: 12, title: "The widget is loose", state: "closed", state_reason: "completed",
+      closed_at: "2026-08-15T09:00:00Z", html_url: "https://github.com/o/r/issues/12",
+    }],
+    CTX,
+  );
+  const plan = reconcile(items, [...changes, ...local], [], "2026-08-16T00:00:00Z");
+  assert.equal(plan.orphans.length, 1);
+  assert.equal(plan.orphans[0]!.tracker_key, "o/r#12");
+  assert.deepEqual(plan.orphans[0]!.artifacts.prs, ["https://github.com/o/r/pull/40"]);
+  assert.deepEqual(plan.orphans[0]!.artifacts.commits, ["abc1234abc"]);
+  assert.equal(plan.unmatched_changes.length, 0);
+});
+
+test("conformance kit: a closes ref without a closing keyword in the payload is flagged", () => {
+  const fabricating = {
+    kind: "closes-fabricator",
+    normalizeChanges: () => [{
+      url: null, title: "x (abc1234)", repo: "o/r", branch: null,
+      merged_at: "2026-08-14T12:00:00+00:00", keys: [], closes: ["o/r#99"],
+    }],
+  };
+  const report = checkGitHostAdapter(fabricating, { any: "payload" }, CTX);
+  assert.ok(report.failures.some((f) => f.includes("no closing keyword")));
 });
 
 test("conformance kit: bundled adapters pass", () => {

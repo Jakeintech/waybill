@@ -59,7 +59,9 @@ own data.
    raw. The REST `/issues` shape works too.
 3. **Git host (GitHub MCP):** search PRs authored by the user in configured
    repos merged since `last_sync` into the default branch (e.g.
-   `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Save the
+   `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Request
+   the PR **body** along with url/title/branch/merged_at — closing keywords
+   there ("Fixes #12") are how PRs link to GitHub issues. Save the
    raw JSON to a temp file. **No MCP servers?** Use the git-local floor —
    the engine reads local history itself, no files needed:
    `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" sync-plan --local-repo <path-to-repo> --baseline` (repeat

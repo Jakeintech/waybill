@@ -51,7 +51,15 @@ answer, scoped to the current user:
 - **Tracker**: my issues updated since \<date\> in \<projects\>, with key,
   title, points/estimate, epic/parent, iteration, status + resolution date.
 - **Git host**: my merged PRs/MRs since \<date\> into the default branch of
-  \<repos\>, with URL, title, source branch, merge timestamp.
+  \<repos\>, with URL, title, source branch, merge timestamp — **and the
+  body/description**: closing keywords there ("Fixes #12") are GitHub's and
+  GitLab's real issue↔PR linkage, and the adapters parse them into
+  `closes` refs (`owner/repo#number`) that reconcile pairs against tracker
+  items. A keyword closes exactly the one reference that follows it,
+  mirroring GitHub's own grammar; the conformance kit rejects a `closes`
+  ref with no closing keyword in the raw payload. git-local reads commit
+  bodies too: a squash-merged commit that says "Fixes #12" counts as a
+  merged change even with linear history.
 
 Trackers without story points: leave `points` null and lean on the
 cycle-time baseline instead — do not invent a point scale.

@@ -1,5 +1,6 @@
 import { parseGitLog } from "../gitlocal/gitlocal.ts";
 import {
+  extractCloses,
   extractKeys,
   sortChanges,
   type AdapterContext,
@@ -8,9 +9,14 @@ import {
 } from "./contract.ts";
 
 /**
- * The zero-auth floor: merge commits from local `git log` output become
- * MergedChanges. `raw` is `{repo, log}` where log is the %x1f/%x1e-delimited
- * text from gitLogRaw(). Only the user's own commits (identityEmails). Pure.
+ * The zero-auth floor: local `git log` output becomes MergedChanges. `raw`
+ * is `{repo, log}` where log is the %x1f/%x1e-delimited text from
+ * gitLogRaw(). Two commit shapes qualify: merge commits (>1 parent), and —
+ * because GitHub squash-flow produces linear history where the squashed
+ * commit IS the merged change — a single-parent commit whose message
+ * carries a closing reference ("Fixes #12"). Plain commits without one
+ * stay invisible, as before. Only the user's own commits (identityEmails).
+ * Pure.
  */
 export const gitLocalAdapter: GitHostAdapter = {
   kind: "local",
@@ -20,8 +26,9 @@ export const gitLocalAdapter: GitHostAdapter = {
     const emails = new Set(ctx.identityEmails.map((e) => e.toLowerCase()));
     const out: MergedChange[] = [];
     for (const c of parseGitLog(log)) {
-      if (c.parents <= 1) continue;
       if (emails.size > 0 && !emails.has(c.author_email.toLowerCase())) continue;
+      const closes = extractCloses(`${c.subject}\n${c.body}`, repo);
+      if (c.parents <= 1 && closes.length === 0) continue;
       out.push({
         url: null, // local history has no web URL; the sha is the receipt
         title: `${c.subject} (${c.sha.slice(0, 10)})`,
@@ -29,6 +36,7 @@ export const gitLocalAdapter: GitHostAdapter = {
         branch: null,
         merged_at: c.author_date,
         keys: extractKeys(c.subject, ctx.keyPattern, ctx.projectKeys),
+        closes,
       });
     }
     return sortChanges(out);

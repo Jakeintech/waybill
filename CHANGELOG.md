@@ -21,6 +21,16 @@ compatibility surface.
   a point scale is never invented). Both the gh CLI and REST payload
   shapes are accepted. Own-data scoping keeps unassigned issues and drops
   issues assigned only to someone else.
+- **Closing-keyword linkage** — `MergedChange` gains `closes`:
+  "Fixes #12" in a PR body, MR description, or commit body now pairs the
+  change with its tracker item (GitHub's actual linkage mechanism —
+  title/branch pattern matching alone was structurally blind to it).
+  Keyword-per-reference grammar mirrors GitHub exactly; bare `#15` expands
+  against the change's own repo. git-local now captures commit bodies and
+  treats a squash-merged commit carrying a closing ref as a merged change,
+  so linear-history GitHub-flow repos get receipts too. The conformance
+  kit verifies every `closes` ref against a closing keyword in the raw
+  payload.
 
 ## [1.3.0] - 2026-08-17
 

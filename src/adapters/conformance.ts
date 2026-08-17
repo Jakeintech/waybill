@@ -19,6 +19,11 @@ function isIso(v: string): boolean {
   return !Number.isNaN(Date.parse(v));
 }
 
+/** The same closing-keyword grammar the adapters use (contract.ts) — the
+ * kit re-finds every legal reference in the raw payload's string leaves. */
+const CLOSING_RE =
+  /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+((?:[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+)?#[0-9]+)/gi;
+
 /** Every string/number leaf in the raw payload, for no-fabrication checks. */
 function leafSet(raw: unknown, into = new Set<string>()): Set<string> {
   if (typeof raw === "string") into.add(raw);
@@ -117,8 +122,14 @@ export function checkGitHostAdapter(
   }
   const leaves = leafSet(raw);
   const keyRe = new RegExp(ctx.keyPattern, "g");
+  // Legal closing refs: every keyword-attached reference anywhere in the
+  // raw payload's text, kept in both bare (#15) and full (o/r#15) forms.
+  const closable = new Set<string>();
+  for (const leaf of leaves) {
+    for (const m of leaf.matchAll(CLOSING_RE)) closable.add(m[1]!);
+  }
   for (const change of a) {
-    checkChange(change, keyRe, leaves, failures);
+    checkChange(change, keyRe, leaves, closable, failures);
   }
   return { adapter: adapter.kind, passed: failures.length === 0, failures };
 }
@@ -127,6 +138,7 @@ function checkChange(
   change: MergedChange,
   keyRe: RegExp,
   leaves: Set<string>,
+  closable: Set<string>,
   failures: string[],
 ): void {
   const label = change.url ?? change.title;
@@ -138,6 +150,15 @@ function checkChange(
   const legal = new Set(haystack.match(keyRe) ?? []);
   for (const k of change.keys) {
     if (!legal.has(k)) failures.push(`${label}: key ${k} does not occur in title/branch`);
+  }
+  // A closes ref is legal only if the payload actually carries a closing
+  // keyword for it — verbatim cross-repo form, or the bare form expanded
+  // against this change's own repo.
+  for (const k of change.closes ?? []) {
+    const bare = k.startsWith(`${change.repo}#`) ? k.slice(change.repo.length) : null;
+    if (!closable.has(k) && !(bare !== null && closable.has(bare))) {
+      failures.push(`${label}: closes ${k} has no closing keyword in the raw payload`);
+    }
   }
   if (change.repo.trim() === "") failures.push(`${label}: empty repo identity`);
 }
