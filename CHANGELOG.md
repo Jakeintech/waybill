@@ -7,6 +7,31 @@ compatibility surface.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-17
+
+### Fixed
+- **Clean install, clean panel** — the bundled GitHub MCP server used a
+  hard `${GITHUB_MCP_PAT}` reference, so every fresh install showed a red
+  "missing environment variable" plugin error before any PAT existed. It
+  now expands with a default (`${GITHUB_MCP_PAT:-}`): the plugin loads
+  clean, and the GitHub upgrade simply stays inactive until a token is set.
+
+### Added
+- **Credential help in `waybill status`** — when `GITHUB_MCP_PAT` is
+  missing, status says so and prints the exact fix, generating the token
+  from an already-authenticated gh CLI when one exists
+  (`export GITHUB_MCP_PAT="$(gh auth token)"`), else the fine-grained-PAT
+  URL; plus the Atlassian `/mcp` OAuth pointer. Env checks only — Waybill
+  still never phones home.
+- **`waybill --version`** and the engine version in the `status` header
+  (embedded at build time), plus a README "Updating" section:
+  `claude plugin update waybill@waybill`, restart, done — Claude Code does
+  not push update notifications, and Waybill will not check on its own.
+- **The full test plan** ([docs/testing.md](docs/testing.md)): invariant →
+  suite map, golden protocol, CI matrix, the manual test matrix, the
+  FINALPASS release gate, adversarial-review cadence, and honest coverage
+  gaps.
+
 ## [1.1.0] - 2026-08-17
 
 Driven by a hands-on user critique — every item below was reproduced in a
@@ -289,7 +314,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Jakeintech/waybill/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Jakeintech/waybill/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Jakeintech/waybill/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Jakeintech/waybill/compare/v0.4.0...v1.0.0

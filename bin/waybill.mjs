@@ -2946,6 +2946,7 @@ function runPricing(home, args, json) {
 import { existsSync as existsSync9, readFileSync as readFileSync11, readdirSync as readdirSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { join as join10 } from "node:path";
+import { execFileSync as execFileSync6 } from "node:child_process";
 function fmtInt2(n) {
   return n.toLocaleString("en-US");
 }
@@ -2984,10 +2985,21 @@ function runStatus(home, args, json) {
   const lastMine = Object.values(state.sessions).map((s) => s.metered_through_ts ?? "").filter((t) => t !== "").sort().pop() ?? null;
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
   const findings = verifyHome(home);
+  const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
+  let ghCliAvailable = false;
+  try {
+    execFileSync6("gh", ["auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5e3 });
+    ghCliAvailable = true;
+  } catch {
+  }
   const data = {
     home,
     initialized,
     retention,
+    mcp: {
+      github_pat_set: githubPatSet,
+      gh_cli_authenticated: ghCliAvailable
+    },
     metering: {
       sessions_metered: Object.keys(state.sessions).length,
       last_metered_through: lastMine,
@@ -3007,7 +3019,7 @@ function runStatus(home, args, json) {
     return findings.length === 0 ? 0 : 1;
   }
   const lines = [];
-  lines.push(`waybill status \u2014 ${home}`);
+  lines.push(`waybill status \u2014 ${home} (engine ${ENGINE_VERSION})`);
   lines.push(initialized ? "initialized: yes (git-backed, append-only)" : "initialized: NO \u2014 run: waybill init");
   lines.push(
     `retention: ${retention.effective}` + (retention.recommendation ? ` \u2014 recommend: ${retention.recommendation}` : "")
@@ -3022,6 +3034,15 @@ function runStatus(home, args, json) {
   lines.push(
     findings.length === 0 ? "verify: all checks pass" : `verify: ${findings.length} finding(s) \u2014 run: waybill verify`
   );
+  if (!githubPatSet) {
+    lines.push(
+      "mcp: GITHUB_MCP_PAT not set \u2014 the GitHub sync upgrade is inactive (everything else works)."
+    );
+    lines.push(
+      ghCliAvailable ? '  You have an authenticated gh CLI \u2014 generate it from that:  export GITHUB_MCP_PAT="$(gh auth token)"' : "  Generate a fine-grained read-only PAT at https://github.com/settings/personal-access-tokens and:  export GITHUB_MCP_PAT=github_pat_\u2026"
+    );
+    lines.push("  (Atlassian needs no token \u2014 run /mcp in Claude Code and complete its OAuth.)");
+  }
   process.stdout.write(lines.join("\n") + "\n");
   return findings.length === 0 ? 0 : 1;
 }
@@ -3115,15 +3136,15 @@ function runQuery(home, args) {
 }
 
 // src/cli/cmd-resolve.ts
-import { execFileSync as execFileSync6 } from "node:child_process";
+import { execFileSync as execFileSync7 } from "node:child_process";
 import { existsSync as existsSync10 } from "node:fs";
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 function commitLedger2(home, message) {
   try {
-    execFileSync6("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
-    execFileSync6("git", ["-C", home, "commit", "-m", message], {
+    execFileSync7("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
+    execFileSync7("git", ["-C", home, "commit", "-m", message], {
       stdio: ["ignore", "ignore", "ignore"],
       timeout: 15e3
     });
@@ -3251,7 +3272,7 @@ function runResolve(home, args, json) {
 }
 
 // src/cli/cmd-sync-plan.ts
-import { execFileSync as execFileSync7 } from "node:child_process";
+import { execFileSync as execFileSync8 } from "node:child_process";
 import { readFileSync as readFileSync12 } from "node:fs";
 
 // src/adapters/contract.ts
@@ -3810,8 +3831,8 @@ function runSyncPlan(home, args) {
     config.last_sync = plan2.generated_at;
     saveConfig(home, config);
     try {
-      execFileSync7("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
-      execFileSync7("git", ["-C", home, "commit", "-m", `sync: ${events.length} entr${events.length === 1 ? "y" : "ies"} applied`], {
+      execFileSync8("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
+      execFileSync8("git", ["-C", home, "commit", "-m", `sync: ${events.length} entr${events.length === 1 ? "y" : "ies"} applied`], {
         stdio: ["ignore", "ignore", "ignore"],
         timeout: 15e3
       });
@@ -3876,6 +3897,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
+var ENGINE_VERSION = true ? "1.1.1" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
@@ -3937,6 +3959,14 @@ async function main(argv) {
     process.stdout.write(USAGE);
     return 0;
   }
+  if (cmd === "--version" || cmd === "version") {
+    process.stdout.write(
+      `waybill ${ENGINE_VERSION}
+Update: claude plugin update waybill@waybill  (then restart Claude Code)
+`
+    );
+    return 0;
+  }
   const cli = parseGlobal(rest);
   switch (cmd) {
     case "init":
@@ -3988,6 +4018,7 @@ main(process.argv.slice(2)).then(
   }
 );
 export {
+  ENGINE_VERSION,
   main,
   parseGlobal
 };

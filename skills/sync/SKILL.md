@@ -9,7 +9,7 @@ description: >
   Works zero-config from local git history; the Atlassian and/or GitHub MCP
   servers bundled with this plugin (or equivalents) upgrade it.
 metadata:
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # Sync
@@ -96,4 +96,9 @@ started using Claude Code) and apply only its baseline.
 
 If an MCP server is not connected or errors, say which one, do the half
 that works (the git-local floor always works), and never substitute guessed
-data for the missing half.
+data for the missing half. Then help the user connect it — with commands,
+not links: for GitHub, `export GITHUB_MCP_PAT="$(gh auth token)"` when an
+authenticated gh CLI exists (check with `gh auth status`), else a
+fine-grained read-only PAT from github.com/settings/personal-access-tokens;
+for Atlassian, `/mcp` and its OAuth flow. `node "$WAYBILL" status` prints
+the same remediation.

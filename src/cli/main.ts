@@ -1,5 +1,10 @@
 import { resolveHome } from "../core/home.ts";
 import { renderFindings, verifyHome } from "../verify/verify.ts";
+
+// Injected by the build (esbuild --define); "dev" when running from src/.
+declare const __WAYBILL_VERSION__: string | undefined;
+export const ENGINE_VERSION: string =
+  typeof __WAYBILL_VERSION__ === "string" ? __WAYBILL_VERSION__ : "dev";
 import { runAppend } from "./cmd-append.ts";
 import { runBootstrap } from "./cmd-bootstrap.ts";
 import { runInit } from "./cmd-init.ts";
@@ -80,6 +85,12 @@ export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
     process.stdout.write(USAGE);
+    return 0;
+  }
+  if (cmd === "--version" || cmd === "version") {
+    process.stdout.write(
+      `waybill ${ENGINE_VERSION}\nUpdate: claude plugin update waybill@waybill  (then restart Claude Code)\n`,
+    );
     return 0;
   }
   const cli = parseGlobal(rest);

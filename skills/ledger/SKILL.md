@@ -8,7 +8,7 @@ description: >
   another waybill skill (log, spend, sync, report, forecast) needs to read
   or write ledger data.
 metadata:
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # The Waybill Ledger

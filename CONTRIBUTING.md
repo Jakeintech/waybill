@@ -48,7 +48,9 @@ bash tests/test-capture-session.sh  # hook behavior
 
 CI runs the same jobs on every PR; green checks are required to merge. If
 you change `src/` without rebuilding `bin/`, the build-diff job fails — the
-committed artifact must provably match the sources.
+committed artifact must provably match the sources. The full test plan —
+what each suite proves, golden protocol, manual matrix, release gate — is
+[docs/testing.md](docs/testing.md).
 
 ## Writing and changing skills
 

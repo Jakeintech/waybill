@@ -7,7 +7,9 @@ import { readEvents } from "../core/streams.ts";
 import { countOpenAmbiguities, spendData } from "../projections/queries.ts";
 import { loadState } from "../meter/state.ts";
 import { verifyHome } from "../verify/verify.ts";
+import { execFileSync } from "node:child_process";
 import { checkRetention } from "./cmd-init.ts";
+import { ENGINE_VERSION } from "./main.ts";
 
 function fmtInt(n: number): string {
   return n.toLocaleString("en-US");
@@ -59,10 +61,25 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
   const findings = verifyHome(home);
 
+  // MCP credential check — env only, no network: helps generate the
+  // credentials instead of leaving a red error in the plugin panel.
+  const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
+  let ghCliAvailable = false;
+  try {
+    execFileSync("gh", ["auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5000 });
+    ghCliAvailable = true;
+  } catch {
+    // gh missing or unauthenticated — fine
+  }
+
   const data = {
     home,
     initialized,
     retention,
+    mcp: {
+      github_pat_set: githubPatSet,
+      gh_cli_authenticated: ghCliAvailable,
+    },
     metering: {
       sessions_metered: Object.keys(state.sessions).length,
       last_metered_through: lastMine,
@@ -84,7 +101,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   }
 
   const lines: string[] = [];
-  lines.push(`waybill status — ${home}`);
+  lines.push(`waybill status — ${home} (engine ${ENGINE_VERSION})`);
   lines.push(initialized ? "initialized: yes (git-backed, append-only)" : "initialized: NO — run: waybill init");
   lines.push(
     `retention: ${retention.effective}` +
@@ -109,6 +126,17 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       ? "verify: all checks pass"
       : `verify: ${findings.length} finding(s) — run: waybill verify`,
   );
+  if (!githubPatSet) {
+    lines.push(
+      "mcp: GITHUB_MCP_PAT not set — the GitHub sync upgrade is inactive (everything else works).",
+    );
+    lines.push(
+      ghCliAvailable
+        ? '  You have an authenticated gh CLI — generate it from that:  export GITHUB_MCP_PAT="$(gh auth token)"'
+        : "  Generate a fine-grained read-only PAT at https://github.com/settings/personal-access-tokens and:  export GITHUB_MCP_PAT=github_pat_…",
+    );
+    lines.push("  (Atlassian needs no token — run /mcp in Claude Code and complete its OAuth.)");
+  }
   process.stdout.write(lines.join("\n") + "\n");
   return findings.length === 0 ? 0 : 1;
 }

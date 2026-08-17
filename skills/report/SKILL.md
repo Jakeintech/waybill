@@ -14,7 +14,7 @@ description: >
   narrative report around those numbers.) Produces a one-page,
   receipt-backed report; never invents numbers.
 metadata:
-  version: "1.1.0"
+  version: "1.1.1"
 ---
 
 # Report

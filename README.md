@@ -32,17 +32,39 @@ identity from `git config`, checks your transcript-retention setting, and
 renders a **bootstrap receipt** from your local git history alone — your
 shipped work, itemized, in under a minute.
 
+### Updating
+
+Claude Code doesn't push plugin-update notifications; updating is one
+command whenever you like:
+
+```bash
+claude plugin update waybill@waybill
+```
+
+Then restart Claude Code. `waybill status` (or `waybill --version`) shows
+the engine version you're running. Waybill never checks for updates on its
+own — no network calls without you asking is a [commitment](#what-waybill-will-never-do),
+not an oversight. Releases and changelogs live on the
+[releases page](https://github.com/Jakeintech/waybill/releases); watch the
+repo (Watch → Custom → Releases) if you want GitHub to email you.
+
 ### The upgrade path (optional, five minutes)
 
 Connecting your tracker and git host turns commits into receipts with story
 points, epics, and merge timestamps:
 
 ```bash
-export GITHUB_MCP_PAT=github_pat_...   # fine-grained PAT, read access to your repos/PRs
+# Easiest — reuse your authenticated gh CLI:
+export GITHUB_MCP_PAT="$(gh auth token)"
+# Or mint a fine-grained read-only PAT (repos/PRs) at
+# https://github.com/settings/personal-access-tokens and export it instead.
 ```
 
-1. `/mcp` → complete the OAuth flow for `atlassian`.
+1. `/mcp` → complete the OAuth flow for `atlassian` (no token needed).
 2. Say **"sync my ledger and give me a bootstrap report."**
+
+Not sure what is or is not connected? `waybill status` says, and prints the
+exact command to fix anything missing.
 
 That imports your last ~90 days of *your own* issues and merged PRs and
 produces a facts-only report — shipped items, points, PRs, deploys — before
@@ -110,7 +132,7 @@ These are commitments, not gaps. See [ROADMAP.md](ROADMAP.md#non-goals).
 
 - **Tutorial**: this README's quickstart, above.
 - **How-to**: [swap Jira/GitHub for Linear, GitLab, Bitbucket…](docs/adapters.md)
-- **Reference**: [ledger entry & config schema](skills/ledger/references/schema.md) · [skill reference](docs/skills.md) — the docs Claude reads are the docs you read.
+- **Reference**: [ledger entry & config schema](skills/ledger/references/schema.md) · [skill reference](docs/skills.md) · [test plan](docs/testing.md) — the docs Claude reads are the docs you read.
 - **Explanation**: [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](ROADMAP.md) · [brand & voice](docs/brand.md) · [schema freeze & migration policy](docs/migration.md)
 - **Spec**: [full product specification](docs/product-spec.md) — the normative design the shipped engine implements.
 
