@@ -25,7 +25,8 @@ export WAYBILL_HOME="$TMP/ledger"
 printf '%s' "$SAMPLE" | bash "$SCRIPT"
 check "exits 0 on valid input" $?
 count="$(find "$TMP/ledger/pending-sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
-[ "$count" = "1" ]; check "creates exactly one capture file" $?
+if [ "$count" = "1" ]; then rc=0; else rc=1; fi
+check "creates exactly one capture file" $rc
 
 # 2. The capture preserves the session_id. ---------------------------------
 grep -q '"session_id"' "$TMP/ledger/pending-sessions/"*.json 2>/dev/null
@@ -46,7 +47,8 @@ export WAYBILL_HOME="$TMP/ledger"
 printf '' | bash "$SCRIPT"
 check "exits 0 on empty input" $?
 count="$(find "$TMP/ledger/pending-sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
-[ "$count" = "0" ]; check "creates no file on empty input" $?
+if [ "$count" = "0" ]; then rc=0; else rc=1; fi
+check "creates no file on empty input" $rc
 rm -rf "$TMP"
 
 # 5. Unwritable destination still exits 0 (must never break a session). -----

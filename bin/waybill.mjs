@@ -39,6 +39,13 @@ function sha256Bytes(input) {
 function escrowPayload(keyOrTitle, low, high, loggedAt) {
   return `estimate.v1|${keyOrTitle}|${low}|${high}|hours|${loggedAt}`;
 }
+function sealEstimate(keyOrTitle, estimate) {
+  return {
+    algo: "sha256",
+    payload: "estimate.v1",
+    sha256: sha256Hex(escrowPayload(keyOrTitle, estimate.low, estimate.high, estimate.logged_at))
+  };
+}
 function checkEscrow(entry) {
   if (!entry.escrow) return { status: "absent" };
   const est = entry.estimate_without_claude_hours;
@@ -359,14 +366,111 @@ function renderFindings(findings, home) {
   return lines.join("\n");
 }
 
-// src/meter/run.ts
+// src/cli/cmd-append.ts
 import { execFileSync } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync4, readdirSync as readdirSync2, statSync } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { join as join5 } from "node:path";
+import { readFileSync as readFileSync2 } from "node:fs";
+var STREAMS2 = ["ledger", "usage", "sessions", "exceptions"];
+function runAppend(home, args, json) {
+  let stream = null;
+  let bodyJson = null;
+  let commit = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--stream") {
+      const s = args[++i];
+      if (!s || !STREAMS2.includes(s)) {
+        process.stderr.write(`waybill append: --stream must be one of ${STREAMS2.join(", ")}
+`);
+        return 2;
+      }
+      stream = s;
+    } else if (a === "--event") bodyJson = args[++i] ?? null;
+    else if (a === "--stdin") bodyJson = readFileSync2(0, "utf8");
+    else if (a === "--commit") commit = true;
+    else {
+      process.stderr.write(`waybill append: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  if (!stream || !bodyJson) {
+    process.stderr.write("waybill append: pass --stream <name> and --event '<json>' (or --stdin)\n");
+    return 2;
+  }
+  let body;
+  try {
+    body = JSON.parse(bodyJson);
+  } catch (err) {
+    process.stderr.write(`waybill append: event is not valid JSON: ${err.message}
+`);
+    return 2;
+  }
+  if ("id" in body) {
+    process.stderr.write("waybill append: do not supply an id \u2014 ids are derived from content\n");
+    return 2;
+  }
+  if (typeof body["ts"] !== "string" || Number.isNaN(Date.parse(body["ts"]))) {
+    process.stderr.write("waybill append: event needs an ISO 8601 ts\n");
+    return 2;
+  }
+  if (typeof body["kind"] !== "string") {
+    process.stderr.write("waybill append: event needs a kind\n");
+    return 2;
+  }
+  body["schema_version"] = SCHEMA_VERSION;
+  if (!("supersedes" in body)) body["supersedes"] = null;
+  if (body["supersedes"] !== null) {
+    const target = body["supersedes"];
+    const exists = readEvents(home, stream).some((e) => e.id === target);
+    if (!exists) {
+      process.stderr.write(`waybill append: supersedes target ${String(target)} not found in ${stream}
+`);
+      return 1;
+    }
+  }
+  if (stream === "ledger" && body["kind"] === "opened") {
+    const est = body["estimate_without_claude_hours"];
+    if (est && est.pre_registered === true && !body["escrow"]) {
+      if (typeof est.low !== "number" || typeof est.high !== "number") {
+        process.stderr.write("waybill append: estimate needs numeric low/high\n");
+        return 2;
+      }
+      if (!est.logged_at) est.logged_at = body["ts"];
+      const keyOrTitle = body["tracker_key"] ?? body["title"];
+      body["escrow"] = sealEstimate(keyOrTitle, est);
+    }
+    if (est && est.pre_registered === true && Date.parse(est.logged_at) > Date.parse(body["ts"])) {
+      process.stderr.write("waybill append: refusing a pre_registered estimate logged after the entry ts\n");
+      return 1;
+    }
+  }
+  const event = finalizeEvent(stream, body);
+  const duplicate = readEvents(home, stream).some((e) => e.id === event.id);
+  if (duplicate) {
+    if (json) process.stdout.write(JSON.stringify({ id: event.id, appended: false, reason: "duplicate" }) + "\n");
+    else process.stdout.write(`already present: ${event.id}
+`);
+    return 0;
+  }
+  appendEvents(home, stream, [event]);
+  if (commit) {
+    try {
+      execFileSync("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
+      execFileSync("git", ["-C", home, "commit", "-m", `ledger: ${String(body["kind"])} appended`], {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 15e3
+      });
+    } catch {
+    }
+  }
+  if (json) process.stdout.write(JSON.stringify({ id: event.id, appended: true }) + "\n");
+  else process.stdout.write(`appended ${event.id} to ${stream}
+`);
+  return 0;
+}
 
 // src/core/config.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync as readFileSync3, writeFileSync } from "node:fs";
 import { join as join3 } from "node:path";
 function defaultConfig() {
   return {
@@ -398,7 +502,7 @@ function configPath(home) {
 function loadConfig(home) {
   const p = configPath(home);
   if (!existsSync2(p)) return defaultConfig();
-  const raw = JSON.parse(readFileSync2(p, "utf8"));
+  const raw = JSON.parse(readFileSync3(p, "utf8"));
   const base = defaultConfig();
   return {
     ...base,
@@ -411,6 +515,112 @@ function loadConfig(home) {
     budgets: { ...base.budgets, ...raw.budgets }
   };
 }
+function saveConfig(home, config) {
+  writeFileSync(configPath(home), JSON.stringify(config, null, 2) + "\n", "utf8");
+}
+function identityPath(home) {
+  return join3(home, "identity.json");
+}
+function loadIdentity(home) {
+  const p = identityPath(home);
+  if (!existsSync2(p)) return null;
+  return JSON.parse(readFileSync3(p, "utf8"));
+}
+function saveIdentity(home, identity) {
+  writeFileSync(identityPath(home), JSON.stringify(identity, null, 2) + "\n", "utf8");
+}
+
+// src/gitlocal/gitlocal.ts
+import { execFileSync as execFileSync2 } from "node:child_process";
+import { existsSync as existsSync3 } from "node:fs";
+var FIELD_SEP = "";
+var RECORD_SEP = "";
+function gitLogRaw(path, sinceIso) {
+  return execFileSync2(
+    "git",
+    [
+      "-C",
+      path,
+      "log",
+      `--since=${sinceIso}`,
+      "--date=iso-strict",
+      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%P%x1f%D%x1f%s%x1e"
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3e4, maxBuffer: 64 * 1024 * 1024 }
+  );
+}
+function parseGitLog(raw) {
+  const out = [];
+  for (const record of raw.split(RECORD_SEP)) {
+    const line = record.replace(/^\n/, "");
+    if (line.trim() === "") continue;
+    const parts = line.split(FIELD_SEP);
+    if (parts.length < 6) continue;
+    const [sha, email, date, parents, refs, ...subject] = parts;
+    out.push({
+      sha,
+      author_email: email,
+      author_date: date,
+      parents: parents.trim() === "" ? 0 : parents.trim().split(" ").length,
+      refs: refs.split(",").map((r) => r.trim()).filter((r) => r !== ""),
+      subject: subject.join(FIELD_SEP)
+    });
+  }
+  return out;
+}
+function summarizeRepo(repo, path, commits, identityEmails, keyPattern) {
+  const emails = new Set(identityEmails.map((e) => e.toLowerCase()));
+  const mine = commits.filter((c) => emails.has(c.author_email.toLowerCase()));
+  const keyRe = new RegExp(keyPattern, "g");
+  const keyCounts = /* @__PURE__ */ new Map();
+  const tags = [];
+  const days = /* @__PURE__ */ new Set();
+  let first = null;
+  let last = null;
+  let merges = 0;
+  for (const c of mine) {
+    if (c.parents > 1) merges += 1;
+    days.add(c.author_date.slice(0, 10));
+    if (first === null || c.author_date < first) first = c.author_date;
+    if (last === null || c.author_date > last) last = c.author_date;
+    for (const k of c.subject.match(keyRe) ?? []) {
+      keyCounts.set(k, (keyCounts.get(k) ?? 0) + 1);
+    }
+    for (const ref of c.refs) {
+      if (ref.startsWith("tag: ") && !tags.includes(ref.slice(5))) tags.push(ref.slice(5));
+    }
+  }
+  const keys = [...keyCounts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1));
+  return {
+    repo,
+    path,
+    commits: mine.length,
+    merges,
+    active_days: days.size,
+    first_date: first ? first.slice(0, 10) : null,
+    last_date: last ? last.slice(0, 10) : null,
+    keys,
+    tags
+  };
+}
+function isGitRepo(path) {
+  if (!existsSync3(path)) return false;
+  try {
+    execFileSync2("git", ["-C", path, "rev-parse", "--git-dir"], {
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 5e3
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// src/meter/run.ts
+import { execFileSync as execFileSync3 } from "node:child_process";
+import { existsSync as existsSync5, readFileSync as readFileSync5, readdirSync as readdirSync2, statSync } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join5 } from "node:path";
 
 // src/attribution/resolver.ts
 var RULES_VERSION = "1";
@@ -909,17 +1119,17 @@ function sortRecord(record) {
 }
 
 // src/meter/state.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join4 } from "node:path";
 function statePath(home) {
   return join4(home, "meter_state.json");
 }
 function loadState(home) {
   const p = statePath(home);
-  if (!existsSync3(p)) {
+  if (!existsSync4(p)) {
     return { schema_version: 2, rules_version: RULES_VERSION, pricing_version: null, sessions: {} };
   }
-  return JSON.parse(readFileSync3(p, "utf8"));
+  return JSON.parse(readFileSync4(p, "utf8"));
 }
 function saveState(home, state) {
   writeFileSync2(statePath(home), JSON.stringify(state, null, 2) + "\n", "utf8");
@@ -933,9 +1143,9 @@ function isCurrent(state, sessionId, fileBytes, pricingVersion) {
 
 // src/meter/run.ts
 function repoFromCwd(cwd) {
-  if (!cwd || !existsSync4(cwd)) return null;
+  if (!cwd || !existsSync5(cwd)) return null;
   try {
-    const url = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], {
+    const url = execFileSync3("git", ["-C", cwd, "remote", "get-url", "origin"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 5e3
@@ -950,7 +1160,7 @@ function defaultProjectsDir() {
   return join5(homedir2(), ".claude", "projects");
 }
 function listTranscripts(projectsDir) {
-  if (!existsSync4(projectsDir)) return [];
+  if (!existsSync5(projectsDir)) return [];
   const out = [];
   for (const proj of readdirSync2(projectsDir).sort()) {
     const dir = join5(projectsDir, proj);
@@ -969,7 +1179,7 @@ function listTranscripts(projectsDir) {
 function meterFile(home, transcriptPath, repoHint) {
   const config = loadConfig(home);
   const state = loadState(home);
-  const raw = readFileSync4(transcriptPath, "utf8");
+  const raw = readFileSync5(transcriptPath, "utf8");
   const fileBytes = statSync(transcriptPath).size;
   const probe = parseTranscript(raw, { branchKeyPattern: config.metering.branch_key_pattern });
   const sessionId = probe.sessionId;
@@ -1015,6 +1225,264 @@ function meterFile(home, transcriptPath, repoHint) {
     sessions: out.newSessions.length,
     exceptions: out.newExceptions.length
   };
+}
+
+// src/cli/cmd-bootstrap.ts
+var LINE = "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500";
+function fmtInt(n) {
+  return n.toLocaleString("en-US");
+}
+function renderReceipt(d) {
+  const out = [];
+  out.push("WAYBILL \xB7 BOOTSTRAP RECEIPT");
+  out.push(LINE);
+  out.push(`WINDOW    ${d.since} \u2192 ${d.until} (${d.window_days} days)`);
+  out.push(`IDENTITY  ${d.emails.join(", ") || "(no git email configured)"}`);
+  out.push("");
+  if (d.repos.length === 0) {
+    out.push("ITEMS");
+    out.push("  No local git repos in scope. The ledger doesn't pad.");
+    out.push("  (Run from inside a repo, or add repo paths with --repo-path.)");
+  }
+  for (const r of d.repos) {
+    out.push(`REPO      ${r.repo}`);
+    out.push("ITEMS");
+    out.push(`  COMMITS         ${fmtInt(r.commits).padStart(8)}`);
+    out.push(`  MERGES          ${fmtInt(r.merges).padStart(8)}`);
+    out.push(`  ACTIVE DAYS     ${fmtInt(r.active_days).padStart(8)}`);
+    if (r.first_date !== null) {
+      out.push(`  FIRST \u2192 LAST    ${r.first_date} \u2192 ${r.last_date}`);
+    }
+    if (r.keys.length > 0) {
+      const keys = r.keys.slice(0, 5).map((k) => `${k.key} \xD7${k.count}`).join(" \xB7 ");
+      out.push(`  TRACKER KEYS    ${keys}${r.keys.length > 5 ? ` (+${r.keys.length - 5} more)` : ""}`);
+    }
+    if (r.tags.length > 0) {
+      out.push(`  TAGS            ${r.tags.slice(0, 5).join(" \xB7 ")}`);
+    }
+    out.push("");
+  }
+  const totalCommits = d.repos.reduce((n, r) => n + r.commits, 0);
+  out.push(`SUBTOTAL  ${fmtInt(totalCommits)} commit(s) across ${d.repos.length} repo(s)`);
+  if (d.tokens === null) {
+    out.push("TOKENS    no metered sessions in the window yet \u2014");
+    out.push("          the SessionEnd miner fills this automatically as you work");
+  } else {
+    const t = d.tokens.totals;
+    out.push(`TOKENS    ${d.tokens.metered_sessions} metered session(s)`);
+    out.push(`  INPUT           ${fmtInt(t.input).padStart(12)}`);
+    out.push(`  OUTPUT          ${fmtInt(t.output).padStart(12)}`);
+    out.push(`  CACHE READ      ${fmtInt(t.cache_read).padStart(12)}`);
+    out.push(`  CACHE WRITE     ${fmtInt(t.cache_creation).padStart(12)}`);
+    for (const a of d.tokens.by_account.slice(0, 5)) {
+      out.push(`  ${a.account.padEnd(20)} ${fmtInt(a.tokens).padStart(12)}`);
+    }
+  }
+  out.push(LINE);
+  out.push("EVIDENCE TIER: FACTS (LOCAL GIT LOG \xB7 METERED TRANSCRIPTS)");
+  out.push("RANGES NOT MIDPOINTS \xB7 NOTHING PADDED \xB7 UNATTRIBUTED SHOWN");
+  return out.join("\n");
+}
+function collectTokens(home, sinceIso) {
+  const usage = authoritative(readEvents(home, "usage")).filter(
+    (u) => u.kind === "usage" && u.ts >= sinceIso
+  );
+  if (usage.length === 0) return null;
+  const sessions = /* @__PURE__ */ new Set();
+  const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
+  const byAccount = /* @__PURE__ */ new Map();
+  for (const u of usage) {
+    sessions.add(u.session_id);
+    totals.input += u.tokens.input;
+    totals.output += u.tokens.output;
+    totals.cache_read += u.tokens.cache_read;
+    totals.cache_creation += u.tokens.cache_creation;
+    const spent = u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation;
+    byAccount.set(u.attribution.account, (byAccount.get(u.attribution.account) ?? 0) + spent);
+  }
+  const by_account = [...byAccount.entries()].map(([account, tokens]) => ({ account, tokens })).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
+  return { metered_sessions: sessions.size, totals, by_account };
+}
+function runBootstrap(home, args, json) {
+  let days = 90;
+  let nowIso = null;
+  const repoPaths = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--days") days = Number(args[++i] ?? "90");
+    else if (a === "--repo-path") {
+      const p = args[++i];
+      if (p) repoPaths.push(p);
+    } else if (a === "--now") nowIso = args[++i] ?? null;
+    else {
+      process.stderr.write(`waybill bootstrap: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  if (!Number.isFinite(days) || days <= 0) {
+    process.stderr.write("waybill bootstrap: --days must be a positive number\n");
+    return 2;
+  }
+  const config = loadConfig(home);
+  const identity = loadIdentity(home);
+  const emails = identity?.git_emails ?? [];
+  const now = nowIso ? new Date(nowIso) : /* @__PURE__ */ new Date();
+  const since = new Date(now.getTime() - days * 864e5);
+  const sinceIso = since.toISOString().slice(0, 19) + "Z";
+  if (repoPaths.length === 0 && isGitRepo(process.cwd())) repoPaths.push(process.cwd());
+  const repos = [];
+  for (const path of repoPaths) {
+    if (!isGitRepo(path)) {
+      process.stderr.write(`waybill bootstrap: not a git repo, skipping: ${path}
+`);
+      continue;
+    }
+    const name = repoFromCwd(path) ?? path;
+    const commits = parseGitLog(gitLogRaw(path, sinceIso));
+    repos.push(summarizeRepo(name, path, commits, emails, config.metering.branch_key_pattern));
+  }
+  const data = {
+    window_days: days,
+    since: sinceIso.slice(0, 10),
+    until: now.toISOString().slice(0, 10),
+    emails,
+    repos,
+    tokens: collectTokens(home, sinceIso)
+  };
+  if (json) {
+    process.stdout.write(JSON.stringify(data, null, 2) + "\n");
+  } else {
+    process.stdout.write(renderReceipt(data) + "\n");
+  }
+  return 0;
+}
+
+// src/cli/cmd-init.ts
+import { execFileSync as execFileSync4 } from "node:child_process";
+import { existsSync as existsSync6, mkdirSync as mkdirSync2, readFileSync as readFileSync6, writeFileSync as writeFileSync3 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join6 } from "node:path";
+function git(home, args) {
+  execFileSync4("git", ["-C", home, ...args], {
+    stdio: ["ignore", "ignore", "ignore"],
+    timeout: 15e3
+  });
+}
+function tryExec(cmd, args) {
+  try {
+    return execFileSync4(cmd, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5e3
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+function checkRetention(claudeSettingsPath) {
+  let days = null;
+  if (existsSync6(claudeSettingsPath)) {
+    try {
+      const settings = JSON.parse(readFileSync6(claudeSettingsPath, "utf8"));
+      if (typeof settings["cleanupPeriodDays"] === "number") days = settings["cleanupPeriodDays"];
+    } catch {
+    }
+  }
+  if (days === 0) {
+    return {
+      cleanup_period_days: 0,
+      effective: "transcripts are deleted immediately",
+      warning: "cleanupPeriodDays is 0 \u2014 Claude Code deletes transcripts at once, so nothing can be metered. Waybill's session receipts will only cover sessions mined before deletion.",
+      recommendation: "set cleanupPeriodDays to 90 or more in ~/.claude/settings.json"
+    };
+  }
+  if (days === null) {
+    return {
+      cleanup_period_days: null,
+      effective: "default retention (30 days)",
+      warning: null,
+      recommendation: "raise cleanupPeriodDays (e.g. 99999) in ~/.claude/settings.json so historical sessions stay meterable; Waybill's session receipts preserve totals either way"
+    };
+  }
+  return {
+    cleanup_period_days: days,
+    effective: `${days} day(s)`,
+    warning: null,
+    recommendation: days < 90 ? "raise cleanupPeriodDays (e.g. 99999) so historical sessions stay meterable" : null
+  };
+}
+function buildIdentity() {
+  const emails = /* @__PURE__ */ new Set();
+  const names = /* @__PURE__ */ new Set();
+  for (const scope of [["--global"], []]) {
+    const email = tryExec("git", ["config", ...scope, "--get-all", "user.email"]);
+    for (const e of email?.split("\n") ?? []) if (e.trim()) emails.add(e.trim());
+    const name = tryExec("git", ["config", ...scope, "--get-all", "user.name"]);
+    for (const n of name?.split("\n") ?? []) if (n.trim()) names.add(n.trim());
+  }
+  const ghLogin = tryExec("gh", ["api", "user", "-q", ".login"]);
+  return {
+    schema_version: 2,
+    git_emails: [...emails].sort(),
+    git_names: [...names].sort(),
+    github_login: ghLogin,
+    jira_account_id: null
+  };
+}
+function runInit(home, args, json) {
+  let claudeSettings = join6(homedir3(), ".claude", "settings.json");
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
+    else {
+      process.stderr.write(`waybill init: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  mkdirSync2(join6(home, "pending-sessions"), { recursive: true });
+  mkdirSync2(join6(home, "rollups"), { recursive: true });
+  const freshConfig = !existsSync6(join6(home, "config.json"));
+  const config = freshConfig ? defaultConfig() : loadConfig(home);
+  const cwdRepo = repoFromCwd(process.cwd());
+  if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
+  saveConfig(home, config);
+  const identity = buildIdentity();
+  saveIdentity(home, identity);
+  if (!existsSync6(join6(home, ".git"))) {
+    git(home, ["init", "-b", "main"]);
+  }
+  writeFileSync3(join6(home, ".gitignore"), "rollups/\n", "utf8");
+  try {
+    git(home, ["add", "-A"]);
+    git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);
+  } catch {
+  }
+  const retention = checkRetention(claudeSettings);
+  const result = {
+    home,
+    fresh: freshConfig,
+    repos: config.git.repos,
+    identity: { git_emails: identity.git_emails, github_login: identity.github_login },
+    retention
+  };
+  if (json) {
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+  } else {
+    process.stdout.write(`Initialized ${home} (git repo, append-only streams)
+`);
+    process.stdout.write(`Identity: ${identity.git_emails.join(", ") || "(no git email found)"}` + (identity.github_login ? ` \xB7 GitHub: ${identity.github_login}` : "") + "\n");
+    process.stdout.write(`Repos in scope: ${config.git.repos.join(", ") || "(none yet)"}
+`);
+    process.stdout.write(`Transcript retention: ${retention.effective}
+`);
+    if (retention.warning) process.stdout.write(`WARNING: ${retention.warning}
+`);
+    if (retention.recommendation) process.stdout.write(`Recommend: ${retention.recommendation}
+`);
+  }
+  return 0;
 }
 
 // src/cli/cmd-meter.ts
@@ -1063,14 +1531,144 @@ function runMeter(home, args, json) {
   return 0;
 }
 
+// src/cli/cmd-mine.ts
+import { execFileSync as execFileSync5 } from "node:child_process";
+import { existsSync as existsSync7, readFileSync as readFileSync7, readdirSync as readdirSync3, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { join as join7 } from "node:path";
+function lockPath(home) {
+  return join7(home, "pending-sessions", ".miner.lock");
+}
+function acquireLock(home) {
+  const p = lockPath(home);
+  if (existsSync7(p)) {
+    try {
+      const pid = Number(readFileSync7(p, "utf8").trim());
+      if (Number.isInteger(pid) && pid > 0) {
+        process.kill(pid, 0);
+        return false;
+      }
+    } catch {
+    }
+  }
+  writeFileSync4(p, String(process.pid), "utf8");
+  return true;
+}
+function releaseLock(home) {
+  try {
+    unlinkSync(lockPath(home));
+  } catch {
+  }
+}
+function commitLedger(home) {
+  try {
+    execFileSync5("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
+    execFileSync5("git", ["-C", home, "commit", "-m", "meter: mined pending sessions"], {
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 15e3
+    });
+  } catch {
+  }
+}
+function recordGap(home, sessionId, reason) {
+  const existing = readEvents(home, "exceptions");
+  const body = {
+    ts: (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    kind: "meter_gap",
+    schema_version: SCHEMA_VERSION,
+    supersedes: null,
+    session_id: sessionId,
+    reason
+  };
+  const already = existing.some(
+    (e) => e.kind === "meter_gap" && e.session_id === sessionId
+  );
+  if (!already) appendEvents(home, "exceptions", [finalizeEvent("exceptions", body)]);
+}
+function runMine(home, args) {
+  let all = false;
+  let projectsDir = defaultProjectsDir();
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--queue") all = false;
+    else if (a === "--all") all = true;
+    else if (a === "--projects-dir") projectsDir = args[++i] ?? projectsDir;
+    else {
+      process.stderr.write(`waybill mine: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  const queueDir = join7(home, "pending-sessions");
+  if (!existsSync7(queueDir)) return 0;
+  if (!acquireLock(home)) return 0;
+  let mined = 0;
+  try {
+    const files = readdirSync3(queueDir).filter((f) => f.endsWith(".json")).sort();
+    for (const f of files) {
+      const path = join7(queueDir, f);
+      let capture;
+      try {
+        capture = JSON.parse(readFileSync7(path, "utf8"));
+      } catch {
+        continue;
+      }
+      if (capture.mined === true || typeof capture.mined === "string") continue;
+      const transcript = capture.transcript_path;
+      if (typeof transcript !== "string" || !existsSync7(transcript)) {
+        if (typeof capture.session_id === "string") {
+          recordGap(home, capture.session_id, "transcript_pruned");
+        }
+        capture.mined = "gap";
+        writeFileSync4(path, JSON.stringify(capture) + "\n", "utf8");
+        continue;
+      }
+      try {
+        const result = meterFile(home, transcript, typeof capture.repo === "string" ? capture.repo : null);
+        capture.mined = true;
+        capture["mined_session_id"] = result.sessionId;
+        capture["mined_usage_events"] = result.usage;
+        writeFileSync4(path, JSON.stringify(capture) + "\n", "utf8");
+        mined += 1;
+      } catch (err) {
+        process.stderr.write(`waybill mine: ${transcript}: ${err.message}
+`);
+      }
+    }
+    if (all) {
+      for (const t of listTranscripts(projectsDir)) {
+        try {
+          const r = meterFile(home, t, null);
+          if (!r.skipped) mined += 1;
+        } catch (err) {
+          process.stderr.write(`waybill mine: ${t}: ${err.message}
+`);
+        }
+      }
+    }
+  } finally {
+    releaseLock(home);
+  }
+  if (mined > 0) commitLedger(home);
+  process.stdout.write(`mined ${mined} session(s)
+`);
+  return 0;
+}
+
 // src/cli/main.ts
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
 
 Commands:
+  init        Initialize $WAYBILL_HOME: git repo, config, identity map, retention check
+  bootstrap   Render a bootstrap receipt from local git history (zero auth)
+                [--days 90] [--repo-path <dir>]...
+  mine        Process pending session captures (spawned by the SessionEnd hook)
+                [--queue | --all]
   meter       Meter transcripts into usage events (deterministic, incremental)
                 --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
+  append      Validate, seal, id, and append one event (the skills' write path)
+                --stream <name> --event '<json>' [--commit]
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -1104,8 +1702,16 @@ async function main(argv) {
   }
   const cli = parseGlobal(rest);
   switch (cmd) {
+    case "init":
+      return runInit(cli.home, cli.args, cli.json);
+    case "bootstrap":
+      return runBootstrap(cli.home, cli.args, cli.json);
+    case "mine":
+      return runMine(cli.home, cli.args);
     case "meter":
       return runMeter(cli.home, cli.args, cli.json);
+    case "append":
+      return runAppend(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

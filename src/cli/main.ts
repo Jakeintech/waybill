@@ -1,14 +1,25 @@
 import { resolveHome } from "../core/home.ts";
 import { renderFindings, verifyHome } from "../verify/verify.ts";
+import { runAppend } from "./cmd-append.ts";
+import { runBootstrap } from "./cmd-bootstrap.ts";
+import { runInit } from "./cmd-init.ts";
 import { runMeter } from "./cmd-meter.ts";
+import { runMine } from "./cmd-mine.ts";
 
 const USAGE = `waybill — token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
 
 Commands:
+  init        Initialize $WAYBILL_HOME: git repo, config, identity map, retention check
+  bootstrap   Render a bootstrap receipt from local git history (zero auth)
+                [--days 90] [--repo-path <dir>]...
+  mine        Process pending session captures (spawned by the SessionEnd hook)
+                [--queue | --all]
   meter       Meter transcripts into usage events (deterministic, incremental)
                 --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
+  append      Validate, seal, id, and append one event (the skills' write path)
+                --stream <name> --event '<json>' [--commit]
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -50,8 +61,16 @@ export async function main(argv: string[]): Promise<number> {
   }
   const cli = parseGlobal(rest);
   switch (cmd) {
+    case "init":
+      return runInit(cli.home, cli.args, cli.json);
+    case "bootstrap":
+      return runBootstrap(cli.home, cli.args, cli.json);
+    case "mine":
+      return runMine(cli.home, cli.args);
     case "meter":
       return runMeter(cli.home, cli.args, cli.json);
+    case "append":
+      return runAppend(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {
