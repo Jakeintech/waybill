@@ -4,6 +4,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, loadConfig, saveConfig, saveIdentity, type Identity } from "../core/config.ts";
 import { repoFromCwd } from "../meter/run.ts";
+import { applyBundledPricing, type PricingImportResult } from "./cmd-pricing.ts";
+
+const GITHUB_PAT_MESSAGE =
+  "Export GITHUB_MCP_PAT in your shell profile. Create at https://github.com/settings/tokens with repo scope.";
 
 function git(home: string, args: string[]): void {
   execFileSync("git", ["-C", home, ...args], {
@@ -109,6 +113,11 @@ export function runInit(home: string, args: string[], json: boolean): number {
   const config = freshConfig ? defaultConfig() : loadConfig(home);
   const cwdRepo = repoFromCwd(process.cwd());
   if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
+
+  // Bundled pricing only auto-imports on a fresh install — a re-init on an
+  // existing ledger must never clobber rates the user has since customized
+  // with `pricing set`.
+  const pricing: PricingImportResult | null = freshConfig ? applyBundledPricing(config) : null;
   saveConfig(home, config);
 
   const identity = buildIdentity();
@@ -126,12 +135,40 @@ export function runInit(home: string, args: string[], json: boolean): number {
   }
 
   const retention = checkRetention(claudeSettings);
+  const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
+
+  const configured: string[] = [
+    "ledger (git-backed, append-only)",
+    identity.git_emails.length > 0 ? `identity (${identity.git_emails.join(", ")})` : null,
+    config.git.repos.length > 0 ? `repo scope (${config.git.repos.join(", ")})` : null,
+    pricing && pricing.imported.length > 0
+      ? `pricing (${pricing.imported.length} bundled Anthropic model(s), version ${pricing.version})`
+      : config.pricing.version !== null
+        ? `pricing (custom, version ${config.pricing.version})`
+        : null,
+    retention.warning === null && retention.recommendation === null
+      ? `transcript retention (${retention.effective})`
+      : null,
+    githubPatSet ? "GitHub MCP (GITHUB_MCP_PAT set)" : null,
+  ].filter((line): line is string => line !== null);
+
+  const needsAction: string[] = [
+    identity.git_emails.length === 0 ? "no git user.email found — set one so sessions attribute to you" : null,
+    retention.warning,
+    retention.recommendation,
+    !githubPatSet ? GITHUB_PAT_MESSAGE : null,
+  ].filter((line): line is string => line !== null);
+
   const result = {
     home,
     fresh: freshConfig,
     repos: config.git.repos,
     identity: { git_emails: identity.git_emails, github_login: identity.github_login },
     retention,
+    pricing: pricing ?? { imported: [], unknown: [], version: config.pricing.version },
+    github_mcp_pat_set: githubPatSet,
+    configured,
+    needs_action: needsAction,
   };
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -147,6 +184,18 @@ export function runInit(home: string, args: string[], json: boolean): number {
     process.stdout.write(`Transcript retention: ${retention.effective}\n`);
     if (retention.warning) process.stdout.write(`WARNING: ${retention.warning}\n`);
     if (retention.recommendation) process.stdout.write(`Recommend: ${retention.recommendation}\n`);
+    if (pricing && pricing.imported.length > 0) {
+      process.stdout.write(
+        `Pricing: imported ${pricing.imported.length} bundled Anthropic model(s) (version ${pricing.version}). ` +
+          "Override any rate with: waybill pricing set <model-id> ...\n",
+      );
+    }
+    process.stdout.write("\nConfigured:\n");
+    for (const line of configured) process.stdout.write(`  - ${line}\n`);
+    if (needsAction.length > 0) {
+      process.stdout.write("Needs action:\n");
+      for (const line of needsAction) process.stdout.write(`  - ${line}\n`);
+    }
   }
   return 0;
 }

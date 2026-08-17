@@ -109,8 +109,10 @@ asked; `sprint-recap` drops the ask section entirely.
 - Every metric traceable to event `id`s; keep the mapping, produce on
   request. The engine's numbers are the numbers.
 - Ranges stay ranges. No midpoints, no "approximately 45 hours".
-- Tokens are the native unit (D6); dollars appear only when a pricing basis
-  is configured, always labeled with the `pricing_version`.
+- Tokens are the native unit (D6 — bundled Anthropic rates ship as defaults
+  via `pricing import`; override with `pricing set`); dollars appear only
+  when a pricing basis is configured, always labeled with the
+  `pricing_version`.
 - No peer comparisons, ever. Own-baseline and published team/industry
   benchmarks only.
 - Delivered value includes only merged/deployed work. In-flight items

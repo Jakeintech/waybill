@@ -46,8 +46,9 @@ Commands:
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
   status      One screen of ledger health: init, retention, mining, inbox, verify
   export      Spend ledger as csv|json [--format csv|json] [--from/--to] [--audience]
-  pricing     show | set <model-id> --version <date> --input/--output/--cache-read/
-                --cache-5m/--cache-1h <usd per mtok>  (no rates ship; you cite yours)
+  pricing     show | import [--model <id-or-alias>]... | set <model-id> --version <date>
+                --input/--output/--cache-read/--cache-5m/--cache-1h <usd per mtok>
+                (import loads bundled Anthropic rates; set overrides any model)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:

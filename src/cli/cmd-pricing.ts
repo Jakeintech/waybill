@@ -1,21 +1,27 @@
-import { loadConfig, saveConfig } from "../core/config.ts";
+import { loadConfig, saveConfig, type Config } from "../core/config.ts";
+import { loadPricingBundle, resolveBundledModel } from "../core/pricing-bundle.ts";
 
 /**
- * Pricing onboarding without hand-editing config.json. No prices ship with
- * the plugin — an accounting tool must not guess rates (D6); the user
- * enters the list prices they can cite, and every cost gets labeled with
- * the pricing version they set.
+ * Pricing onboarding without hand-editing config.json. Bundled Anthropic
+ * rates ship as defaults; override with pricing set (D6, reversed from the
+ * original "no prices ship" call — see DECISIONS.md). Every cost is still
+ * labeled with the pricing version in effect, bundled or hand-entered.
  */
 export function runPricing(home: string, args: string[], json: boolean): number {
   const [verb, ...rest] = args;
   const config = loadConfig(home);
+
+  if (verb === "import") {
+    return runPricingImport(home, config, rest, json);
+  }
 
   if (verb === "show" || verb === undefined) {
     if (json) process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
     else if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
       process.stdout.write(
         "No pricing configured — tokens stay the native unit (by design).\n" +
-          "To label USD list-price equivalents:\n" +
+          "Fastest path: waybill pricing import  (bundled Anthropic list rates)\n" +
+          "To label a different USD basis:\n" +
           "  waybill pricing set <model-id> --version <YYYY-MM-DD> \\\n" +
           "    --input <usd/mtok> --output <usd/mtok> --cache-read <usd/mtok> \\\n" +
           "    --cache-5m <usd/mtok> --cache-1h <usd/mtok>\n" +
@@ -36,7 +42,7 @@ export function runPricing(home: string, args: string[], json: boolean): number 
   }
 
   if (verb !== "set") {
-    process.stderr.write("waybill pricing: pass `show` or `set <model-id> [rates]`\n");
+    process.stderr.write("waybill pricing: pass `show`, `import`, or `set <model-id> [rates]`\n");
     return 2;
   }
   const model = rest[0];
@@ -102,6 +108,80 @@ export function runPricing(home: string, args: string[], json: boolean): number 
     process.stdout.write(
       `priced ${model} (version ${effectiveVersion}). Existing events re-price on the next ` +
         `meter run: waybill meter --all\n`,
+    );
+  }
+  return 0;
+}
+
+export interface PricingImportResult {
+  imported: string[];
+  unknown: string[];
+  version: string;
+}
+
+/**
+ * Merges the bundled Anthropic rates into `config.pricing`, resolving
+ * family aliases (e.g. "claude-sonnet-4" → "claude-sonnet-4-6") first.
+ * Mutates `config` in place; does not save it — callers control that so
+ * `waybill init` can fold the write into its own config save.
+ */
+export function applyBundledPricing(config: Config, requested?: string[]): PricingImportResult {
+  const bundle = loadPricingBundle();
+  const targets = requested && requested.length > 0 ? requested : Object.keys(bundle.models);
+  const imported: string[] = [];
+  const unknown: string[] = [];
+  for (const t of targets) {
+    const resolved = resolveBundledModel(bundle, t);
+    if (!resolved) {
+      unknown.push(t);
+      continue;
+    }
+    config.pricing.models[resolved] = bundle.models[resolved]!;
+    imported.push(resolved);
+  }
+  if (imported.length > 0) config.pricing.version = bundle.last_updated;
+  return { imported, unknown, version: bundle.last_updated };
+}
+
+function runPricingImport(home: string, config: Config, rest: string[], json: boolean): number {
+  const requested: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!;
+    if (a === "--model") {
+      const m = rest[++i];
+      if (!m) {
+        process.stderr.write("waybill pricing import: --model needs a value\n");
+        return 2;
+      }
+      requested.push(m);
+    } else {
+      process.stderr.write(`waybill pricing import: unknown option ${a}\n`);
+      return 2;
+    }
+  }
+
+  const result = applyBundledPricing(config, requested);
+  if (result.imported.length === 0) {
+    process.stderr.write(
+      `waybill pricing import: no matching bundled model(s)${result.unknown.length > 0 ? `: ${result.unknown.join(", ")}` : ""}\n`,
+    );
+    return 2;
+  }
+  saveConfig(home, config);
+
+  if (json) {
+    process.stdout.write(JSON.stringify({ data: { ...result, pricing: config.pricing } }, null, 2) + "\n");
+  } else {
+    process.stdout.write(
+      `imported ${result.imported.length} bundled model(s) (version ${result.version}): ` +
+        `${result.imported.join(", ")}\n`,
+    );
+    if (result.unknown.length > 0) {
+      process.stderr.write(`not in the bundle, skipped: ${result.unknown.join(", ")}\n`);
+    }
+    process.stdout.write(
+      "Override any model's rate with: waybill pricing set <model-id> ...\n" +
+        "Re-meter to price existing events: waybill meter --all\n",
     );
   }
   return 0;

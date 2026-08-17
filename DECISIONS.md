@@ -350,3 +350,29 @@ frozen). Spend/report skills gained an explicit brevity default.
 **Rationale.** Every item was reproduced, not speculated; the fixes keep
 the deterministic core untouched and make the honest numbers easier to
 reach than the wrong ones.
+
+## 2026-08-17 — D6 reversed: bundled Anthropic pricing ships as the default
+
+**Question.** D6 (1.1.0) shipped with no rates at all — the user had to
+`pricing set` all five rates per model, cited from a price list, before any
+`cost_usd` appeared. Feedback since then: for the overwhelmingly common
+case (first-party Anthropic usage, list price, no negotiated discount),
+that onboarding step is pure friction repeated by every install for
+numbers publicly listed at platform.claude.com/docs/en/about-claude/pricing.
+
+**Choice.** Ship `references/anthropic-pricing.json` — exact dated model
+ids only (never a guessed id), current list rates per million tokens, a
+`last_updated`/`source` pair, and a small family-alias table (e.g.
+`claude-sonnet-4` → `claude-sonnet-4-6`) for convenience lookups. New
+`waybill pricing import [--model <id-or-alias>]...` merges it into
+`config.pricing`; `waybill init` calls it automatically, but **only on a
+fresh install** — a re-init on an existing ledger never touches pricing, so
+a rate changed by hand with `pricing set` survives every future `init`.
+`pricing set` remains the override path and always wins for whatever model
+it names, import or not.
+
+**Rationale.** The unknown-model policy (`tokens_only`, never guess) and
+the required `pricing_version` label are untouched — this only removes the
+friction of re-entering rates Anthropic already publishes. Scoping the
+auto-import to fresh installs preserves the same non-destructive guarantee
+the rest of `init` already gives re-run config.

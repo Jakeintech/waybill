@@ -1580,9 +1580,205 @@ function runBootstrap(home, args, json) {
 
 // src/cli/cmd-init.ts
 import { execFileSync as execFileSync4 } from "node:child_process";
-import { existsSync as existsSync6, mkdirSync as mkdirSync2, readFileSync as readFileSync6, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync2, readFileSync as readFileSync7, writeFileSync as writeFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
+
+// src/core/pricing-bundle.ts
+import { existsSync as existsSync6, readFileSync as readFileSync6 } from "node:fs";
+import { dirname, join as join6 } from "node:path";
+import { fileURLToPath } from "node:url";
+function findReferenceFile(filename) {
+  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (pluginRoot) {
+    const p = join6(pluginRoot, "references", filename);
+    if (existsSync6(p)) return p;
+  }
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    const p = join6(dir, "references", filename);
+    if (existsSync6(p)) return p;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`bundled reference file not found: ${filename}`);
+}
+var cached = null;
+function loadPricingBundle() {
+  if (cached) return cached;
+  const path = findReferenceFile("anthropic-pricing.json");
+  cached = JSON.parse(readFileSync6(path, "utf8"));
+  return cached;
+}
+function resolveBundledModel(bundle, nameOrAlias) {
+  if (nameOrAlias in bundle.models) return nameOrAlias;
+  const aliased = bundle.aliases[nameOrAlias];
+  if (aliased && aliased in bundle.models) return aliased;
+  return null;
+}
+
+// src/cli/cmd-pricing.ts
+function runPricing(home, args, json) {
+  const [verb, ...rest] = args;
+  const config = loadConfig(home);
+  if (verb === "import") {
+    return runPricingImport(home, config, rest, json);
+  }
+  if (verb === "show" || verb === void 0) {
+    if (json) process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
+    else if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
+      process.stdout.write(
+        "No pricing configured \u2014 tokens stay the native unit (by design).\nFastest path: waybill pricing import  (bundled Anthropic list rates)\nTo label a different USD basis:\n  waybill pricing set <model-id> --version <YYYY-MM-DD> \\\n    --input <usd/mtok> --output <usd/mtok> --cache-read <usd/mtok> \\\n    --cache-5m <usd/mtok> --cache-1h <usd/mtok>\nRates come from your provider's price list; cite the date as the version.\n"
+      );
+    } else {
+      process.stdout.write(`pricing_version: ${config.pricing.version}
+`);
+      for (const [model2, r] of Object.entries(config.pricing.models).sort()) {
+        process.stdout.write(
+          `  ${model2}: in ${r.input_per_mtok} \xB7 out ${r.output_per_mtok} \xB7 cache-read ${r.cache_read_per_mtok} \xB7 5m ${r.cache_write_5m_per_mtok} \xB7 1h ${r.cache_write_1h_per_mtok}  (USD/mtok)
+`
+        );
+      }
+      process.stdout.write("Re-meter to price existing events: waybill meter --all\n");
+    }
+    return 0;
+  }
+  if (verb !== "set") {
+    process.stderr.write("waybill pricing: pass `show`, `import`, or `set <model-id> [rates]`\n");
+    return 2;
+  }
+  const model = rest[0];
+  if (!model || model.startsWith("--")) {
+    process.stderr.write("waybill pricing set: pass the model id first\n");
+    return 2;
+  }
+  const rates = {};
+  let version = null;
+  const FLAGS = {
+    "--input": "input_per_mtok",
+    "--output": "output_per_mtok",
+    "--cache-read": "cache_read_per_mtok",
+    "--cache-5m": "cache_write_5m_per_mtok",
+    "--cache-1h": "cache_write_1h_per_mtok"
+  };
+  for (let i = 1; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--version") {
+      version = rest[++i] ?? null;
+      continue;
+    }
+    const field = FLAGS[a];
+    if (!field) {
+      process.stderr.write(`waybill pricing set: unknown option ${a}
+`);
+      return 2;
+    }
+    const v = Number(rest[++i]);
+    if (!Number.isFinite(v) || v < 0) {
+      process.stderr.write(`waybill pricing set: ${a} needs a non-negative number (USD per million tokens)
+`);
+      return 2;
+    }
+    rates[field] = v;
+  }
+  for (const field of Object.values(FLAGS)) {
+    if (!(field in rates)) {
+      process.stderr.write(
+        "waybill pricing set: all five rates are required (--input --output --cache-read --cache-5m --cache-1h) \u2014 no rate is ever guessed\n"
+      );
+      return 2;
+    }
+  }
+  const effectiveVersion = version ?? config.pricing.version;
+  if (!effectiveVersion) {
+    process.stderr.write(
+      "waybill pricing set: pass --version <YYYY-MM-DD> (the price-list date \u2014 it labels every derived USD figure)\n"
+    );
+    return 2;
+  }
+  config.pricing.version = effectiveVersion;
+  config.pricing.models[model] = {
+    input_per_mtok: rates["input_per_mtok"],
+    output_per_mtok: rates["output_per_mtok"],
+    cache_read_per_mtok: rates["cache_read_per_mtok"],
+    cache_write_5m_per_mtok: rates["cache_write_5m_per_mtok"],
+    cache_write_1h_per_mtok: rates["cache_write_1h_per_mtok"]
+  };
+  saveConfig(home, config);
+  if (json) {
+    process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
+  } else {
+    process.stdout.write(
+      `priced ${model} (version ${effectiveVersion}). Existing events re-price on the next meter run: waybill meter --all
+`
+    );
+  }
+  return 0;
+}
+function applyBundledPricing(config, requested) {
+  const bundle = loadPricingBundle();
+  const targets = requested && requested.length > 0 ? requested : Object.keys(bundle.models);
+  const imported = [];
+  const unknown = [];
+  for (const t of targets) {
+    const resolved = resolveBundledModel(bundle, t);
+    if (!resolved) {
+      unknown.push(t);
+      continue;
+    }
+    config.pricing.models[resolved] = bundle.models[resolved];
+    imported.push(resolved);
+  }
+  if (imported.length > 0) config.pricing.version = bundle.last_updated;
+  return { imported, unknown, version: bundle.last_updated };
+}
+function runPricingImport(home, config, rest, json) {
+  const requested = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--model") {
+      const m = rest[++i];
+      if (!m) {
+        process.stderr.write("waybill pricing import: --model needs a value\n");
+        return 2;
+      }
+      requested.push(m);
+    } else {
+      process.stderr.write(`waybill pricing import: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  const result = applyBundledPricing(config, requested);
+  if (result.imported.length === 0) {
+    process.stderr.write(
+      `waybill pricing import: no matching bundled model(s)${result.unknown.length > 0 ? `: ${result.unknown.join(", ")}` : ""}
+`
+    );
+    return 2;
+  }
+  saveConfig(home, config);
+  if (json) {
+    process.stdout.write(JSON.stringify({ data: { ...result, pricing: config.pricing } }, null, 2) + "\n");
+  } else {
+    process.stdout.write(
+      `imported ${result.imported.length} bundled model(s) (version ${result.version}): ${result.imported.join(", ")}
+`
+    );
+    if (result.unknown.length > 0) {
+      process.stderr.write(`not in the bundle, skipped: ${result.unknown.join(", ")}
+`);
+    }
+    process.stdout.write(
+      "Override any model's rate with: waybill pricing set <model-id> ...\nRe-meter to price existing events: waybill meter --all\n"
+    );
+  }
+  return 0;
+}
+
+// src/cli/cmd-init.ts
+var GITHUB_PAT_MESSAGE = "Export GITHUB_MCP_PAT in your shell profile. Create at https://github.com/settings/tokens with repo scope.";
 function git(home, args) {
   execFileSync4("git", ["-C", home, ...args], {
     stdio: ["ignore", "ignore", "ignore"],
@@ -1602,9 +1798,9 @@ function tryExec(cmd, args) {
 }
 function checkRetention(claudeSettingsPath) {
   let days = null;
-  if (existsSync6(claudeSettingsPath)) {
+  if (existsSync7(claudeSettingsPath)) {
     try {
-      const settings = JSON.parse(readFileSync6(claudeSettingsPath, "utf8"));
+      const settings = JSON.parse(readFileSync7(claudeSettingsPath, "utf8"));
       if (typeof settings["cleanupPeriodDays"] === "number") days = settings["cleanupPeriodDays"];
     } catch {
     }
@@ -1651,7 +1847,7 @@ function buildIdentity() {
   };
 }
 function runInit(home, args, json) {
-  let claudeSettings = join6(homedir3(), ".claude", "settings.json");
+  let claudeSettings = join7(homedir3(), ".claude", "settings.json");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
@@ -1661,31 +1857,51 @@ function runInit(home, args, json) {
       return 2;
     }
   }
-  mkdirSync2(join6(home, "pending-sessions"), { recursive: true });
-  mkdirSync2(join6(home, "rollups"), { recursive: true });
-  const freshConfig = !existsSync6(join6(home, "config.json"));
+  mkdirSync2(join7(home, "pending-sessions"), { recursive: true });
+  mkdirSync2(join7(home, "rollups"), { recursive: true });
+  const freshConfig = !existsSync7(join7(home, "config.json"));
   const config = freshConfig ? defaultConfig() : loadConfig(home);
   const cwdRepo = repoFromCwd(process.cwd());
   if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
+  const pricing = freshConfig ? applyBundledPricing(config) : null;
   saveConfig(home, config);
   const identity = buildIdentity();
   saveIdentity(home, identity);
-  if (!existsSync6(join6(home, ".git"))) {
+  if (!existsSync7(join7(home, ".git"))) {
     git(home, ["init", "-b", "main"]);
   }
-  writeFileSync3(join6(home, ".gitignore"), "rollups/\n", "utf8");
+  writeFileSync3(join7(home, ".gitignore"), "rollups/\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);
   } catch {
   }
   const retention = checkRetention(claudeSettings);
+  const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
+  const configured = [
+    "ledger (git-backed, append-only)",
+    identity.git_emails.length > 0 ? `identity (${identity.git_emails.join(", ")})` : null,
+    config.git.repos.length > 0 ? `repo scope (${config.git.repos.join(", ")})` : null,
+    pricing && pricing.imported.length > 0 ? `pricing (${pricing.imported.length} bundled Anthropic model(s), version ${pricing.version})` : config.pricing.version !== null ? `pricing (custom, version ${config.pricing.version})` : null,
+    retention.warning === null && retention.recommendation === null ? `transcript retention (${retention.effective})` : null,
+    githubPatSet ? "GitHub MCP (GITHUB_MCP_PAT set)" : null
+  ].filter((line) => line !== null);
+  const needsAction = [
+    identity.git_emails.length === 0 ? "no git user.email found \u2014 set one so sessions attribute to you" : null,
+    retention.warning,
+    retention.recommendation,
+    !githubPatSet ? GITHUB_PAT_MESSAGE : null
+  ].filter((line) => line !== null);
   const result = {
     home,
     fresh: freshConfig,
     repos: config.git.repos,
     identity: { git_emails: identity.git_emails, github_login: identity.github_login },
-    retention
+    retention,
+    pricing: pricing ?? { imported: [], unknown: [], version: config.pricing.version },
+    github_mcp_pat_set: githubPatSet,
+    configured,
+    needs_action: needsAction
   };
   if (json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -1704,21 +1920,35 @@ function runInit(home, args, json) {
 `);
     if (retention.recommendation) process.stdout.write(`Recommend: ${retention.recommendation}
 `);
+    if (pricing && pricing.imported.length > 0) {
+      process.stdout.write(
+        `Pricing: imported ${pricing.imported.length} bundled Anthropic model(s) (version ${pricing.version}). Override any rate with: waybill pricing set <model-id> ...
+`
+      );
+    }
+    process.stdout.write("\nConfigured:\n");
+    for (const line of configured) process.stdout.write(`  - ${line}
+`);
+    if (needsAction.length > 0) {
+      process.stdout.write("Needs action:\n");
+      for (const line of needsAction) process.stdout.write(`  - ${line}
+`);
+    }
   }
   return 0;
 }
 
 // src/cli/cmd-meter.ts
-import { readFileSync as readFileSync8 } from "node:fs";
+import { readFileSync as readFileSync9 } from "node:fs";
 
 // src/meter/lock.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync7, renameSync, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { join as join7 } from "node:path";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync8, renameSync, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { join as join8 } from "node:path";
 function lockPath(home) {
-  return join7(home, "pending-sessions", ".miner.lock");
+  return join8(home, "pending-sessions", ".miner.lock");
 }
 function acquireLock(home) {
-  mkdirSync3(join7(home, "pending-sessions"), { recursive: true });
+  mkdirSync3(join8(home, "pending-sessions"), { recursive: true });
   const p = lockPath(home);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -1726,7 +1956,7 @@ function acquireLock(home) {
       return true;
     } catch {
       try {
-        const pid = Number(readFileSync7(p, "utf8").trim());
+        const pid = Number(readFileSync8(p, "utf8").trim());
         if (Number.isInteger(pid) && pid > 0) {
           process.kill(pid, 0);
           return false;
@@ -1999,7 +2229,7 @@ async function runMeter(home, args, json) {
     }
     try {
       const out = meterOtel({
-        raw: readFileSync8(otel, "utf8"),
+        raw: readFileSync9(otel, "utf8"),
         config: loadConfig(home),
         ledgerEvents: readEvents(home, "ledger"),
         existingUsage: readEvents(home, "usage"),
@@ -2066,8 +2296,8 @@ async function runMeter(home, args, json) {
 
 // src/cli/cmd-mine.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync9, readdirSync as readdirSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync4, readFileSync as readFileSync10, readdirSync as readdirSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { join as join9 } from "node:path";
 function commitLedger(home) {
   try {
     execFileSync5("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
@@ -2117,7 +2347,7 @@ function runMine(home, args) {
       return 2;
     }
   }
-  const queueDir = join8(home, "pending-sessions");
+  const queueDir = join9(home, "pending-sessions");
   mkdirSync4(queueDir, { recursive: true });
   if (!acquireLock(home)) {
     process.stdout.write("mined: 0 new (another metering process is running \u2014 queue intact)\n");
@@ -2130,16 +2360,16 @@ function runMine(home, args) {
   try {
     const files = readdirSync3(queueDir).filter((f) => f.endsWith(".json")).sort();
     for (const f of files) {
-      const path = join8(queueDir, f);
+      const path = join9(queueDir, f);
       let capture;
       try {
-        capture = JSON.parse(readFileSync9(path, "utf8"));
+        capture = JSON.parse(readFileSync10(path, "utf8"));
       } catch {
         continue;
       }
       if (capture.mined === true || typeof capture.mined === "string") continue;
       const transcript = capture.transcript_path;
-      if (typeof transcript !== "string" || !existsSync7(transcript)) {
+      if (typeof transcript !== "string" || !existsSync8(transcript)) {
         if (typeof capture.session_id === "string") {
           recordGap(home, capture.session_id, gapTs(capture), "transcript_pruned");
         }
@@ -2634,8 +2864,8 @@ function runExport(home, args) {
 }
 
 // src/cli/cmd-pace.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join9 } from "node:path";
+import { existsSync as existsSync9, mkdirSync as mkdirSync5, readFileSync as readFileSync11, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join10 } from "node:path";
 
 // src/projections/pace.ts
 function periodWindow(period, grantedAt) {
@@ -2775,13 +3005,13 @@ function renderPace(p) {
 
 // src/cli/cmd-pace.ts
 function stateFile(home) {
-  return join9(home, "rollups", "pace-state.json");
+  return join10(home, "rollups", "pace-state.json");
 }
 function loadPaceState(home) {
   const p = stateFile(home);
-  if (!existsSync8(p)) return null;
+  if (!existsSync9(p)) return null;
   try {
-    return JSON.parse(readFileSync10(p, "utf8"));
+    return JSON.parse(readFileSync11(p, "utf8"));
   } catch {
     return null;
   }
@@ -2826,7 +3056,7 @@ function runPace(home, args, json) {
     }
     if (lines.length === 0) return 0;
     process.stdout.write(lines.join("\n") + "\n");
-    mkdirSync5(join9(home, "rollups"), { recursive: true });
+    mkdirSync5(join10(home, "rollups"), { recursive: true });
     writeFileSync6(
       stateFile(home),
       JSON.stringify({
@@ -2846,112 +3076,16 @@ function runPace(home, args, json) {
   return 0;
 }
 
-// src/cli/cmd-pricing.ts
-function runPricing(home, args, json) {
-  const [verb, ...rest] = args;
-  const config = loadConfig(home);
-  if (verb === "show" || verb === void 0) {
-    if (json) process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
-    else if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
-      process.stdout.write(
-        "No pricing configured \u2014 tokens stay the native unit (by design).\nTo label USD list-price equivalents:\n  waybill pricing set <model-id> --version <YYYY-MM-DD> \\\n    --input <usd/mtok> --output <usd/mtok> --cache-read <usd/mtok> \\\n    --cache-5m <usd/mtok> --cache-1h <usd/mtok>\nRates come from your provider's price list; cite the date as the version.\n"
-      );
-    } else {
-      process.stdout.write(`pricing_version: ${config.pricing.version}
-`);
-      for (const [model2, r] of Object.entries(config.pricing.models).sort()) {
-        process.stdout.write(
-          `  ${model2}: in ${r.input_per_mtok} \xB7 out ${r.output_per_mtok} \xB7 cache-read ${r.cache_read_per_mtok} \xB7 5m ${r.cache_write_5m_per_mtok} \xB7 1h ${r.cache_write_1h_per_mtok}  (USD/mtok)
-`
-        );
-      }
-      process.stdout.write("Re-meter to price existing events: waybill meter --all\n");
-    }
-    return 0;
-  }
-  if (verb !== "set") {
-    process.stderr.write("waybill pricing: pass `show` or `set <model-id> [rates]`\n");
-    return 2;
-  }
-  const model = rest[0];
-  if (!model || model.startsWith("--")) {
-    process.stderr.write("waybill pricing set: pass the model id first\n");
-    return 2;
-  }
-  const rates = {};
-  let version = null;
-  const FLAGS = {
-    "--input": "input_per_mtok",
-    "--output": "output_per_mtok",
-    "--cache-read": "cache_read_per_mtok",
-    "--cache-5m": "cache_write_5m_per_mtok",
-    "--cache-1h": "cache_write_1h_per_mtok"
-  };
-  for (let i = 1; i < rest.length; i++) {
-    const a = rest[i];
-    if (a === "--version") {
-      version = rest[++i] ?? null;
-      continue;
-    }
-    const field = FLAGS[a];
-    if (!field) {
-      process.stderr.write(`waybill pricing set: unknown option ${a}
-`);
-      return 2;
-    }
-    const v = Number(rest[++i]);
-    if (!Number.isFinite(v) || v < 0) {
-      process.stderr.write(`waybill pricing set: ${a} needs a non-negative number (USD per million tokens)
-`);
-      return 2;
-    }
-    rates[field] = v;
-  }
-  for (const field of Object.values(FLAGS)) {
-    if (!(field in rates)) {
-      process.stderr.write(
-        "waybill pricing set: all five rates are required (--input --output --cache-read --cache-5m --cache-1h) \u2014 no rate is ever guessed\n"
-      );
-      return 2;
-    }
-  }
-  const effectiveVersion = version ?? config.pricing.version;
-  if (!effectiveVersion) {
-    process.stderr.write(
-      "waybill pricing set: pass --version <YYYY-MM-DD> (the price-list date \u2014 it labels every derived USD figure)\n"
-    );
-    return 2;
-  }
-  config.pricing.version = effectiveVersion;
-  config.pricing.models[model] = {
-    input_per_mtok: rates["input_per_mtok"],
-    output_per_mtok: rates["output_per_mtok"],
-    cache_read_per_mtok: rates["cache_read_per_mtok"],
-    cache_write_5m_per_mtok: rates["cache_write_5m_per_mtok"],
-    cache_write_1h_per_mtok: rates["cache_write_1h_per_mtok"]
-  };
-  saveConfig(home, config);
-  if (json) {
-    process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
-  } else {
-    process.stdout.write(
-      `priced ${model} (version ${effectiveVersion}). Existing events re-price on the next meter run: waybill meter --all
-`
-    );
-  }
-  return 0;
-}
-
 // src/cli/cmd-status.ts
-import { existsSync as existsSync9, readFileSync as readFileSync11, readdirSync as readdirSync4 } from "node:fs";
+import { existsSync as existsSync10, readFileSync as readFileSync12, readdirSync as readdirSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 import { execFileSync as execFileSync6 } from "node:child_process";
 function fmtInt2(n) {
   return n.toLocaleString("en-US");
 }
 function runStatus(home, args, json) {
-  let claudeSettings = join10(homedir4(), ".claude", "settings.json");
+  let claudeSettings = join11(homedir4(), ".claude", "settings.json");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
@@ -2961,16 +3095,16 @@ function runStatus(home, args, json) {
       return 2;
     }
   }
-  const initialized = existsSync9(join10(home, "config.json"));
+  const initialized = existsSync10(join11(home, "config.json"));
   const config = loadConfig(home);
   const retention = checkRetention(claudeSettings);
   let pendingUnmined = 0;
-  const queueDir = join10(home, "pending-sessions");
-  if (existsSync9(queueDir)) {
+  const queueDir = join11(home, "pending-sessions");
+  if (existsSync10(queueDir)) {
     for (const f of readdirSync4(queueDir)) {
       if (!f.endsWith(".json")) continue;
       try {
-        const capture = JSON.parse(readFileSync11(join10(queueDir, f), "utf8"));
+        const capture = JSON.parse(readFileSync12(join11(queueDir, f), "utf8"));
         if (capture.mined !== true && typeof capture.mined !== "string") pendingUnmined += 1;
       } catch {
         pendingUnmined += 1;
@@ -3137,7 +3271,7 @@ function runQuery(home, args) {
 
 // src/cli/cmd-resolve.ts
 import { execFileSync as execFileSync7 } from "node:child_process";
-import { existsSync as existsSync10 } from "node:fs";
+import { existsSync as existsSync11 } from "node:fs";
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -3236,7 +3370,7 @@ function runResolve(home, args, json) {
   let corrected = 0;
   const checkpoint = loadState(home).sessions[ambiguity.session_id];
   const transcriptPath = checkpoint?.transcript_path ?? authoritative(readEvents(home, "sessions")).find((s) => s.kind === "session" && s.session_id === ambiguity.session_id)?.transcript_path ?? null;
-  if (transcriptPath && existsSync10(transcriptPath)) {
+  if (transcriptPath && existsSync11(transcriptPath)) {
     if (acquireLock(home)) {
       try {
         const result = meterFile(home, transcriptPath, null, true);
@@ -3273,7 +3407,7 @@ function runResolve(home, args, json) {
 
 // src/cli/cmd-sync-plan.ts
 import { execFileSync as execFileSync8 } from "node:child_process";
-import { readFileSync as readFileSync12 } from "node:fs";
+import { readFileSync as readFileSync13 } from "node:fs";
 
 // src/adapters/contract.ts
 function defaultContext(partial = {}) {
@@ -3807,7 +3941,7 @@ function runSyncPlan(home, args) {
   }
   const config = loadConfig(home);
   if (applyPath) {
-    const plan2 = JSON.parse(readFileSync12(applyPath, "utf8"));
+    const plan2 = JSON.parse(readFileSync13(applyPath, "utf8"));
     const bodies = [
       ...plan2.shipped,
       ...plan2.corrections.map((c) => c.body),
@@ -3856,7 +3990,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync12(itemsPath, "utf8")), ctx);
+    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync13(itemsPath, "utf8")), ctx);
   }
   let changes = [];
   if (changesPath) {
@@ -3865,7 +3999,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync12(changesPath, "utf8")), ctx);
+    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync13(changesPath, "utf8")), ctx);
   }
   if (localRepos.length > 0) {
     const sinceIso = since ?? config.last_sync ?? new Date(Date.parse(now) - 90 * 864e5).toISOString().slice(0, 19) + "Z";
@@ -3926,8 +4060,9 @@ Commands:
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
   status      One screen of ledger health: init, retention, mining, inbox, verify
   export      Spend ledger as csv|json [--format csv|json] [--from/--to] [--audience]
-  pricing     show | set <model-id> --version <date> --input/--output/--cache-read/
-                --cache-5m/--cache-1h <usd per mtok>  (no rates ship; you cite yours)
+  pricing     show | import [--model <id-or-alias>]... | set <model-id> --version <date>
+                --input/--output/--cache-read/--cache-5m/--cache-1h <usd per mtok>
+                (import loads bundled Anthropic rates; set overrides any model)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:

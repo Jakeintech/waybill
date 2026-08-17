@@ -7,6 +7,22 @@ compatibility surface.
 
 ## [Unreleased]
 
+### Added
+- **Bundled Anthropic pricing (D6, reversed)** — `waybill init` now
+  auto-imports current Anthropic list rates on a fresh install, and
+  `waybill pricing import [--model <id-or-alias>]` loads them any time
+  (`references/anthropic-pricing.json`, exact dated model ids, with
+  family-alias resolution like `claude-sonnet-4` → `claude-sonnet-4-6`).
+  The original 1.1.0 call — no prices ship, the user cites every rate — is
+  reversed: bundled rates are the default now, and `waybill pricing set`
+  still overrides any single model's rate whenever a different basis
+  applies.
+- **`waybill init` setup summary** — a "Configured" / "Needs action" report
+  covering the ledger, identity, repo scope, pricing basis, transcript
+  retention, and whether `GITHUB_MCP_PAT` is set (with the exact export/PAT
+  instructions when it isn't). Idempotent: re-running `init` on an existing
+  ledger never re-imports pricing or touches a rate set by hand.
+
 ## [1.1.1] - 2026-08-17
 
 ### Fixed
