@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [Unreleased]
+
+### Added
+- **`github-issues` tracker adapter** — GitHub Issues as the tracker of
+  record: `waybill sync-plan --tracker github-issues`. Keys are GitHub's
+  own cross-repo syntax (`owner/repo#15`), derived purely from the issue
+  URL leaf; the conformance kit gained a matching derivation check (a
+  composed key passes only when re-deriving it from the verbatim URL leaf
+  reproduces it exactly) and adapters may now declare their tracker's own
+  `keyPattern` — the metering branch pattern is deliberately untouched.
+  Labels map to `work_type`, milestones to `sprint`, `not_planned`
+  closures are dropped as cancelled work, PR rows from the REST `/issues`
+  endpoint are skipped, and `points` stays null (GitHub has no estimates;
+  a point scale is never invented). Both the gh CLI and REST payload
+  shapes are accepted. Own-data scoping keeps unassigned issues and drops
+  issues assigned only to someone else.
+
 ## [1.3.0] - 2026-08-17
 
 The open-issue batch: every UX issue filed against 1.1.1 (#6–#15),

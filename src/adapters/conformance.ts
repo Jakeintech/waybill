@@ -46,12 +46,29 @@ export function checkTrackerAdapter(
     failures.push("ordering: items must be sorted by key");
   }
   const leaves = leafSet(raw);
-  const keyRe = new RegExp(`^(?:${ctx.keyPattern})$`);
+  // An adapter may declare its tracker's own key shape (e.g. GitHub's
+  // owner/repo#123); otherwise the configured branch pattern governs.
+  const keyRe = new RegExp(`^(?:${adapter.keyPattern ?? ctx.keyPattern})$`);
   const seen = new Set<string>();
   for (const item of a) {
-    checkItem(item, keyRe, leaves, seen, failures);
+    checkItem(item, keyRe, leaves, seen, failures, adapter);
   }
   return { adapter: adapter.kind, passed: failures.length === 0, failures };
+}
+
+/** A composed key is not fabricated when it is a pure projection of a URL
+ * leaf the kit has already verified verbatim: re-derive and compare. */
+function keyDerivedFromPayload(
+  item: WorkItem,
+  leaves: Set<string>,
+  adapter: TrackerAdapter,
+): boolean {
+  return (
+    adapter.deriveKey !== undefined &&
+    item.url !== null &&
+    leaves.has(item.url) &&
+    adapter.deriveKey(item.url) === item.key
+  );
 }
 
 function checkItem(
@@ -60,11 +77,14 @@ function checkItem(
   leaves: Set<string>,
   seen: Set<string>,
   failures: string[],
+  adapter: TrackerAdapter,
 ): void {
   if (!keyRe.test(item.key)) failures.push(`${item.key}: key does not match the configured pattern`);
   if (seen.has(item.key)) failures.push(`${item.key}: duplicate key`);
   seen.add(item.key);
-  if (!leaves.has(item.key)) failures.push(`${item.key}: key not present in raw payload (fabricated?)`);
+  if (!leaves.has(item.key) && !keyDerivedFromPayload(item, leaves, adapter)) {
+    failures.push(`${item.key}: key not present in raw payload (fabricated?)`);
+  }
   if (item.points !== null && !leaves.has(String(item.points))) {
     failures.push(`${item.key}: points ${item.points} not present in raw payload — points are never invented`);
   }

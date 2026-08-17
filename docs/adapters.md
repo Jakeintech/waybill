@@ -71,7 +71,24 @@ Open a PR that adds:
 | git-local | none — reads local `git log` directly | ✅ bundled, default | Zero auth; commits and merges by your own `git config` identities |
 | Jira + Confluence (Atlassian Cloud) | `https://mcp.atlassian.com/v1/mcp/authv2` (official, OAuth) | ✅ bundled | Points, epics, sprints all available |
 | GitHub | `https://api.githubcopilot.com/mcp/` (official, PAT header) | ✅ bundled | Fine-grained read-only PAT recommended |
+| GitHub Issues (as tracker) | the GitHub server above, or the `gh` CLI directly | ✅ bundled adapter, conformance-tested | Keys are GitHub's own `owner/repo#number` syntax, derived from the issue URL (see note below); labels → `work_type`, milestone → `sprint`; no estimates, so `points` stays null |
 | Linear | `https://mcp.linear.app/mcp` (official, OAuth) | ✅ bundled adapter, conformance-tested | Estimates → `points`, cycles → `sprint`, projects → `epic_name`; a live end-to-end test report is a welcome first contribution |
 | GitLab | `npx @zereight/mcp-gitlab` (community, PAT) | ✅ bundled adapter, conformance-tested | MRs map to `artifacts.prs`; a live end-to-end test report is a welcome contribution |
 | Bitbucket | — | 🙋 wanted | Available via Atlassian's server; needs testing |
 | Azure DevOps | — | 🙋 wanted | |
+
+### Composed keys and the no-fabrication check
+
+GitHub issues have no Jira-style key, and their only pattern-shaped payload
+leaf (`number: 15`) is useless as a global identifier. The `github-issues`
+adapter therefore mints GitHub's own canonical cross-repo reference,
+`owner/repo#number` — and the conformance kit holds it to the same
+no-fabrication standard as a verbatim key: the adapter declares
+`deriveKey(url)`, a pure projection from the issue's URL, and the kit
+re-runs it against the `url` leaf (which must itself appear verbatim in the
+raw payload) and requires an exact match. An adapter may also declare its
+own `keyPattern` when its tracker's key shape differs from
+`metering.branch_key_pattern` — the branch pattern governs what metering
+extracts from branch names and commit evidence, and is deliberately not
+widened for this. Community adapters composing keys should follow the same
+pair: declare the shape, derive from a verbatim leaf.

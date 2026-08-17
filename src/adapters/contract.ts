@@ -65,6 +65,20 @@ export function defaultContext(partial: Partial<AdapterContext> = {}): AdapterCo
  */
 export interface TrackerAdapter {
   kind: string;
+  /** The tracker's own key shape, when it differs from the configured
+   * branch pattern (e.g. GitHub's `owner/repo#123`). The conformance kit
+   * and sync validate item keys against this instead of
+   * `ctx.keyPattern`; metering's branch pattern is deliberately NOT
+   * widened — "what a key looks like in this tracker" and "what keys
+   * look like in branch names" are different questions. */
+  keyPattern?: string;
+  /** Pure projection from a verbatim payload URL leaf to the item key.
+   * Declaring it lets the conformance kit verify a composed key (one not
+   * present verbatim in the payload) is still derived entirely from the
+   * payload: the kit re-runs the derivation on `item.url` — which must
+   * itself be a verbatim leaf — and requires an exact match. Must use
+   * nothing but the given URL string. */
+  deriveKey?(url: string): string | null;
   normalizeItems(raw: unknown, ctx: AdapterContext): WorkItem[];
 }
 

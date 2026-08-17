@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { defaultContext } from "../../src/adapters/contract.ts";
 import { jiraAdapter } from "../../src/adapters/jira.ts";
 import { githubAdapter } from "../../src/adapters/github.ts";
+import { githubIssuesAdapter } from "../../src/adapters/github-issues.ts";
 import { gitLocalAdapter } from "../../src/adapters/gitlocal-adapter.ts";
 import { checkGitHostAdapter, checkTrackerAdapter } from "../../src/adapters/conformance.ts";
 import { deriveBaseline, reconcile } from "../../src/sync/reconcile.ts";
@@ -22,6 +23,7 @@ const CTX = defaultContext({ identityEmails: ["me@example.com"] });
 
 const jiraRaw = JSON.parse(readFileSync(join(FIX, "jira-search.json"), "utf8")) as unknown;
 const githubRaw = JSON.parse(readFileSync(join(FIX, "github-prs.json"), "utf8")) as unknown;
+const ghIssuesRaw = JSON.parse(readFileSync(join(FIX, "github-issues.json"), "utf8")) as unknown;
 
 test("jira adapter: normalizes items — points, epic via parent, active sprint, done state", () => {
   const items = jiraAdapter.normalizeItems(jiraRaw, CTX);
@@ -62,9 +64,90 @@ test("github adapter: merged only, keys from title+branch, both payload shapes",
   assert.deepEqual(fromSearch[0]!.keys, ["PLAT-500"]);
 });
 
+test("github-issues adapter: keys derived from URL leaves, real captured payload", () => {
+  // The fixture is this very repo's issue list via `gh issue list --json …`
+  // — the exact solo-maintainer shape that motivated the adapter: all
+  // closed, none assigned, no milestones.
+  const items = githubIssuesAdapter.normalizeItems(ghIssuesRaw, CTX);
+  assert.equal(items.length, 15);
+  for (const i of items) {
+    assert.match(i.key, /^Jakeintech\/waybill#[0-9]+$/);
+    assert.equal(i.done, true);
+    assert.ok(i.resolved_at !== null);
+    assert.equal(i.points, null); // GitHub has no estimates — never invented
+  }
+  const menu = items.find((i) => i.key === "Jakeintech/waybill#15")!;
+  assert.equal(menu.work_type, "feature"); // label: enhancement
+  assert.equal(menu.url, "https://github.com/Jakeintech/waybill/issues/15");
+  assert.equal(items.find((i) => i.key === "Jakeintech/waybill#6")!.work_type, "bug");
+  assert.equal(items.find((i) => i.key === "Jakeintech/waybill#7")!.work_type, "docs");
+});
+
+test("github-issues adapter: REST shape, PR rows, not_planned, and assignee scoping", () => {
+  const login = defaultContext({ githubLogin: "Jakeintech" });
+  const rest = [
+    { // REST field names + lowercase state: accepted
+      number: 1, title: "Fix the thing", state: "closed", state_reason: "completed",
+      closed_at: "2026-08-01T10:00:00Z", created_at: "2026-07-30T09:00:00Z",
+      updated_at: "2026-08-01T10:00:00Z", labels: [{ name: "bug" }], milestone: { title: "v1" },
+      assignee: null, assignees: [], html_url: "https://github.com/Jakeintech/waybill/issues/1",
+    },
+    { // a PR returned by the /issues endpoint: skipped
+      number: 2, title: "Some PR", state: "closed", state_reason: "completed",
+      closed_at: "2026-08-02T10:00:00Z", html_url: "https://github.com/Jakeintech/waybill/pull/2",
+      pull_request: { merged_at: "2026-08-02T10:00:00Z" },
+    },
+    { // not_planned: cancelled work, dropped like Linear's canceled
+      number: 3, title: "Won't do", state: "closed", state_reason: "not_planned",
+      closed_at: "2026-08-03T10:00:00Z", html_url: "https://github.com/Jakeintech/waybill/issues/3",
+    },
+    { // explicitly someone else's: dropped (defense in depth)
+      number: 4, title: "Colleague's issue", state: "open",
+      assignees: [{ login: "someone-else" }],
+      html_url: "https://github.com/Jakeintech/waybill/issues/4",
+    },
+    { // assigned to the user (case-insensitive): kept, open
+      number: 5, title: "Mine, open", state: "open",
+      assignees: [{ login: "jakeintech" }],
+      html_url: "https://github.com/Jakeintech/waybill/issues/5",
+    },
+  ];
+  const items = githubIssuesAdapter.normalizeItems(rest, login);
+  assert.deepEqual(items.map((i) => i.key), ["Jakeintech/waybill#1", "Jakeintech/waybill#5"]);
+  const one = items[0]!;
+  assert.equal(one.done, true);
+  assert.equal(one.resolved_at, "2026-08-01T10:00:00Z");
+  assert.equal(one.sprint, "v1");
+  assert.equal(one.work_type, "bug");
+  const five = items[1]!;
+  assert.equal(five.done, false);
+  assert.equal(five.resolved_at, null);
+  // and the REST-shaped payload still passes the conformance kit
+  assert.deepEqual(checkTrackerAdapter(githubIssuesAdapter, rest, login).failures, []);
+});
+
+test("conformance kit: derived keys pass only when the URL leaf re-derives them", () => {
+  const raw = [{
+    number: 9, title: "x", state: "closed", state_reason: "completed",
+    closed_at: "2026-08-01T00:00:00Z", html_url: "https://github.com/o/r/issues/9",
+  }];
+  assert.deepEqual(checkTrackerAdapter(githubIssuesAdapter, raw, CTX).failures, []);
+  // An adapter minting a key its own URL leaf cannot re-derive is caught.
+  const lying = {
+    ...githubIssuesAdapter,
+    kind: "lying",
+    normalizeItems: (r: unknown, c: Parameters<typeof githubIssuesAdapter.normalizeItems>[1]) =>
+      githubIssuesAdapter.normalizeItems(r, c).map((i) => ({ ...i, key: "o/r#99" })),
+  };
+  const report = checkTrackerAdapter(lying, raw, CTX);
+  assert.ok(report.failures.some((f) => f.includes("fabricated")));
+});
+
 test("conformance kit: bundled adapters pass", () => {
   const jira = checkTrackerAdapter(jiraAdapter, jiraRaw, CTX);
   assert.deepEqual(jira.failures, []);
+  const ghIssues = checkTrackerAdapter(githubIssuesAdapter, ghIssuesRaw, CTX);
+  assert.deepEqual(ghIssues.failures, []);
   const github = checkGitHostAdapter(githubAdapter, githubRaw, CTX);
   assert.deepEqual(github.failures, []);
   const F = "";

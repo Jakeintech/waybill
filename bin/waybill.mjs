@@ -3728,6 +3728,69 @@ var githubAdapter = {
   }
 };
 
+// src/adapters/github-issues.ts
+function str4(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+function workTypeFromLabels2(issue) {
+  const labels = (issue.labels ?? []).map((l) => (typeof l === "string" ? l : l.name ?? "").toLowerCase()).filter((n) => n !== "");
+  if (labels.includes("bug")) return "bug";
+  if (labels.includes("refactor")) return "refactor";
+  if (labels.includes("docs") || labels.includes("documentation")) return "docs";
+  if (labels.includes("research") || labels.includes("spike")) return "research";
+  if (labels.includes("incident")) return "incident";
+  return "feature";
+}
+var ISSUE_URL = /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/issues\/([0-9]+)$/;
+var githubIssuesAdapter = {
+  kind: "github-issues",
+  keyPattern: "[A-Za-z0-9][A-Za-z0-9-]*\\/[A-Za-z0-9._-]+#[0-9]+",
+  deriveKey(url) {
+    const m = ISSUE_URL.exec(url);
+    return m ? `${m[1]}/${m[2]}#${m[3]}` : null;
+  },
+  normalizeItems(raw, _ctx) {
+    const root = raw;
+    const nodes = Array.isArray(raw) ? raw : root.items ?? root.issues ?? [];
+    const out = [];
+    for (const issue of nodes) {
+      if (issue.pull_request !== void 0) continue;
+      const url = str4(issue.url) ?? str4(issue.html_url);
+      if (!url) continue;
+      const key = githubIssuesAdapter.deriveKey(url);
+      if (!key) continue;
+      const state = (str4(issue.state) ?? "").toLowerCase();
+      const reason = (str4(issue.stateReason) ?? str4(issue.state_reason) ?? "").toLowerCase();
+      if (reason === "not_planned") continue;
+      const assignees = [
+        ...(issue.assignees ?? []).map((a) => str4(a.login)),
+        str4(issue.assignee?.login)
+      ].filter((l) => l !== null);
+      if (_ctx.githubLogin !== null && assignees.length > 0 && !assignees.some((l) => l.toLowerCase() === _ctx.githubLogin.toLowerCase())) {
+        continue;
+      }
+      const done = state === "closed";
+      out.push({
+        key,
+        title: str4(issue.title) ?? key,
+        points: null,
+        // GitHub has no estimates; a point scale is never invented
+        epic_key: null,
+        epic_name: null,
+        sprint: str4(issue.milestone?.title),
+        status: state === "" ? "unknown" : state,
+        done,
+        resolved_at: done ? str4(issue.closedAt) ?? str4(issue.closed_at) : null,
+        created_at: str4(issue.createdAt) ?? str4(issue.created_at),
+        updated_at: str4(issue.updatedAt) ?? str4(issue.updated_at),
+        work_type: workTypeFromLabels2(issue),
+        url
+      });
+    }
+    return sortItems(out);
+  }
+};
+
 // src/adapters/gitlocal-adapter.ts
 var gitLocalAdapter = {
   kind: "local",
@@ -3754,16 +3817,16 @@ var gitLocalAdapter = {
 };
 
 // src/adapters/gitlab.ts
-function str4(v) {
+function str5(v) {
   return typeof v === "string" && v !== "" ? v : null;
 }
 function repoOf2(mr) {
-  const full = str4(mr.references?.full);
+  const full = str5(mr.references?.full);
   if (full) {
     const m = /^(.+)!\d+$/.exec(full);
     if (m) return m[1];
   }
-  const url = str4(mr.web_url);
+  const url = str5(mr.web_url);
   if (url) {
     const m = /^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\//.exec(url);
     if (m) return m[1];
@@ -3776,12 +3839,12 @@ var gitlabAdapter = {
     const items = Array.isArray(raw) ? raw : raw?.merge_requests ?? [];
     const out = [];
     for (const mr of items) {
-      const mergedAt = str4(mr.merged_at);
-      const url = str4(mr.web_url);
+      const mergedAt = str5(mr.merged_at);
+      const url = str5(mr.web_url);
       const repo = repoOf2(mr);
       if (!mergedAt || !url || !repo) continue;
-      const title = str4(mr.title) ?? url;
-      const branch = str4(mr.source_branch);
+      const title = str5(mr.title) ?? url;
+      const branch = str5(mr.source_branch);
       out.push({
         url,
         title,
@@ -4006,7 +4069,11 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
 }
 
 // src/cli/cmd-sync-plan.ts
-var TRACKERS = { jira: jiraAdapter, linear: linearAdapter };
+var TRACKERS = {
+  jira: jiraAdapter,
+  linear: linearAdapter,
+  "github-issues": githubIssuesAdapter
+};
 var GIT_HOSTS = { github: githubAdapter, gitlab: gitlabAdapter, local: gitLocalAdapter };
 function runSyncPlan(home, args) {
   let tracker = null;
@@ -4149,7 +4216,7 @@ Commands:
   resolve     File an attribution-inbox item and re-attribute its turns
                 --ambiguity <id> --account <acct> [--pin | --repo-default <org/name>]
   sync-plan   Reconcile normalized tracker/git payloads into proposed entries
-                --tracker jira|linear --items <raw.json>
+                --tracker jira|linear|github-issues --items <raw.json>
                 --git github|gitlab|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox

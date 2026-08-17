@@ -44,6 +44,19 @@ own data.
    Request fields: summary, status, resolutiondate, created, updated,
    issuetype, parent, story points and sprint custom fields. Save the raw
    JSON response verbatim to a temp file (e.g. `/tmp/waybill-items.json`).
+   **GitHub Issues as the tracker** (`tracker.kind: "github-issues"`):
+   fetch with the gh CLI instead —
+
+   ```bash
+   gh issue list -R <org/name> --state all --limit 200 \
+     --json number,title,state,stateReason,closedAt,createdAt,updatedAt,labels,milestone,assignees,url \
+     > /tmp/waybill-items.json
+   ```
+
+   Save exactly what the command returns — never edit or annotate the
+   payload; the adapter derives `owner/repo#number` keys from the issue
+   URLs itself, and the conformance contract depends on the payload being
+   raw. The REST `/issues` shape works too.
 3. **Git host (GitHub MCP):** search PRs authored by the user in configured
    repos merged since `last_sync` into the default branch (e.g.
    `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Save the
@@ -70,7 +83,7 @@ own data.
    entry, marked "Claude involvement unrecorded"), `unmatched_changes`
    (merged PRs with no tracker key — surfaced, never silently dropped), and
    a derived `baseline` when requested. Other trackers/hosts swap in the
-   same flow: `--tracker linear`, `--git gitlab`.
+   same flow: `--tracker linear`, `--tracker github-issues`, `--git gitlab`.
 5. Present the plan as a short table and get **one confirmation**. If the
    user excludes rows, delete them from the plan JSON before applying.
 6. **Apply:** `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" sync-plan --apply /tmp/waybill-plan.json` — appends
