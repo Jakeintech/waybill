@@ -28,9 +28,10 @@ claude plugin install waybill@waybill
 
 Then in a Claude Code session, say **"initialize my waybill ledger"**. That's
 the whole setup: no accounts, no tokens, no OAuth. Waybill seeds your
-identity from `git config`, checks your transcript-retention setting, and
-renders a **bootstrap receipt** from your local git history alone — your
-shipped work, itemized, in under a minute.
+identity from `git config`, imports Anthropic list-price rates so costs
+appear from day one, checks your transcript-retention setting, and renders
+a **bootstrap receipt** from your local git history alone — your shipped
+work, itemized, in under a minute.
 
 ### Updating
 

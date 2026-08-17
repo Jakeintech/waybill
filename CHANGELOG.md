@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
-## [Unreleased]
+## [1.2.0] - 2026-08-17
 
 ### Added
 - **Bundled Anthropic pricing (D6, reversed)** — `waybill init` now
@@ -22,6 +22,13 @@ compatibility surface.
   retention, and whether `GITHUB_MCP_PAT` is set (with the exact export/PAT
   instructions when it isn't). Idempotent: re-running `init` on an existing
   ledger never re-imports pricing or touches a rate set by hand.
+- **`waybill pricing import`** — load bundled Anthropic list rates on
+  demand, with optional `--model <id-or-alias>` filter (family aliases
+  like `claude-sonnet-4` resolve to dated model ids).
+
+### Changed
+- Skills, docs, and ROADMAP updated for the D6 reversal: pricing is
+  configured by default, not an onboarding hurdle.
 
 ## [1.1.1] - 2026-08-17
 
@@ -330,7 +337,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Jakeintech/waybill/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Jakeintech/waybill/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Jakeintech/waybill/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Jakeintech/waybill/compare/v1.0.0...v1.0.1

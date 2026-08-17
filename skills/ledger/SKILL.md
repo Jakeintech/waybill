@@ -71,20 +71,26 @@ When the user asks to initialize or set up the ledger:
 1. Run `node "$WAYBILL" init`. It creates the home as a git repo, seeds
    `identity.json` from `git config` (plus `gh` login if already
    authenticated — never start an auth flow), seeds the repo scope from the
-   current repo, and reports the transcript-retention setting.
-2. Relay the retention result faithfully: if `cleanupPeriodDays` is 0, warn
-   that transcripts are deleted immediately and metering will only cover
-   sessions mined before deletion; otherwise recommend raising it (e.g.
-   99999) so history stays meterable. Never change the user's Claude Code
-   settings yourself; tell them the exact edit.
-3. Offer the zero-auth first value immediately: `node "$WAYBILL" bootstrap` renders
+   current repo, auto-imports bundled Anthropic list-price rates (so USD
+   costs appear from day one), checks whether `GITHUB_MCP_PAT` is set, and
+   reports the transcript-retention setting.
+2. Relay the setup summary faithfully — init prints a "Configured" /
+   "Needs action" report. Pricing auto-imports only on a fresh install; it
+   never overwrites a rate set by hand. If `GITHUB_MCP_PAT` is missing,
+   relay the exact export/PAT instructions it prints.
+3. Relay the retention result: if `cleanupPeriodDays` is 0, warn that
+   transcripts are deleted immediately and metering will only cover sessions
+   mined before deletion; otherwise recommend raising it (e.g. 99999) so
+   history stays meterable. Never change the user's Claude Code settings
+   yourself; tell them the exact edit.
+4. Offer the zero-auth first value immediately: `node "$WAYBILL" bootstrap` renders
    a receipt from local git history in under a minute.
-4. Only then, optionally interview for the upgrade path (one question at a
+5. Only then, optionally interview for the upgrade path (one question at a
    time, skip anything derivable): Jira project keys, GitHub repos, default
    branch, allocation history for utilization reporting. Update
    `config.json` fields the user confirms (read, modify the specific field,
    write back, validate with `jq -e .`).
-5. Commit happens automatically; nothing else to do.
+6. Commit happens automatically; nothing else to do.
 
 ## Reading the ledger
 

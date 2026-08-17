@@ -24,8 +24,9 @@ node "$WAYBILL" mine --all      # catch-up metering first, always
 ```
 
 Read `skills/ledger/references/methodology.md` for the language rules
-(tokens are the native unit; USD only when priced, labeled with its
-pricing version; unattributed is shown, never hidden).
+(tokens are the native unit; USD appears by default using bundled
+Anthropic list rates, labeled with its pricing version; unattributed is
+shown, never hidden).
 
 ## The canonical questions
 

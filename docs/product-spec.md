@@ -131,9 +131,12 @@ analytics.
 - **FR-M5 — Pricing.** Cost in USD is derived as tokens × the effective
   pricing table in config (per-model rates for input, output, cache read,
   and 5-minute/1-hour cache writes, with effective dates and a
-  `pricing_version`). Unknown model → tokens reported, `cost_usd: null`,
-  never guessed. For subscription users, token-denominated reporting is the
-  default and USD is labeled "list-price equivalent."
+  `pricing_version`). Bundled Anthropic list rates are auto-imported on
+  `waybill init` and loadable on demand via `waybill pricing import`;
+  `waybill pricing set` overrides any model's rate. Unknown model → tokens
+  reported, `cost_usd: null`, never guessed. For subscription users,
+  token-denominated reporting is the default and USD is labeled
+  "list-price equivalent."
 - **FR-M6 — Aggregation grain.** One usage event per (turn, model,
   attribution account). A turn is the span from one user prompt to the next;
   subagent activity within a turn rolls up to that turn's account.
@@ -220,10 +223,10 @@ so the schema round-trips cleanly to a warehouse later (team mode).
 {"metering":{"enabled":true,"sources":["transcript"],
              "branch_key_pattern":"[A-Z][A-Z0-9]+-[0-9]+",
              "repo_defaults":{"acme/platform":null}},
- "pricing":{"version":"2026-08-01","unknown_model_policy":"tokens_only",
-            "models":{"<model-id>":{"input_per_mtok":0,"output_per_mtok":0,
-              "cache_read_per_mtok":0,"cache_write_5m_per_mtok":0,
-              "cache_write_1h_per_mtok":0}}},
+ "pricing":{"version":"2026-08-17","unknown_model_policy":"tokens_only",
+            "models":{"claude-sonnet-4-6":{"input_per_mtok":3000,"output_per_mtok":15000,
+              "cache_read_per_mtok":300,"cache_write_5m_per_mtok":3750,
+              "cache_write_1h_per_mtok":3000}}},
  "budgets":{"allocation":"inherit","epics":{"PLAT-401":5000000},
             "renewal_reminder_days":14}}
 ```
@@ -410,8 +413,10 @@ thresholds met; docs complete; two external adapter configs tested.
    config-only?
 3. Retention: offer optional compaction of usage events older than N months
    into signed monthly rollups (still append-only)?
-4. Pricing-table update UX: manual edit only, or a guided refresh flow with
-   a documented source-of-truth?
+4. ~~Pricing-table update UX~~ — **Resolved (v1.2.0, D6 reversed).**
+   Bundled Anthropic list rates auto-import on `waybill init`;
+   `waybill pricing import` refreshes on demand; `waybill pricing set`
+   overrides individual models.
 
 ## 13. Glossary
 

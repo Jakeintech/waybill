@@ -20,15 +20,22 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.0 (2026-08)
+## Shipped — 1.2.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
 attribution engine with conservation verification, escrow, the spend skill
 and attribution inbox, budgets/pacing with session-start notices, the OTel
 fallback, waste and rework diagnostics, trigger evals, and the schema v2
-freeze ([migration policy](docs/migration.md)). The sections below record
-the original plan; the [CHANGELOG](CHANGELOG.md) records what shipped.
+freeze ([migration policy](docs/migration.md)).
+
+1.1.x added `waybill status`, `waybill export`, and `waybill pricing`.
+1.2.0 reversed D6: **bundled Anthropic list rates** auto-import on
+`waybill init`; `waybill pricing import` refreshes on demand. Pricing is
+configured by default, not an onboarding hurdle.
+
+The sections below record the original plan; the
+[CHANGELOG](CHANGELOG.md) records what shipped.
 
 ## Foundation — 0.2.x (scaffold)
 
@@ -80,7 +87,8 @@ the original plan; the [CHANGELOG](CHANGELOG.md) records what shipped.
   counterevidence — the "but is the code good?" answer).
 - **Allocation-cycle automation**: a scheduled reminder flow that drafts the
   pitch N days before each grant renewal recorded in `config.json`.
-- **Export packs**: perf-review output as a formatted document on request.
+- **Export packs**: perf-review output as Markdown from the report skill;
+  spend ledger as CSV/JSON via `waybill export`. *(Shipped 1.0/1.1.)*
 - **Schema freeze** and a documented migration policy.
 
 ## Exploring (not committed)

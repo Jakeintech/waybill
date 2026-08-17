@@ -86,8 +86,8 @@ claims to fill the gap.
    ("11% unattributed — shown, never hidden"). If the attribution inbox has
    open items, add one line offering to resolve them.
 5. **Costs & caveats** — tokens spent vs. granted (utilization) from
-   `report.costs`; USD only if `pricing_version` is set, labeled
-   "list-price equivalent"; rework from `costs.reopened_count` ("1 item
+   `report.costs`; USD using bundled Anthropic list rates by default (labeled
+   "list-price equivalent"); rework from `costs.reopened_count` ("1 item
    reopened after shipping") and waste from `costs.waste` ("14 retried
    commands, 79 repeated reads across the window") — the unflattering
    numbers are what make the flattering ones believable; one line on what
