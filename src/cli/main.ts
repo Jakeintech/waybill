@@ -5,6 +5,7 @@ import { runBootstrap } from "./cmd-bootstrap.ts";
 import { runInit } from "./cmd-init.ts";
 import { runMeter } from "./cmd-meter.ts";
 import { runMine } from "./cmd-mine.ts";
+import { runSyncPlan } from "./cmd-sync-plan.ts";
 
 const USAGE = `waybill — token accounting for AI-assisted work. Bring receipts.
 
@@ -20,6 +21,9 @@ Commands:
                 --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
   append      Validate, seal, id, and append one event (the skills' write path)
                 --stream <name> --event '<json>' [--commit]
+  sync-plan   Reconcile normalized tracker/git payloads into proposed entries
+                --tracker jira --items <raw.json> --git github|local --changes <raw.json>
+                [--baseline] | --apply <plan.json>
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -71,6 +75,8 @@ export async function main(argv: string[]): Promise<number> {
       return runMeter(cli.home, cli.args, cli.json);
     case "append":
       return runAppend(cli.home, cli.args, cli.json);
+    case "sync-plan":
+      return runSyncPlan(cli.home, cli.args);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

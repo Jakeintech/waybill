@@ -1,0 +1,30 @@
+[
+  {
+    "html_url": "https://github.com/acme/platform/pull/1932",
+    "title": "PLAT-482: retry logic for checkout webhook",
+    "merged_at": "2026-08-12T16:00:03Z",
+    "head": { "ref": "feat/PLAT-482-retry" },
+    "base": { "repo": { "full_name": "acme/platform" } }
+  },
+  {
+    "html_url": "https://github.com/acme/platform/pull/1940",
+    "title": "Fix flaky payment test",
+    "merged_at": "2026-08-14T11:18:40Z",
+    "head": { "ref": "fix/PLAT-490-flaky-payment" },
+    "base": { "repo": { "full_name": "acme/platform" } }
+  },
+  {
+    "html_url": "https://github.com/acme/platform/pull/1944",
+    "title": "chore: bump deps",
+    "merged_at": null,
+    "head": { "ref": "chore/deps" },
+    "base": { "repo": { "full_name": "acme/platform" } }
+  },
+  {
+    "html_url": "https://github.com/acme/platform/pull/1948",
+    "title": "Refactor config loader",
+    "merged_at": "2026-08-15T09:30:00Z",
+    "head": { "ref": "refactor/config" },
+    "base": { "repo": { "full_name": "acme/platform" } }
+  }
+]

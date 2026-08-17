@@ -1654,6 +1654,471 @@ function runMine(home, args) {
   return 0;
 }
 
+// src/cli/cmd-sync-plan.ts
+import { execFileSync as execFileSync6 } from "node:child_process";
+import { readFileSync as readFileSync8 } from "node:fs";
+
+// src/adapters/contract.ts
+function defaultContext(partial = {}) {
+  return {
+    keyPattern: "[A-Z][A-Z0-9]+-[0-9]+",
+    identityEmails: [],
+    pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
+    sprintFields: ["customfield_10020", "customfield_10010"],
+    ...partial
+  };
+}
+function extractKeys(text, keyPattern) {
+  const out = [];
+  for (const k of text.match(new RegExp(keyPattern, "g")) ?? []) {
+    if (!out.includes(k)) out.push(k);
+  }
+  return out;
+}
+function sortItems(items) {
+  return [...items].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+}
+function sortChanges(changes) {
+  return [...changes].sort(
+    (a, b) => (a.merged_at < b.merged_at ? -1 : a.merged_at > b.merged_at ? 1 : 0) || ((a.url ?? "") < (b.url ?? "") ? -1 : 1)
+  );
+}
+
+// src/adapters/jira.ts
+function str(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+function num(v) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function mapWorkType(issueType) {
+  switch ((issueType ?? "").toLowerCase()) {
+    case "bug":
+      return "bug";
+    case "story":
+    case "task":
+    case "sub-task":
+    case "subtask":
+      return "feature";
+    case "incident":
+      return "incident";
+    case "spike":
+    case "research":
+      return "research";
+    default:
+      return "other";
+  }
+}
+function sprintName(fields, ctx) {
+  for (const field of ctx.sprintFields) {
+    const v = fields[field];
+    if (Array.isArray(v) && v.length > 0) {
+      const last = v[v.length - 1];
+      if (typeof last === "string") {
+        const m = /name=([^,]+)/.exec(last);
+        if (m) return m[1];
+        return last;
+      }
+      const name = str(last?.["name"]);
+      if (name) return name;
+    }
+  }
+  return null;
+}
+function points(fields, ctx) {
+  for (const field of ctx.pointsFields) {
+    const v = num(fields[field]);
+    if (v !== null) return v;
+  }
+  return null;
+}
+var jiraAdapter = {
+  kind: "jira",
+  normalizeItems(raw, ctx) {
+    const issues = Array.isArray(raw) ? raw : raw?.issues ?? [];
+    const out = [];
+    const keyRe = new RegExp(`^(?:${ctx.keyPattern})$`);
+    for (const issue of issues) {
+      const key = str(issue.key);
+      if (!key || !keyRe.test(key)) continue;
+      const fields = issue.fields ?? {};
+      const status = fields["status"];
+      const statusName = str(status?.["name"]) ?? "unknown";
+      const category = status?.["statusCategory"]?.["key"];
+      const resolvedAt = str(fields["resolutiondate"]);
+      const done = category === "done" || resolvedAt !== null;
+      const issueType = str(fields["issuetype"]?.["name"]);
+      const parent = fields["parent"];
+      const parentType = str(
+        parent?.fields?.["issuetype"]?.["name"]
+      );
+      const parentIsEpic = (parentType ?? "").toLowerCase() === "epic";
+      const epicKey = parentIsEpic ? str(parent?.key) : str(fields["customfield_10014"]);
+      const epicName = parentIsEpic ? str((parent?.fields ?? {})["summary"]) : str(fields["customfield_10011"]);
+      const base = str(issue.self)?.replace(/\/rest\/api\/.*$/, "");
+      out.push({
+        key,
+        title: str(fields["summary"]) ?? key,
+        points: points(fields, ctx),
+        epic_key: epicKey,
+        epic_name: epicName,
+        sprint: sprintName(fields, ctx),
+        status: statusName,
+        done,
+        resolved_at: resolvedAt,
+        created_at: str(fields["created"]),
+        updated_at: str(fields["updated"]),
+        work_type: mapWorkType(issueType),
+        url: base ? `${base}/browse/${key}` : null
+      });
+    }
+    return sortItems(out);
+  }
+};
+
+// src/adapters/github.ts
+function str2(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+function repoOf(pr) {
+  const full = str2(pr.base?.repo?.full_name) ?? str2(pr.repository?.full_name);
+  if (full) return full;
+  const repoUrl = str2(pr.repository_url);
+  if (repoUrl) {
+    const m = /repos\/([^/]+\/[^/]+)$/.exec(repoUrl);
+    if (m) return m[1];
+  }
+  const html = str2(pr.html_url);
+  if (html) {
+    const m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(html);
+    if (m) return m[1];
+  }
+  return null;
+}
+var githubAdapter = {
+  kind: "github",
+  normalizeChanges(raw, ctx) {
+    const items = Array.isArray(raw) ? raw : raw?.items ?? [];
+    const out = [];
+    for (const pr of items) {
+      const mergedAt = str2(pr.merged_at) ?? str2(pr.pull_request?.merged_at);
+      const url = str2(pr.html_url);
+      const repo = repoOf(pr);
+      if (!mergedAt || !url || !repo) continue;
+      const title = str2(pr.title) ?? url;
+      const branch = str2(pr.head?.ref);
+      out.push({
+        url,
+        title,
+        repo,
+        branch,
+        merged_at: mergedAt,
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern)
+      });
+    }
+    return sortChanges(out);
+  }
+};
+
+// src/adapters/gitlocal-adapter.ts
+var gitLocalAdapter = {
+  kind: "local",
+  normalizeChanges(raw, ctx) {
+    const { repo, log } = raw;
+    if (typeof repo !== "string" || typeof log !== "string") return [];
+    const emails = new Set(ctx.identityEmails.map((e) => e.toLowerCase()));
+    const out = [];
+    for (const c of parseGitLog(log)) {
+      if (c.parents <= 1) continue;
+      if (emails.size > 0 && !emails.has(c.author_email.toLowerCase())) continue;
+      out.push({
+        url: null,
+        // local history has no web URL; the sha is the receipt
+        title: `${c.subject} (${c.sha.slice(0, 10)})`,
+        repo,
+        branch: null,
+        merged_at: c.author_date,
+        keys: extractKeys(c.subject, ctx.keyPattern)
+      });
+    }
+    return sortChanges(out);
+  }
+};
+
+// src/sync/reconcile.ts
+function median(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const m = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return Math.round(m * 10) / 10;
+}
+function deriveBaseline(items, windowLabel) {
+  const done = items.filter((i) => i.done);
+  const bySprint = /* @__PURE__ */ new Map();
+  for (const i of done) {
+    if (i.sprint !== null && i.points !== null) {
+      bySprint.set(i.sprint, (bySprint.get(i.sprint) ?? 0) + i.points);
+    }
+  }
+  const cycles = [];
+  for (const i of done) {
+    if (i.created_at !== null && i.resolved_at !== null) {
+      const days = (Date.parse(i.resolved_at) - Date.parse(i.created_at)) / 864e5;
+      if (days >= 0) cycles.push(days);
+    }
+  }
+  return {
+    velocity_points_per_sprint: median([...bySprint.values()]),
+    median_cycle_time_days: median(cycles),
+    window: windowLabel,
+    derived_from: `tracker history: ${done.length} resolved item(s), ${bySprint.size} sprint(s)`
+  };
+}
+function shippedBody(entry, item, changes, now) {
+  const prUrls = changes.map((c) => c.url).filter((u) => u !== null).sort();
+  const commitShas = changes.filter((c) => c.url === null).map((c) => /\(([0-9a-f]{7,40})\)$/.exec(c.title)?.[1]).filter((s) => s !== void 0).sort();
+  const tsCandidates = [item.resolved_at ?? "", ...changes.map((c) => c.merged_at)].filter((t) => t !== "");
+  const ts = tsCandidates.length > 0 ? tsCandidates.sort()[tsCandidates.length - 1] : now;
+  return {
+    ts,
+    kind: "shipped",
+    schema_version: 2,
+    supersedes: entry.id,
+    title: entry.title,
+    tracker_key: item.key,
+    epic_key: item.epic_key ?? entry.epic_key,
+    epic_name: item.epic_name ?? entry.epic_name,
+    sprint: item.sprint ?? entry.sprint,
+    repo: changes[0]?.repo ?? entry.repo,
+    work_type: entry.work_type,
+    points: item.points ?? entry.points,
+    artifacts: { prs: prUrls, commits: commitShas, deploy: null, docs: [] },
+    estimate_without_claude_hours: entry.estimate_without_claude_hours,
+    escrow: entry.escrow,
+    actual_hours: entry.actual_hours,
+    claude_role: entry.claude_role,
+    sessions: entry.sessions,
+    tokens: entry.tokens,
+    budget_tokens: entry.budget_tokens,
+    time_saved_hours: entry.time_saved_hours,
+    notes: entry.notes
+  };
+}
+function orphanBody(item, changes, now) {
+  const base = shippedBody(
+    {
+      id: "",
+      ts: now,
+      kind: "opened",
+      schema_version: 2,
+      supersedes: null,
+      title: item.title,
+      tracker_key: item.key,
+      epic_key: null,
+      epic_name: null,
+      sprint: null,
+      repo: null,
+      work_type: item.work_type,
+      points: null,
+      artifacts: { prs: [], commits: [], deploy: null, docs: [] },
+      estimate_without_claude_hours: null,
+      escrow: null,
+      actual_hours: null,
+      claude_role: "none",
+      sessions: [],
+      tokens: null,
+      budget_tokens: null,
+      time_saved_hours: null,
+      notes: null
+    },
+    item,
+    changes,
+    now
+  );
+  base.supersedes = null;
+  base.notes = "imported from tracker/git history; Claude involvement unrecorded";
+  return base;
+}
+function reconcile(items, changes, ledgerEvents, now, options = {}) {
+  const auth = authoritative(ledgerEvents).filter(
+    (e) => e.kind !== "pin"
+  );
+  const latestByKey = /* @__PURE__ */ new Map();
+  for (const e of auth) {
+    if (e.tracker_key === null) continue;
+    const prior = latestByKey.get(e.tracker_key);
+    if (!prior || e.ts > prior.ts) latestByKey.set(e.tracker_key, e);
+  }
+  const changesByKey = /* @__PURE__ */ new Map();
+  const unmatched = [];
+  for (const c of changes) {
+    if (c.keys.length === 0) {
+      unmatched.push(c);
+      continue;
+    }
+    for (const k of c.keys) {
+      changesByKey.set(k, [...changesByKey.get(k) ?? [], c]);
+    }
+  }
+  const shipped = [];
+  const corrections = [];
+  const orphans = [];
+  for (const item of items) {
+    const entry = latestByKey.get(item.key);
+    const itemChanges = changesByKey.get(item.key) ?? [];
+    if (!entry) {
+      if (item.done) orphans.push(orphanBody(item, itemChanges, now));
+      continue;
+    }
+    if ((entry.kind === "opened" || entry.kind === "progress") && item.done) {
+      shipped.push(shippedBody(entry, item, itemChanges, now));
+      continue;
+    }
+    if (entry.kind === "shipped" || entry.kind === "correction") {
+      const drift = [];
+      if (item.points !== null && entry.points !== item.points) {
+        drift.push(`points ${entry.points ?? "null"} \u2192 ${item.points}`);
+      }
+      if (item.epic_key !== null && entry.epic_key !== item.epic_key) {
+        drift.push(`epic ${entry.epic_key ?? "null"} \u2192 ${item.epic_key}`);
+      }
+      if (item.sprint !== null && entry.sprint !== item.sprint) {
+        drift.push(`sprint ${entry.sprint ?? "null"} \u2192 ${item.sprint}`);
+      }
+      if (drift.length > 0) {
+        const body = {
+          ...(({ id: _id, ...rest }) => rest)(entry),
+          ts: now,
+          kind: "correction",
+          supersedes: entry.id,
+          points: item.points ?? entry.points,
+          epic_key: item.epic_key ?? entry.epic_key,
+          epic_name: item.epic_name ?? entry.epic_name,
+          sprint: item.sprint ?? entry.sprint,
+          notes: `sync: ${drift.join("; ")}`
+        };
+        corrections.push({ body, drift });
+      }
+    }
+  }
+  for (const [key, cs] of [...changesByKey.entries()].sort()) {
+    if (!items.some((i) => i.key === key) && !latestByKey.has(key)) {
+      for (const c of cs) if (!unmatched.includes(c)) unmatched.push(c);
+    }
+  }
+  return {
+    generated_at: now,
+    shipped,
+    corrections,
+    orphans,
+    unmatched_changes: unmatched,
+    baseline: options.baselineWindow ? deriveBaseline(items, options.baselineWindow) : null,
+    summary: {
+      open_entries: auth.filter((e) => e.kind === "opened" || e.kind === "progress").length,
+      done_items: items.filter((i) => i.done).length,
+      merged_changes: changes.length
+    }
+  };
+}
+
+// src/cli/cmd-sync-plan.ts
+var TRACKERS = { jira: jiraAdapter };
+var GIT_HOSTS = { github: githubAdapter, local: gitLocalAdapter };
+function runSyncPlan(home, args) {
+  let tracker = null;
+  let gitHost = null;
+  let itemsPath = null;
+  let changesPath = null;
+  let applyPath = null;
+  let baseline = false;
+  let now = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--tracker") tracker = args[++i] ?? null;
+    else if (a === "--git") gitHost = args[++i] ?? null;
+    else if (a === "--items") itemsPath = args[++i] ?? null;
+    else if (a === "--changes") changesPath = args[++i] ?? null;
+    else if (a === "--apply") applyPath = args[++i] ?? null;
+    else if (a === "--baseline") baseline = true;
+    else if (a === "--now") now = args[++i] ?? now;
+    else {
+      process.stderr.write(`waybill sync-plan: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  const config = loadConfig(home);
+  if (applyPath) {
+    const plan2 = JSON.parse(readFileSync8(applyPath, "utf8"));
+    const bodies = [
+      ...plan2.shipped,
+      ...plan2.corrections.map((c) => c.body),
+      ...plan2.orphans
+    ];
+    const existing = new Set(readEvents(home, "ledger").map((e) => e.id));
+    const events = [];
+    for (const body of bodies) {
+      const event = finalizeEvent("ledger", body);
+      if (!existing.has(event.id)) events.push(event);
+    }
+    appendEvents(home, "ledger", events);
+    if (plan2.baseline) {
+      config.baseline = {
+        velocity_points_per_sprint: plan2.baseline.velocity_points_per_sprint,
+        median_cycle_time_days: plan2.baseline.median_cycle_time_days,
+        window: plan2.baseline.window,
+        derived_from: plan2.baseline.derived_from
+      };
+    }
+    config.last_sync = plan2.generated_at;
+    saveConfig(home, config);
+    try {
+      execFileSync6("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
+      execFileSync6("git", ["-C", home, "commit", "-m", `sync: ${events.length} entr${events.length === 1 ? "y" : "ies"} applied`], {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 15e3
+      });
+    } catch {
+    }
+    process.stdout.write(JSON.stringify({ applied: events.length, last_sync: plan2.generated_at }) + "\n");
+    return 0;
+  }
+  const identity = loadIdentity(home);
+  const ctx = defaultContext({
+    keyPattern: config.metering.branch_key_pattern,
+    identityEmails: identity?.git_emails ?? []
+  });
+  let items = [];
+  if (itemsPath) {
+    if (!tracker || !(tracker in TRACKERS)) {
+      process.stderr.write(`waybill sync-plan: --items needs --tracker <${Object.keys(TRACKERS).join("|")}>
+`);
+      return 2;
+    }
+    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync8(itemsPath, "utf8")), ctx);
+  }
+  let changes = [];
+  if (changesPath) {
+    if (!gitHost || !(gitHost in GIT_HOSTS)) {
+      process.stderr.write(`waybill sync-plan: --changes needs --git <${Object.keys(GIT_HOSTS).join("|")}>
+`);
+      return 2;
+    }
+    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync8(changesPath, "utf8")), ctx);
+  }
+  if (!itemsPath && !changesPath) {
+    process.stderr.write("waybill sync-plan: pass --items and/or --changes (or --apply <plan.json>)\n");
+    return 2;
+  }
+  const ledgerEvents = readEvents(home, "ledger");
+  const plan = reconcile(items, changes, ledgerEvents, now, {
+    ...baseline ? { baselineWindow: `until ${now.slice(0, 10)}` } : {}
+  });
+  process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
+  return 0;
+}
+
 // src/cli/main.ts
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
@@ -1669,6 +2134,9 @@ Commands:
                 --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
   append      Validate, seal, id, and append one event (the skills' write path)
                 --stream <name> --event '<json>' [--commit]
+  sync-plan   Reconcile normalized tracker/git payloads into proposed entries
+                --tracker jira --items <raw.json> --git github|local --changes <raw.json>
+                [--baseline] | --apply <plan.json>
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -1712,6 +2180,8 @@ async function main(argv) {
       return runMeter(cli.home, cli.args, cli.json);
     case "append":
       return runAppend(cli.home, cli.args, cli.json);
+    case "sync-plan":
+      return runSyncPlan(cli.home, cli.args);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

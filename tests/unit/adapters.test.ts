@@ -1,0 +1,187 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { defaultContext } from "../../src/adapters/contract.ts";
+import { jiraAdapter } from "../../src/adapters/jira.ts";
+import { githubAdapter } from "../../src/adapters/github.ts";
+import { gitLocalAdapter } from "../../src/adapters/gitlocal-adapter.ts";
+import { checkGitHostAdapter, checkTrackerAdapter } from "../../src/adapters/conformance.ts";
+import { deriveBaseline, reconcile } from "../../src/sync/reconcile.ts";
+import { readEvents } from "../../src/core/streams.ts";
+import { finalizeEvent, type LedgerEntry } from "../../src/core/events.ts";
+import { checkEscrow } from "../../src/core/escrow.ts";
+import { makeOpened } from "../helpers/fixtures.ts";
+
+const ROOT = join(import.meta.dirname, "..", "..");
+const FIX = join(ROOT, "tests", "fixtures", "adapters");
+const CTX = defaultContext({ identityEmails: ["me@example.com"] });
+
+const jiraRaw = JSON.parse(readFileSync(join(FIX, "jira-search.json"), "utf8")) as unknown;
+const githubRaw = JSON.parse(readFileSync(join(FIX, "github-prs.json"), "utf8")) as unknown;
+
+test("jira adapter: normalizes items — points, epic via parent, active sprint, done state", () => {
+  const items = jiraAdapter.normalizeItems(jiraRaw, CTX);
+  assert.deepEqual(items.map((i) => i.key), ["DATA-77", "PLAT-482", "PLAT-490"]);
+  const plat = items.find((i) => i.key === "PLAT-482")!;
+  assert.equal(plat.points, 5);
+  assert.equal(plat.epic_key, "PLAT-401");
+  assert.equal(plat.epic_name, "Checkout reliability");
+  assert.equal(plat.sprint, "2026-S17");
+  assert.equal(plat.done, true);
+  assert.equal(plat.work_type, "feature");
+  assert.equal(plat.url, "https://acme.atlassian.net/browse/PLAT-482");
+  const data = items.find((i) => i.key === "DATA-77")!;
+  assert.equal(data.done, false);
+  assert.equal(data.resolved_at, null);
+  const bug = items.find((i) => i.key === "PLAT-490")!;
+  assert.equal(bug.work_type, "bug");
+});
+
+test("github adapter: merged only, keys from title+branch, both payload shapes", () => {
+  const changes = githubAdapter.normalizeChanges(githubRaw, CTX);
+  assert.equal(changes.length, 3); // the unmerged PR is dropped
+  assert.deepEqual(changes[0]!.keys, ["PLAT-482"]);
+  assert.deepEqual(changes[1]!.keys, ["PLAT-490"]); // key only in branch name
+  assert.deepEqual(changes[2]!.keys, []); // no key anywhere
+  // search-issues shape round-trips too
+  const searchShape = {
+    items: [{
+      html_url: "https://github.com/acme/platform/pull/2001",
+      title: "PLAT-500 hotfix",
+      pull_request: { merged_at: "2026-08-16T10:00:00Z" },
+      repository_url: "https://api.github.com/repos/acme/platform",
+    }],
+  };
+  const fromSearch = githubAdapter.normalizeChanges(searchShape, CTX);
+  assert.equal(fromSearch.length, 1);
+  assert.equal(fromSearch[0]!.repo, "acme/platform");
+  assert.deepEqual(fromSearch[0]!.keys, ["PLAT-500"]);
+});
+
+test("conformance kit: bundled adapters pass", () => {
+  const jira = checkTrackerAdapter(jiraAdapter, jiraRaw, CTX);
+  assert.deepEqual(jira.failures, []);
+  const github = checkGitHostAdapter(githubAdapter, githubRaw, CTX);
+  assert.deepEqual(github.failures, []);
+  const F = "";
+  const R = "";
+  const localRaw = {
+    repo: "acme/platform",
+    log:
+      `aaa111${F}me@example.com${F}2026-08-12T16:05:00+00:00${F}p1 p2${F}${F}Merge pull request #1932 PLAT-482 retry${R}\n` +
+      `bbb222${F}colleague@example.com${F}2026-08-13T10:00:00+00:00${F}p1 p2${F}${F}Merge DATA-99 thing${R}`,
+  };
+  const local = checkGitHostAdapter(gitLocalAdapter, localRaw, CTX);
+  assert.deepEqual(local.failures, []);
+  const changes = gitLocalAdapter.normalizeChanges(localRaw, CTX);
+  assert.equal(changes.length, 1); // colleague's merge excluded — own data only
+  assert.deepEqual(changes[0]!.keys, ["PLAT-482"]);
+});
+
+test("conformance kit: catches a fabricating adapter", () => {
+  const cheat = {
+    kind: "cheat",
+    normalizeItems: () => [{
+      key: "FAKE-1", title: "invented", points: 13, epic_key: null, epic_name: null,
+      sprint: null, status: "Done", done: true, resolved_at: "2026-01-01T00:00:00Z",
+      created_at: null, updated_at: null, work_type: "feature" as const, url: null,
+    }],
+  };
+  const report = checkTrackerAdapter(cheat, { issues: [] }, CTX);
+  assert.equal(report.passed, false);
+  assert.ok(report.failures.some((f) => f.includes("fabricated") || f.includes("not present")));
+});
+
+test("reconcile: shipped proposal carries escrow, artifacts, and tracker facts", () => {
+  const opened = makeOpened(); // PLAT-482, pre-registered + sealed
+  const items = jiraAdapter.normalizeItems(jiraRaw, CTX);
+  const changes = githubAdapter.normalizeChanges(githubRaw, CTX);
+  const plan = reconcile(items, changes, [opened], "2026-08-16T12:00:00Z");
+  assert.equal(plan.shipped.length, 1);
+  const s = plan.shipped[0]!;
+  assert.equal(s.kind, "shipped");
+  assert.equal(s.supersedes, opened.id);
+  assert.equal(s.points, 5);
+  assert.deepEqual(s.artifacts.prs, ["https://github.com/acme/platform/pull/1932"]);
+  assert.equal(s.escrow, opened.escrow); // the seal travels with the claim
+  assert.equal(s.ts, "2026-08-12T16:02:11.000+0000"); // max(resolved_at, merged_at)
+  // orphan: PLAT-490 is done with no ledger entry
+  assert.equal(plan.orphans.length, 1);
+  assert.equal(plan.orphans[0]!.tracker_key, "PLAT-490");
+  assert.equal(plan.orphans[0]!.claude_role, "none");
+  assert.match(plan.orphans[0]!.notes ?? "", /involvement unrecorded/);
+  // unmatched: the keyless refactor PR is listed, never silently dropped
+  assert.equal(plan.unmatched_changes.length, 1);
+  // DATA-77 is not done: nothing proposed
+  assert.ok(!plan.shipped.some((b) => b.tracker_key === "DATA-77"));
+});
+
+test("reconcile: field drift on a shipped entry proposes a correction", () => {
+  const opened = makeOpened();
+  const items = jiraAdapter.normalizeItems(jiraRaw, CTX);
+  const changes = githubAdapter.normalizeChanges(githubRaw, CTX);
+  const first = reconcile(items, changes, [opened], "2026-08-16T12:00:00Z");
+  // Apply the shipped proposal, then drift the tracker's points.
+  const shippedEvent = finalizeEvent("ledger", first.shipped[0]!) as LedgerEntry;
+  const drifted = structuredClone(jiraRaw) as { issues: Array<{ key: string; fields: Record<string, unknown> }> };
+  drifted.issues.find((i) => i.key === "PLAT-482")!.fields["customfield_10016"] = 8;
+  const items2 = jiraAdapter.normalizeItems(drifted, CTX);
+  const plan2 = reconcile(items2, changes, [opened, shippedEvent], "2026-08-17T12:00:00Z");
+  assert.equal(plan2.corrections.length, 1);
+  assert.deepEqual(plan2.corrections[0]!.drift, ["points 5 → 8"]);
+  assert.equal(plan2.corrections[0]!.body.supersedes, shippedEvent.id);
+});
+
+test("baseline: medians over sprints and cycle times", () => {
+  const items = jiraAdapter.normalizeItems(jiraRaw, CTX);
+  const b = deriveBaseline(items, "2026-Q2");
+  // done items: PLAT-482 (S17, 5pts, ~4.3d), PLAT-490 (S17, 1pt, ~1.1d)
+  assert.equal(b.velocity_points_per_sprint, 6); // one sprint bucket: 5+1
+  assert.equal(b.median_cycle_time_days, 2.7); // median of 4.3 and 1.1
+  assert.match(b.derived_from, /2 resolved item\(s\)/);
+});
+
+test("e2e sync-plan CLI: plan then apply, escrow intact, verify green", () => {
+  const home = mkdtempSync(join(tmpdir(), "wb-sync-"));
+  const work = mkdtempSync(join(tmpdir(), "wb-sync-work-"));
+  try {
+    const cli = (args: string[]): string =>
+      execFileSync(process.execPath, [join(ROOT, "src", "cli", "main.ts"), ...args], {
+        encoding: "utf8",
+        env: { ...process.env, WAYBILL_HOME: home },
+      });
+    // Seed an open, escrowed entry through the real write path.
+    const opened = makeOpened();
+    const { id: _id, ...openedBody } = opened;
+    cli(["append", "--stream", "ledger", "--event", JSON.stringify(openedBody)]);
+    // Plan from fixtures.
+    writeFileSync(join(work, "items.json"), JSON.stringify(jiraRaw), "utf8");
+    writeFileSync(join(work, "changes.json"), JSON.stringify(githubRaw), "utf8");
+    const planOut = cli([
+      "sync-plan", "--tracker", "jira", "--items", join(work, "items.json"),
+      "--git", "github", "--changes", join(work, "changes.json"),
+      "--baseline", "--now", "2026-08-16T12:00:00Z",
+    ]);
+    const plan = JSON.parse(planOut) as { shipped: unknown[]; orphans: unknown[]; baseline: unknown };
+    assert.equal(plan.shipped.length, 1);
+    writeFileSync(join(work, "plan.json"), planOut, "utf8");
+    const applyOut = cli(["sync-plan", "--apply", join(work, "plan.json")]);
+    assert.match(applyOut, /"applied":2/);
+    // Escrow survived the round trip; ledger verifies.
+    const entries = readEvents<LedgerEntry>(home, "ledger");
+    const shipped = entries.find((e) => e.kind === "shipped" && e.tracker_key === "PLAT-482")!;
+    assert.equal(checkEscrow(shipped).status, "ok");
+    const verify = cli(["verify"]);
+    assert.match(verify, /All checks passed/);
+    // Re-apply is a no-op (deterministic ids dedupe).
+    const applyAgain = cli(["sync-plan", "--apply", join(work, "plan.json")]);
+    assert.match(applyAgain, /"applied":0/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
+  }
+});

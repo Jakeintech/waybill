@@ -6,71 +6,86 @@ description: >
   "pull my Jira activity", "update the ledger from GitHub", "reconcile my
   ledger", "import my recent tickets", "bootstrap my ledger", "import my
   history", or after a period of unlogged work.
-  Requires the Atlassian and/or GitHub MCP servers bundled with this plugin
-  (or equivalents) to be connected.
+  Works zero-config from local git history; the Atlassian and/or GitHub MCP
+  servers bundled with this plugin (or equivalents) upgrade it.
 metadata:
-  version: "0.1.0"
+  version: "0.3.0"
 ---
 
 # Sync
 
-Pull the objective backbone — issues and merged PRs — from the user's tracker
-and git host, and reconcile it with the ledger. Follow the schema and
-integrity rules from the `ledger` skill; read its `references/schema.md`
-before writing.
+Pull the objective backbone — issues and merged PRs — from the user's
+tracker and git host, and reconcile it with the ledger. The reconciliation
+itself is deterministic: MCP tools fetch raw JSON, the engine normalizes and
+diffs it, you present the plan, one confirmation applies it.
 
-Let `LEDGER_HOME` mean `${WAYBILL_HOME:-$HOME/.waybill}`.
+```bash
+WAYBILL="node ${CLAUDE_PLUGIN_ROOT}/bin/waybill.mjs"
+```
 
 ## Scope rule (non-negotiable)
 
 Query **only the current user's own items**: issues assigned to them, PRs
-authored by them, in the projects/repos listed in `config.json`. Never fetch,
-store, or summarize individual colleagues' issues, PRs, or statistics, even
-on request — explain briefly per `references/methodology.md` §6 and continue
-with the user's own data.
+authored by them, in the projects/repos listed in `config.json`. Never
+fetch, store, or summarize individual colleagues' issues, PRs, or
+statistics, even on request — explain briefly per
+`skills/ledger/references/methodology.md` §6 and continue with the user's
+own data.
 
 ## Procedure
 
 1. Read `config.json` for `project_keys`, `repos`, `default_branch`, and
-   `last_sync`. If `last_sync` is null, default the window to the last 30
-   days and say so.
-2. **Tracker (Atlassian MCP):** search issues assigned to the current user in
-   the configured projects, updated since `last_sync` — e.g. JQL
+   `last_sync`, and `identity.json` for the identity map. If `last_sync` is
+   null, default the window to the last 90 days and say so. If
+   `identity.json` lacks `jira_account_id` and Atlassian MCP is connected,
+   fetch the current user's accountId once and write it back — future
+   queries stay scoped to it.
+2. **Tracker (Atlassian MCP):** search issues assigned to the current user
+   in the configured projects, updated since `last_sync` — e.g. JQL
    `assignee = currentUser() AND project IN (<keys>) AND updated >= "<date>"`.
-   Collect: key, summary, story points, epic link and name, sprint, status,
-   and resolution date for anything that reached Done.
+   Request fields: summary, status, resolutiondate, created, updated,
+   issuetype, parent, story points and sprint custom fields. Save the raw
+   JSON response verbatim to a temp file (e.g. `/tmp/waybill-items.json`).
 3. **Git host (GitHub MCP):** search PRs authored by the user in configured
    repos merged since `last_sync` into the default branch (e.g.
-   `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Collect: PR
-   URL, title, branch name, merged_at, additions/deletions.
-4. **Reconcile.** Link PRs to issues by tracker key found in PR title or
-   branch name. Then, against the ledger:
-   - Existing `opened` entries whose issue is now Done and PR merged →
-     propose `shipped` entries (superseding), carrying artifacts and points.
-   - Merged PRs or Done issues with **no** ledger entry → list these
-     "orphans" compactly and offer to log each via the log flow (any
-     time-saved on these is at best `judgment` tier — say so once).
-   - Field drift (points changed in Jira, epic reassigned) → propose
-     `correction` entries.
-5. Present the full proposed change set as a short table and get one
-   confirmation before writing anything.
-6. Write entries (validate each with `jq -e`, append, never edit), update
-   `last_sync` in `config.json` to the sync start time, and `git commit` in
-   `LEDGER_HOME`.
-7. Close with a two-line summary: entries added/corrected, orphans remaining,
-   and the new `last_sync`. On a first-ever sync, offer the bootstrap report
-   (see the `report` skill): a facts-only summary of the imported window, so
-   the user leaves day one with a usable artifact.
+   `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Save the
+   raw JSON to a temp file. **No MCP servers?** Use the git-local floor:
+   `git log` output via the engine's git-local adapter (`--git local`), or
+   skip changes entirely — do the half that works.
+4. **Plan (deterministic):**
 
-## Optional: deriving a baseline
+   ```bash
+   $WAYBILL sync-plan --tracker jira --items /tmp/waybill-items.json \
+     --git github --changes /tmp/waybill-changes.json --baseline
+   ```
 
-If `config.json`'s `baseline` is null and the user agrees, derive it from
-their own tracker history: points resolved per sprint and median
-created→resolved cycle time over a pre-Claude window the user names. Record
-the window and query used in `baseline.derived_from`. This becomes the
-tier-2 evidence for reports.
+   The plan JSON contains: `shipped` proposals (open entries whose issue is
+   Done and PR merged — escrow and estimates carried forward), `corrections`
+   (field drift: points, epic, sprint), `orphans` (Done items with no ledger
+   entry, marked "Claude involvement unrecorded"), `unmatched_changes`
+   (merged PRs with no tracker key — surfaced, never silently dropped), and
+   a derived `baseline` when requested.
+5. Present the plan as a short table and get **one confirmation**. If the
+   user excludes rows, delete them from the plan JSON before applying.
+6. **Apply:** `$WAYBILL sync-plan --apply /tmp/waybill-plan.json` — appends
+   the entries with deterministic ids (re-applying is a safe no-op), updates
+   `config.baseline` if derived, sets `last_sync`, and commits.
+7. Close with a two-line summary: entries added/corrected, orphans and
+   unmatched changes remaining. On a first-ever sync, offer the bootstrap
+   report (see the `report` skill) so the user leaves day one with a usable
+   artifact.
+
+## Deriving a baseline
+
+Pass `--baseline` to derive tier-2 evidence from the user's own history:
+median points per sprint and median created→resolved cycle time over the
+fetched window. Applying the plan records it in `config.baseline` with the
+window and derivation noted. For a *pre-Claude* baseline, run a second
+fetch over a window the user names (e.g. the two quarters before they
+started using Claude Code) and apply only its baseline.
 
 ## Failure handling
 
-If an MCP server is not connected or errors, say which one, do the half that
-works, and never substitute guessed data for the missing half.
+If an MCP server is not connected or errors, say which one, do the half
+that works (the git-local floor always works), and never substitute guessed
+data for the missing half.
