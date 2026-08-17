@@ -1,7 +1,8 @@
-# Validation — v0.3.0 FINALPASS gate
+# Validation — FINALPASS gate (v1.0.0; v0.3.0 and v0.4.0 evidence retained below)
 
-Evidence for the M0 "Believable" and M1 "Metered" definitions of done.
-Every claim below is reproducible from a clean checkout with
+Evidence for milestones M0 "Believable", M1 "Metered", M2 "Answerable",
+and M3 "Trustworthy at scale". Every claim below is reproducible from a
+clean checkout with
 `npm ci && npm run check && bash scripts/validate-plugin.sh &&
 shellcheck scripts/*.sh tests/*.sh && bash tests/test-capture-session.sh`.
 
@@ -10,12 +11,47 @@ shellcheck scripts/*.sh tests/*.sh && bash tests/test-capture-session.sh`.
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) | clean |
-| `node --test` unit + golden + determinism + conservation suites | **69 / 69 pass** |
+| `node --test` unit + golden + determinism + conservation + acceptance suites | **94 / 94 pass** |
 | Reproducible build (`npm run build` then `git diff --exit-code bin/`) | zero diff |
 | `scripts/validate-plugin.sh` (manifests, skills, D19 naming, schema examples, dependency-free engine) | pass |
+| `claude plugin validate` (official CLI) | pass, no warnings |
 | `shellcheck scripts/*.sh tests/*.sh` | clean |
 | `tests/test-capture-session.sh` (hook never blocks/fails) | 7 / 7 pass |
 | GitHub Actions (validate, shellcheck, hook, engine jobs) | green on `main` |
+
+## M2 DoD — "Answerable"
+
+- Product-spec §8 UX flows 1–4 pass as scripted acceptance tests
+  (`tests/unit/acceptance.test.ts`): zero-touch week with confidence bands
+  and a working inbox, story cost in one interaction, the once-per-crossing
+  pacing nudge, and a pitch whose data carries the spend ledger,
+  escrow-sealed receipts, and utilization.
+- One-tap inbox resolution (`waybill resolve`) re-attributes turns via
+  superseding events and provably survives forced re-meters
+  (`tests/unit/polish.test.ts`).
+- The pitch renders from real data: `query report` over this machine's
+  actual metered history returns the full spend-ledger section (verified
+  during the live e2e).
+- Adversarial review (15-agent workflow, five lenses, one verifier per
+  finding): 10 confirmed findings, all fixed with regression tests.
+
+## M3 DoD — "Trustworthy at scale"
+
+- Waste diagnostics and rework/reopen tracking fixture-tested, including
+  the D11 guarantee that no command text or file path reaches the ledger
+  (string-absence asserted over serialized events).
+- Two additional adapter configs beyond the bundled defaults — Linear and
+  GitLab — pass the conformance kit with fixtures. Honest limit: live
+  end-to-end runs against real Linear/GitLab accounts have not been
+  performed; the adapters.md table says exactly that.
+- Trigger evals authored for every skill plus an overtrigger negative;
+  the CI job is gated behind an API-key variable. Honest limit: pass-rate
+  thresholds have not been measured yet — this machine's CLI OAuth session
+  is expired and `plugin eval` is early-access. First authenticated run:
+  `claude plugin eval waybill@waybill --threshold 0.8`.
+- Schema v2 frozen with a written migration policy (docs/migration.md);
+  docs-completeness sweep done (tutorial, how-to, reference, explanation
+  all present and cross-linked).
 
 ## Invariants, and the tests that enforce them
 

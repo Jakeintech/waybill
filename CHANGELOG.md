@@ -7,6 +7,41 @@ compatibility surface.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-16
+
+Milestone M3 "Trustworthy at scale". **Schema v2 is frozen** — see
+[docs/migration.md](docs/migration.md) for what additive vs. breaking means
+from here on. The receipts are the contract; the reports are the rendering.
+
+### Added
+- **Per-account waste diagnostics** — deterministic detection of retry
+  loops (identical commands re-run) and duplicate file reads per turn,
+  deduped by tool block id, counts only (never commands or paths, per the
+  ledger content policy). Rolled up per account in `query spend` and into
+  report costs: what this story's tokens bought, and what they wasted.
+- **Rework/reopen tracking** — sync detects tracker-reopened shipped items
+  and proposes a flagged correction; reports count reopens without erasing
+  the shipped work. Quality counterevidence, on the record.
+- **Skill trigger evals** — an eval case per skill's canonical phrases plus
+  an overtrigger negative (`evals/`), runnable with
+  `claude plugin eval waybill@waybill`; CI job gated behind an API-key
+  variable so forks stay green.
+- **Allocation-cycle reminder** — `pace --notice` nudges once, N days
+  before the grant renews (`budgets.renewal_reminder_days`, default 14):
+  build the pitch while the receipts are fresh.
+- **GitLab adapter** (bundled, conformance-tested): merged MRs →
+  `artifacts.prs`.
+- **Schema freeze + migration policy** (`docs/migration.md`).
+
+### Notes
+- Usage events gain optional `waste`; ledger entries gain optional
+  `reopened`. Additive: pre-1.0 events are grandfathered unchanged;
+  `waybill meter --all --force` backfills waste on historical sessions if
+  wanted.
+- Export packs: perf-review reports save as Markdown from the report skill;
+  a receipt-styled HTML renderer remains deliberately out of the
+  deterministic engine (prose is Claude's job, numbers are the engine's).
+
 ## [0.4.0] - 2026-08-16
 
 Milestone M2 "Answerable". Every canonical spend question is now one
@@ -185,7 +220,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Jakeintech/waybill/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/Jakeintech/waybill/compare/v0.3.0...v0.4.0
 [0.2.1]: https://github.com/Jakeintech/waybill/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Jakeintech/waybill/compare/v0.1.0...v0.2.0

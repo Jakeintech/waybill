@@ -20,7 +20,17 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Now — 0.2.x (shipping)
+## Shipped — 1.0 (2026-08)
+
+0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
+"Trustworthy at scale" (M3) are released: the deterministic metering and
+attribution engine with conservation verification, escrow, the spend skill
+and attribution inbox, budgets/pacing with session-start notices, the OTel
+fallback, waste and rework diagnostics, trigger evals, and the schema v2
+freeze ([migration policy](docs/migration.md)). The sections below record
+the original plan; the [CHANGELOG](CHANGELOG.md) records what shipped.
+
+## Foundation — 0.2.x (scaffold)
 
 - Core loop: pre-registered `log`, SessionEnd capture + transcript
   mining, Jira/GitHub `sync`, `report` (token-pitch, perf-review,
