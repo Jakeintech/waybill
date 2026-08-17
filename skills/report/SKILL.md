@@ -115,5 +115,7 @@ asked; `sprint-recap` drops the ask section entirely.
 ## Output handling
 
 Print the report in the conversation. Offer, without doing it unprompted,
-to save it to a file or publish it to Confluence via the Atlassian MCP
-tools.
+to save it to a file. **Confluence publishing is strictly opt-in**: only
+when the user explicitly asks, publish via the Atlassian MCP tools, confirm
+the destination space/page first, and remind them in one line which
+audience level the report was rendered at before it leaves their machine.

@@ -1,8 +1,14 @@
+import { readFileSync } from "node:fs";
+import { loadConfig } from "../core/config.ts";
+import type { ExceptionEvent, LedgerEntry, PinEntry, SessionEvent, UsageEvent } from "../core/events.ts";
+import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLockWait, releaseLock } from "../meter/lock.ts";
+import { meterOtel } from "../meter/otel.ts";
 import { defaultProjectsDir, listTranscripts, meterFile, type MeterRunResult } from "../meter/run.ts";
 
 export async function runMeter(home: string, args: string[], json: boolean): Promise<number> {
   let transcript: string | null = null;
+  let otel: string | null = null;
   let repo: string | null = null;
   let all = false;
   let force = false;
@@ -10,6 +16,7 @@ export async function runMeter(home: string, args: string[], json: boolean): Pro
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--transcript") transcript = args[++i] ?? null;
+    else if (a === "--otel") otel = args[++i] ?? null;
     else if (a === "--repo") repo = args[++i] ?? null;
     else if (a === "--all") all = true;
     else if (a === "--force") force = true;
@@ -19,9 +26,52 @@ export async function runMeter(home: string, args: string[], json: boolean): Pro
       return 2;
     }
   }
-  if (!all && !transcript) {
-    process.stderr.write("waybill meter: pass --transcript <path> or --all\n");
+  if (!all && !transcript && !otel) {
+    process.stderr.write("waybill meter: pass --transcript <path>, --otel <export.jsonl>, or --all\n");
     return 2;
+  }
+
+  if (otel) {
+    if (!(await acquireLockWait(home))) {
+      process.stderr.write("waybill meter: another metering process is running; try again shortly\n");
+      return 1;
+    }
+    try {
+      const out = meterOtel({
+        raw: readFileSync(otel, "utf8"),
+        config: loadConfig(home),
+        ledgerEvents: readEvents<LedgerEntry | PinEntry>(home, "ledger"),
+        existingUsage: readEvents<UsageEvent>(home, "usage"),
+        existingSessions: readEvents<SessionEvent>(home, "sessions"),
+        existingExceptions: readEvents<ExceptionEvent>(home, "exceptions"),
+      });
+      appendEvents(home, "usage", out.newUsage);
+      appendEvents(home, "sessions", out.newSessions);
+      if (json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              usage: out.newUsage.length,
+              sessions: out.newSessions.length,
+              skipped_transcript_sessions: out.skipped_transcript_sessions,
+            },
+            null,
+            2,
+          ) + "\n",
+        );
+      } else {
+        process.stdout.write(
+          `otel: +${out.newUsage.length} usage event(s) across ${out.newSessions.length} session(s)` +
+            (out.skipped_transcript_sessions.length > 0
+              ? ` (${out.skipped_transcript_sessions.length} session(s) skipped — transcript is the source of truth)`
+              : "") +
+            "\n",
+        );
+      }
+      return 0;
+    } finally {
+      releaseLock(home);
+    }
   }
 
   // Same lock as the miner: two writers computing the same events would

@@ -245,3 +245,35 @@ mechanism for a public plugin.
 
 **Rationale.** A public marketplace plugin without a visible release is
 harder to audit; the release notes are the receipt.
+## 2026-08-16 — Inbox queueing is gated on unsettled turns
+
+**Question.** FR-A4 literally read says every multi-candidate rule match
+queues an ambiguity, but that nags: a session on a clearly-named branch
+with two open entries would queue every turn even though transcript
+evidence settled the attribution at 0.75+.
+
+**Choice.** The resolver still reports every ambiguity; the meter queues it
+to the inbox only when the turn's final resolver is weaker than
+`transcript_evidence` (i.e. `session_branch`, `repo_default`, or `none`).
+Settled turns don't nag; genuinely uncertain ones do.
+
+**Rationale.** FR-B3's "never as nagging" and the flow-1 narrative ("two
+exceptions offered") outrank a literal reading of FR-A4; the ambiguity is
+still visible in the resolver's output for anyone re-deriving.
+
+## 2026-08-16 — OTel ingestion shape
+
+**Question.** FR-M2 requires an OTel secondary source without specifying
+the transport.
+
+**Choice.** `waybill meter --otel <file>` parses OTLP-JSON lines (the shape
+a file-exporting collector writes) for `claude_code.token.usage` data
+points, aggregates per (session.id, model), and emits `source: "otel"`
+usage events + session receipts only for sessions with no transcript-based
+receipt. Turn granularity is a single synthetic turn 0 (OTel has no turns);
+cache 5m/1h split is unavailable and recorded as 0; attribution runs the
+ladder minus transcript-only signals.
+
+**Rationale.** File-based OTLP is the only transport that keeps the
+no-network invariant; "transcript wins, never mix" is enforced by
+construction.

@@ -1,0 +1,49 @@
+{
+  "data": {
+    "issues": {
+      "nodes": [
+        {
+          "identifier": "ENG-142",
+          "title": "Retry logic for checkout webhook",
+          "estimate": 5,
+          "url": "https://linear.app/acme/issue/ENG-142/retry-logic",
+          "createdAt": "2026-08-08T09:00:00.000Z",
+          "updatedAt": "2026-08-12T16:02:11.000Z",
+          "completedAt": "2026-08-12T16:02:11.000Z",
+          "assignee": { "id": "usr_me" },
+          "state": { "name": "Done", "type": "completed" },
+          "cycle": { "name": null, "number": 17 },
+          "project": { "name": "Checkout reliability" },
+          "labels": { "nodes": [] }
+        },
+        {
+          "identifier": "ENG-150",
+          "title": "Flaky payment test",
+          "estimate": 1,
+          "url": "https://linear.app/acme/issue/ENG-150/flaky-payment-test",
+          "createdAt": "2026-08-13T09:00:00.000Z",
+          "updatedAt": "2026-08-14T11:20:00.000Z",
+          "completedAt": null,
+          "assignee": { "id": "usr_me" },
+          "state": { "name": "In Progress", "type": "started" },
+          "cycle": { "name": "Sprint 17", "number": 17 },
+          "project": null,
+          "labels": { "nodes": [{ "name": "Bug" }] }
+        },
+        {
+          "identifier": "ENG-155",
+          "title": "Abandoned prototype",
+          "estimate": 3,
+          "url": "https://linear.app/acme/issue/ENG-155/abandoned",
+          "createdAt": "2026-08-10T09:00:00.000Z",
+          "updatedAt": "2026-08-15T10:00:00.000Z",
+          "completedAt": null,
+          "state": { "name": "Canceled", "type": "canceled" },
+          "cycle": null,
+          "project": null,
+          "labels": { "nodes": [] }
+        }
+      ]
+    }
+  }
+}

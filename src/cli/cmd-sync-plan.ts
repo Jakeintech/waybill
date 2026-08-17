@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { defaultContext, sortChanges } from "../adapters/contract.ts";
 import { jiraAdapter } from "../adapters/jira.ts";
+import { linearAdapter } from "../adapters/linear.ts";
 import { githubAdapter } from "../adapters/github.ts";
 import { gitLocalAdapter } from "../adapters/gitlocal-adapter.ts";
 import { loadConfig, loadIdentity, saveConfig } from "../core/config.ts";
@@ -12,7 +13,7 @@ import { repoFromCwd } from "../meter/run.ts";
 import { reconcile, type EntryBody, type SyncPlan } from "../sync/reconcile.ts";
 import type { MergedChange, WorkItem } from "../adapters/contract.ts";
 
-const TRACKERS = { jira: jiraAdapter } as const;
+const TRACKERS = { jira: jiraAdapter, linear: linearAdapter } as const;
 const GIT_HOSTS = { github: githubAdapter, local: gitLocalAdapter } as const;
 
 export function runSyncPlan(home: string, args: string[]): number {

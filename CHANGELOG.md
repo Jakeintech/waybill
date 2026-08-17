@@ -7,6 +7,56 @@ compatibility surface.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-16
+
+Milestone M2 "Answerable". Every canonical spend question is now one
+interaction away, and attribution corrections flow through the same
+deterministic engine as everything else.
+
+### Added
+- **`spend` skill** — "where am I spending", "what did PLAT-482 cost",
+  "how's my burn", and one-tap attribution-inbox resolution.
+- **`waybill resolve`** — files an inbox item as a `resolution` event that
+  becomes a resolver input (rule 0, user assertion, confidence 1.0), makes
+  it durable as a pin or repo default on request, and re-meters the session
+  so corrected usage events supersede. Resolutions survive every future
+  re-meter.
+- **Budgets & pacing** — `waybill pace`: spend vs. linear pace across the
+  allocation period, work-weighted pace (points shipped vs. committed),
+  per-epic envelopes; `pace --notice` emits at most one line, only when an
+  80%/100% threshold is newly crossed. A SessionStart hook surfaces it at a
+  natural moment — never nagging, never blocking.
+- **OpenTelemetry secondary source** — `waybill meter --otel <export>`
+  ingests `claude_code.token.usage` OTLP-JSON for sessions whose
+  transcripts are gone. The transcript is the source of truth where one was
+  metered; a session never mixes sources.
+- **Linear adapter** (bundled, conformance-tested): estimates → points,
+  cycles → sprint, projects → epic name; cancelled issues excluded.
+- **`sync-plan --local-repo`** — the git-local floor is now self-contained:
+  the engine reads local history itself, no intermediate files.
+- Acceptance tests scripting the product-spec §8 UX flows 1–4.
+
+### Fixed
+All ten adversarially-verified review findings, each with a regression
+test: per-session checkpoint versions (a pricing/rules bump re-meters every
+stale session); an attribution-inputs fingerprint (pins/resolutions/repo
+defaults invalidate the meter fast path — the documented pin flow was a
+silent no-op); supersession-chain-aware shipped classification (corrections
+no longer drop stories from reports or misclassify open spend); idempotent
+supersession (no chain growth on forced re-meters); inclusive, validated
+date-only query windows; authoritative story queries; an atomic exclusive
+metering lock shared by mine/meter/resolve; deterministic meter-gap
+timestamps; per-stream kind validation in `append`; adapter-level own-data
+filters; adhoc pseudonymization and numeric-field-safe redaction; escrow
+verification across key/title identity changes; macOS repo enrichment in
+the capture hook.
+
+### Changed
+- Inbox queueing is gated: turns settled at evidence strength or better
+  don't nag; genuinely uncertain ones do.
+- Zero-token usage rows (synthetic placeholder messages) are skipped at
+  parse time and filtered from projections.
+
 ## [0.3.0] - 2026-08-16
 
 Milestones M0 "Believable" and M1 "Metered". The deterministic engine
@@ -135,7 +185,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Jakeintech/waybill/compare/v0.3.0...v0.4.0
 [0.2.1]: https://github.com/Jakeintech/waybill/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Jakeintech/waybill/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Jakeintech/waybill/releases/tag/v0.1.0

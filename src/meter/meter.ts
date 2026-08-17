@@ -132,7 +132,14 @@ export function meterTranscript(input: MeterInput): MeterOutput {
 
   for (const turn of transcript.turns) {
     const { attribution, ambiguity } = resolveTurn(turn, ctx);
-    if (ambiguity) {
+    // Queue to the inbox only when the ambiguity actually stands: a
+    // fall-through rule that landed at pin/active_entry/evidence strength
+    // settles the turn; branch/default/none leaves it worth a human tap.
+    const settled =
+      attribution.resolver === "pin" ||
+      attribution.resolver === "active_entry" ||
+      attribution.resolver === "transcript_evidence";
+    if (ambiguity && !settled) {
       const ambBody = {
         ts: turn.models[0]!.lastTs || transcript.lastTs,
         kind: "ambiguity" as const,

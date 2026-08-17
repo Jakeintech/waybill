@@ -71,7 +71,7 @@ Open a PR that adds:
 | git-local | none — reads local `git log` directly | ✅ bundled, default | Zero auth; commits and merges by your own `git config` identities |
 | Jira + Confluence (Atlassian Cloud) | `https://mcp.atlassian.com/v1/mcp/authv2` (official, OAuth) | ✅ bundled | Points, epics, sprints all available |
 | GitHub | `https://api.githubcopilot.com/mcp/` (official, PAT header) | ✅ bundled | Fine-grained read-only PAT recommended |
-| Linear | — | 🙋 wanted | Estimates map to `points` |
+| Linear | `https://mcp.linear.app/mcp` (official, OAuth) | ✅ bundled adapter, conformance-tested | Estimates → `points`, cycles → `sprint`, projects → `epic_name`; a live end-to-end test report is a welcome first contribution |
 | GitLab | — | 🙋 wanted | MRs map to `artifacts.prs` |
 | Bitbucket | — | 🙋 wanted | Available via Atlassian's server; needs testing |
 | Azure DevOps | — | 🙋 wanted | |

@@ -1020,7 +1020,8 @@ function meterTranscript(input) {
   const emitted = zeroTotals();
   for (const turn of transcript.turns) {
     const { attribution: attribution2, ambiguity } = resolveTurn(turn, ctx);
-    if (ambiguity) {
+    const settled = attribution2.resolver === "pin" || attribution2.resolver === "active_entry" || attribution2.resolver === "transcript_evidence";
+    if (ambiguity && !settled) {
       const ambBody = {
         ts: turn.models[0].lastTs || transcript.lastTs,
         kind: "ambiguity",
@@ -1581,6 +1582,9 @@ function runInit(home, args, json) {
   return 0;
 }
 
+// src/cli/cmd-meter.ts
+import { readFileSync as readFileSync8 } from "node:fs";
+
 // src/meter/lock.ts
 import { mkdirSync as mkdirSync3, readFileSync as readFileSync7, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join7 } from "node:path";
@@ -1625,9 +1629,164 @@ function releaseLock(home) {
   }
 }
 
+// src/meter/otel.ts
+var TYPE_MAP = {
+  input: "input",
+  output: "output",
+  cacheRead: "cache_read",
+  cacheCreation: "cache_creation"
+};
+function attr(point, key) {
+  for (const a of point.attributes ?? []) {
+    if (a.key === key) {
+      const v = a.value?.stringValue ?? a.value?.intValue;
+      if (v !== void 0) return String(v);
+    }
+  }
+  return null;
+}
+function parseOtelExport(raw) {
+  const sessions = /* @__PURE__ */ new Map();
+  for (const lineText of raw.split("\n")) {
+    if (lineText.trim() === "") continue;
+    let line;
+    try {
+      line = JSON.parse(lineText);
+    } catch {
+      continue;
+    }
+    const resourceMetrics = line.resourceMetrics ?? [];
+    for (const rm of resourceMetrics) {
+      for (const sm of rm.scopeMetrics ?? []) {
+        for (const metric of sm.metrics ?? []) {
+          if (metric.name !== "claude_code.token.usage") continue;
+          for (const point of metric.sum?.dataPoints ?? []) {
+            const sessionId = attr(point, "session.id");
+            const model = attr(point, "model") ?? "unknown";
+            const type = attr(point, "type");
+            if (!sessionId || !type || !(type in TYPE_MAP)) continue;
+            const count = Math.trunc(Number(point.asDouble ?? point.asInt ?? 0));
+            if (!Number.isFinite(count) || count <= 0) continue;
+            const agg = sessions.get(sessionId) ?? { models: /* @__PURE__ */ new Map(), lastNano: 0n };
+            const tokens = agg.models.get(model) ?? { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
+            tokens[TYPE_MAP[type]] += count;
+            agg.models.set(model, tokens);
+            const nano = BigInt(point.timeUnixNano ?? 0);
+            if (nano > agg.lastNano) agg.lastNano = nano;
+            sessions.set(sessionId, agg);
+          }
+        }
+      }
+    }
+  }
+  return sessions;
+}
+function nanoToIso(nano) {
+  const ms = Number(nano / 1000000n);
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+function meterOtel(input) {
+  const parsed = parseOtelExport(input.raw);
+  const newUsage = [];
+  const newSessions = [];
+  const skipped = [];
+  const transcriptSessions = new Set(
+    authoritative(input.existingSessions).filter((s) => s.kind === "session" && s.source === "transcript").map((s) => s.session_id)
+  );
+  const existingIds = /* @__PURE__ */ new Set([
+    ...input.existingUsage.map((e) => e.id),
+    ...input.existingSessions.map((e) => e.id)
+  ]);
+  const pins = authoritative(input.ledgerEvents).filter((e) => e.kind === "pin");
+  const openEntries = selectOpenEntries(input.ledgerEvents);
+  for (const [sessionId, agg] of [...parsed.entries()].sort()) {
+    if (transcriptSessions.has(sessionId)) {
+      skipped.push(sessionId);
+      continue;
+    }
+    const ts = agg.lastNano > 0n ? nanoToIso(agg.lastNano) : "1970-01-01T00:00:00Z";
+    const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
+    const models = [...agg.models.keys()].sort();
+    const ctx = {
+      sessionId,
+      repo: null,
+      branchKeyPattern: input.config.metering.branch_key_pattern,
+      pins,
+      openEntries,
+      repoDefaults: input.config.metering.repo_defaults,
+      evidence: []
+    };
+    for (const model of models) {
+      const t = agg.models.get(model);
+      totals.input += t.input;
+      totals.output += t.output;
+      totals.cache_read += t.cache_read;
+      totals.cache_creation += t.cache_creation;
+      const syntheticTurn = {
+        index: 0,
+        promptId: null,
+        branchAtStart: null,
+        firstMessageId: null,
+        lastMessageId: null,
+        models: []
+      };
+      const { attribution: attribution2 } = resolveTurn(syntheticTurn, ctx);
+      const body = {
+        ts,
+        kind: "usage",
+        schema_version: SCHEMA_VERSION,
+        supersedes: null,
+        session_id: sessionId,
+        turn: { index: 0, first_message_id: "", last_message_id: "", prompt_id: null },
+        repo: null,
+        model,
+        tokens: {
+          ...t,
+          cache_creation_5m: 0,
+          cache_creation_1h: 0
+        },
+        cost_usd: priceTokens(input.config, model, {
+          ...t,
+          cache_creation_5m: 0,
+          cache_creation_1h: 0
+        }),
+        attribution: attribution2,
+        source: "otel",
+        transcript_version: null,
+        raw_extra: null
+      };
+      const event = finalizeEvent("usage", body);
+      if (!existingIds.has(event.id)) newUsage.push(event);
+    }
+    const receiptBody = {
+      ts,
+      kind: "session",
+      schema_version: SCHEMA_VERSION,
+      supersedes: null,
+      session_id: sessionId,
+      transcript_path: "",
+      transcript_version: null,
+      cwd: null,
+      repo: null,
+      branches: [],
+      models,
+      first_ts: ts,
+      last_ts: ts,
+      turns: 1,
+      messages: 0,
+      totals,
+      source: "otel"
+    };
+    const receipt = finalizeEvent("sessions", receiptBody);
+    if (!existingIds.has(receipt.id)) newSessions.push(receipt);
+  }
+  return { newUsage, newSessions, skipped_transcript_sessions: skipped };
+}
+
 // src/cli/cmd-meter.ts
 async function runMeter(home, args, json) {
   let transcript = null;
+  let otel = null;
   let repo = null;
   let all = false;
   let force = false;
@@ -1635,6 +1794,7 @@ async function runMeter(home, args, json) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--transcript") transcript = args[++i] ?? null;
+    else if (a === "--otel") otel = args[++i] ?? null;
     else if (a === "--repo") repo = args[++i] ?? null;
     else if (a === "--all") all = true;
     else if (a === "--force") force = true;
@@ -1645,9 +1805,47 @@ async function runMeter(home, args, json) {
       return 2;
     }
   }
-  if (!all && !transcript) {
-    process.stderr.write("waybill meter: pass --transcript <path> or --all\n");
+  if (!all && !transcript && !otel) {
+    process.stderr.write("waybill meter: pass --transcript <path>, --otel <export.jsonl>, or --all\n");
     return 2;
+  }
+  if (otel) {
+    if (!await acquireLockWait(home)) {
+      process.stderr.write("waybill meter: another metering process is running; try again shortly\n");
+      return 1;
+    }
+    try {
+      const out = meterOtel({
+        raw: readFileSync8(otel, "utf8"),
+        config: loadConfig(home),
+        ledgerEvents: readEvents(home, "ledger"),
+        existingUsage: readEvents(home, "usage"),
+        existingSessions: readEvents(home, "sessions"),
+        existingExceptions: readEvents(home, "exceptions")
+      });
+      appendEvents(home, "usage", out.newUsage);
+      appendEvents(home, "sessions", out.newSessions);
+      if (json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              usage: out.newUsage.length,
+              sessions: out.newSessions.length,
+              skipped_transcript_sessions: out.skipped_transcript_sessions
+            },
+            null,
+            2
+          ) + "\n"
+        );
+      } else {
+        process.stdout.write(
+          `otel: +${out.newUsage.length} usage event(s) across ${out.newSessions.length} session(s)` + (out.skipped_transcript_sessions.length > 0 ? ` (${out.skipped_transcript_sessions.length} session(s) skipped \u2014 transcript is the source of truth)` : "") + "\n"
+        );
+      }
+      return 0;
+    } finally {
+      releaseLock(home);
+    }
   }
   if (!await acquireLockWait(home)) {
     process.stderr.write("waybill meter: another metering process is running; try again shortly\n");
@@ -1685,7 +1883,7 @@ async function runMeter(home, args, json) {
 
 // src/cli/cmd-mine.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync8, readdirSync as readdirSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync4, readFileSync as readFileSync9, readdirSync as readdirSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { join as join8 } from "node:path";
 function commitLedger(home) {
   try {
@@ -1746,7 +1944,7 @@ function runMine(home, args) {
       const path = join8(queueDir, f);
       let capture;
       try {
-        capture = JSON.parse(readFileSync8(path, "utf8"));
+        capture = JSON.parse(readFileSync9(path, "utf8"));
       } catch {
         continue;
       }
@@ -1793,7 +1991,7 @@ function runMine(home, args) {
 }
 
 // src/cli/cmd-pace.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync9, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync10, writeFileSync as writeFileSync6 } from "node:fs";
 import { join as join9 } from "node:path";
 
 // src/projections/queries.ts
@@ -2155,7 +2353,7 @@ function loadPaceState(home) {
   const p = stateFile(home);
   if (!existsSync8(p)) return null;
   try {
-    return JSON.parse(readFileSync9(p, "utf8"));
+    return JSON.parse(readFileSync10(p, "utf8"));
   } catch {
     return null;
   }
@@ -2533,7 +2731,7 @@ function runResolve(home, args, json) {
 
 // src/cli/cmd-sync-plan.ts
 import { execFileSync as execFileSync7 } from "node:child_process";
-import { readFileSync as readFileSync10 } from "node:fs";
+import { readFileSync as readFileSync11 } from "node:fs";
 
 // src/adapters/contract.ts
 function defaultContext(partial = {}) {
@@ -2659,19 +2857,68 @@ var jiraAdapter = {
   }
 };
 
-// src/adapters/github.ts
+// src/adapters/linear.ts
 function str2(v) {
   return typeof v === "string" && v !== "" ? v : null;
 }
+function workTypeFromLabels(issue) {
+  const labels = (issue.labels?.nodes ?? []).map((l) => (l.name ?? "").toLowerCase()).filter((n) => n !== "");
+  if (labels.includes("bug")) return "bug";
+  if (labels.includes("refactor")) return "refactor";
+  if (labels.includes("docs") || labels.includes("documentation")) return "docs";
+  if (labels.includes("research") || labels.includes("spike")) return "research";
+  if (labels.includes("incident")) return "incident";
+  return "feature";
+}
+var linearAdapter = {
+  kind: "linear",
+  normalizeItems(raw, ctx) {
+    const root = raw;
+    const nodes = Array.isArray(raw) ? raw : root.data?.issues?.nodes ?? root.issues?.nodes ?? root.nodes ?? [];
+    const keyRe = new RegExp(`^(?:${ctx.keyPattern})$`);
+    const out = [];
+    for (const issue of nodes) {
+      const key = str2(issue.identifier);
+      if (!key || !keyRe.test(key)) continue;
+      const stateType = str2(issue.state?.type);
+      if (stateType === "canceled") continue;
+      const completedAt = str2(issue.completedAt);
+      const done = stateType === "completed" || completedAt !== null;
+      const cycle = issue.cycle ?? null;
+      const sprint = str2(cycle?.name) ?? (typeof cycle?.number === "number" ? `cycle-${cycle.number}` : null);
+      out.push({
+        key,
+        title: str2(issue.title) ?? key,
+        points: typeof issue.estimate === "number" && Number.isFinite(issue.estimate) ? issue.estimate : null,
+        epic_key: null,
+        epic_name: str2(issue.project?.name),
+        sprint,
+        status: str2(issue.state?.name) ?? "unknown",
+        done,
+        resolved_at: completedAt,
+        created_at: str2(issue.createdAt),
+        updated_at: str2(issue.updatedAt),
+        work_type: workTypeFromLabels(issue),
+        url: str2(issue.url)
+      });
+    }
+    return sortItems(out);
+  }
+};
+
+// src/adapters/github.ts
+function str3(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
 function repoOf(pr) {
-  const full = str2(pr.base?.repo?.full_name) ?? str2(pr.repository?.full_name);
+  const full = str3(pr.base?.repo?.full_name) ?? str3(pr.repository?.full_name);
   if (full) return full;
-  const repoUrl = str2(pr.repository_url);
+  const repoUrl = str3(pr.repository_url);
   if (repoUrl) {
     const m = /repos\/([^/]+\/[^/]+)$/.exec(repoUrl);
     if (m) return m[1];
   }
-  const html = str2(pr.html_url);
+  const html = str3(pr.html_url);
   if (html) {
     const m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(html);
     if (m) return m[1];
@@ -2684,14 +2931,14 @@ var githubAdapter = {
     const items = Array.isArray(raw) ? raw : raw?.items ?? [];
     const out = [];
     for (const pr of items) {
-      const mergedAt = str2(pr.merged_at) ?? str2(pr.pull_request?.merged_at);
-      const url = str2(pr.html_url);
+      const mergedAt = str3(pr.merged_at) ?? str3(pr.pull_request?.merged_at);
+      const url = str3(pr.html_url);
       const repo = repoOf(pr);
       if (!mergedAt || !url || !repo) continue;
-      const author = str2(pr.user?.login);
+      const author = str3(pr.user?.login);
       if (ctx.githubLogin && author && author !== ctx.githubLogin) continue;
-      const title = str2(pr.title) ?? url;
-      const branch = str2(pr.head?.ref);
+      const title = str3(pr.title) ?? url;
+      const branch = str3(pr.head?.ref);
       out.push({
         url,
         title,
@@ -2908,7 +3155,7 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
 }
 
 // src/cli/cmd-sync-plan.ts
-var TRACKERS = { jira: jiraAdapter };
+var TRACKERS = { jira: jiraAdapter, linear: linearAdapter };
 var GIT_HOSTS = { github: githubAdapter, local: gitLocalAdapter };
 function runSyncPlan(home, args) {
   let tracker = null;
@@ -2941,7 +3188,7 @@ function runSyncPlan(home, args) {
   }
   const config = loadConfig(home);
   if (applyPath) {
-    const plan2 = JSON.parse(readFileSync10(applyPath, "utf8"));
+    const plan2 = JSON.parse(readFileSync11(applyPath, "utf8"));
     const bodies = [
       ...plan2.shipped,
       ...plan2.corrections.map((c) => c.body),
@@ -2989,7 +3236,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync10(itemsPath, "utf8")), ctx);
+    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync11(itemsPath, "utf8")), ctx);
   }
   let changes = [];
   if (changesPath) {
@@ -2998,7 +3245,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync10(changesPath, "utf8")), ctx);
+    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync11(changesPath, "utf8")), ctx);
   }
   if (localRepos.length > 0) {
     const sinceIso = since ?? config.last_sync ?? new Date(Date.parse(now) - 90 * 864e5).toISOString().slice(0, 19) + "Z";

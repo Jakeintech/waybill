@@ -121,7 +121,7 @@ export interface UsageEvent extends Envelope {
   tokens: UsageTokens;
   cost_usd: { value: number; pricing_version: string } | null;
   attribution: Attribution;
-  source: "transcript";
+  source: "transcript" | "otel";
   transcript_version: string | null;
   raw_extra: Record<string, unknown> | null;
 }
@@ -140,7 +140,7 @@ export interface SessionEvent extends Envelope {
   turns: number;
   messages: number;
   totals: TokenCounts;
-  source: "transcript";
+  source: "transcript" | "otel";
 }
 
 export interface AmbiguityEvent extends Envelope {
