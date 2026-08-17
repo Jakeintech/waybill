@@ -1,0 +1,118 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+export interface ModelPricing {
+  input_per_mtok: number;
+  output_per_mtok: number;
+  cache_read_per_mtok: number;
+  cache_write_5m_per_mtok: number;
+  cache_write_1h_per_mtok: number;
+}
+
+export interface Allocation {
+  period: string;
+  tokens_granted: number;
+  granted_at: string;
+}
+
+export type Audience = "self" | "internal" | "external";
+
+export interface Config {
+  schema_version: number;
+  tracker: { kind: string | null; project_keys: string[]; base_url: string | null };
+  git: { kind: string; repos: string[]; default_branch: string };
+  baseline: {
+    velocity_points_per_sprint: number | null;
+    median_cycle_time_days: number | null;
+    window: string | null;
+    derived_from: string | null;
+  };
+  allocations: Allocation[];
+  metering: {
+    enabled: boolean;
+    sources: string[];
+    branch_key_pattern: string;
+    repo_defaults: Record<string, string | null>;
+  };
+  pricing: {
+    version: string | null;
+    unknown_model_policy: "tokens_only";
+    models: Record<string, ModelPricing>;
+  };
+  budgets: { allocation: string; epics: Record<string, number> };
+  audience_default: Audience;
+  last_sync: string | null;
+}
+
+export function defaultConfig(): Config {
+  return {
+    schema_version: 2,
+    tracker: { kind: null, project_keys: [], base_url: null },
+    git: { kind: "local", repos: [], default_branch: "main" },
+    baseline: {
+      velocity_points_per_sprint: null,
+      median_cycle_time_days: null,
+      window: null,
+      derived_from: null,
+    },
+    allocations: [],
+    metering: {
+      enabled: true,
+      sources: ["transcript"],
+      branch_key_pattern: "[A-Z][A-Z0-9]+-[0-9]+",
+      repo_defaults: {},
+    },
+    pricing: { version: null, unknown_model_policy: "tokens_only", models: {} },
+    budgets: { allocation: "inherit", epics: {} },
+    audience_default: "self",
+    last_sync: null,
+  };
+}
+
+export function configPath(home: string): string {
+  return join(home, "config.json");
+}
+
+export function loadConfig(home: string): Config {
+  const p = configPath(home);
+  if (!existsSync(p)) return defaultConfig();
+  const raw = JSON.parse(readFileSync(p, "utf8")) as Partial<Config>;
+  // Merge over defaults so older configs keep working (additive v2).
+  const base = defaultConfig();
+  return {
+    ...base,
+    ...raw,
+    tracker: { ...base.tracker, ...raw.tracker },
+    git: { ...base.git, ...raw.git },
+    baseline: { ...base.baseline, ...raw.baseline },
+    metering: { ...base.metering, ...raw.metering },
+    pricing: { ...base.pricing, ...raw.pricing },
+    budgets: { ...base.budgets, ...raw.budgets },
+  };
+}
+
+export function saveConfig(home: string, config: Config): void {
+  writeFileSync(configPath(home), JSON.stringify(config, null, 2) + "\n", "utf8");
+}
+
+export interface Identity {
+  schema_version: number;
+  git_emails: string[];
+  git_names: string[];
+  github_login: string | null;
+  jira_account_id: string | null;
+}
+
+export function identityPath(home: string): string {
+  return join(home, "identity.json");
+}
+
+export function loadIdentity(home: string): Identity | null {
+  const p = identityPath(home);
+  if (!existsSync(p)) return null;
+  return JSON.parse(readFileSync(p, "utf8")) as Identity;
+}
+
+export function saveIdentity(home: string, identity: Identity): void {
+  writeFileSync(identityPath(home), JSON.stringify(identity, null, 2) + "\n", "utf8");
+}

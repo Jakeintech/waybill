@@ -1,0 +1,22 @@
+{
+  "name": "waybill",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Dev toolchain for the Waybill Claude Code plugin. The shipped artifact is the dependency-free bin/waybill.mjs; nothing here is a runtime dependency.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "esbuild src/cli/main.ts --bundle --platform=node --format=esm --target=node20 --outfile=bin/waybill.mjs --banner:js=\"#!/usr/bin/env node\" --log-level=warning && chmod +x bin/waybill.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-reporter=spec 'tests/unit/**/*.test.ts'",
+    "check": "npm run typecheck && npm test && npm run build && git diff --exit-code bin/"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}
