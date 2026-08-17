@@ -1,6 +1,6 @@
 {
   "name": "waybill",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Token accounting for AI-assisted work. Waybill meters every Claude Code token, attributes spend to the Jira story it shipped, and turns receipts from Jira and GitHub into credible value reports, performance-review packets, and token-budget forecasts.",
   "author": {
     "name": "Jakeintech",

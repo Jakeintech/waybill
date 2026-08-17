@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
-## [Unreleased]
+## [1.4.0] - 2026-08-17
 
 ### Added
 - **`github-issues` tracker adapter** — GitHub Issues as the tracker of
@@ -415,7 +415,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Jakeintech/waybill/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Jakeintech/waybill/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Jakeintech/waybill/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Jakeintech/waybill/compare/v1.1.0...v1.1.1

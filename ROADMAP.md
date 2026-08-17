@@ -20,7 +20,7 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.3.0 (2026-08)
+## Shipped — 1.4.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
@@ -36,7 +36,10 @@ configured by default, not an onboarding hurdle. 1.3.0 closed the whole
 UX-issue batch (#6–#15): a real metering pause switch, `notices.level`,
 first-run one-shot lines, the `detail` axis, the `bin/waybill` launcher,
 honest `--json`, the status next-actions menu, and the documented exit
-path.
+path. 1.4.0 made GitHub Issues a first-class tracker: the `github-issues`
+adapter (derivation-verified `owner/repo#N` keys) and closing-keyword
+linkage ("Fixes #12" in PR/commit bodies pairs changes with items — squash
+commits included).
 
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.
