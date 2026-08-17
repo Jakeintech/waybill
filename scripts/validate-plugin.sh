@@ -91,6 +91,46 @@ if [ "$found_skill" -eq 0 ]; then
   fail "no skills found under skills/"
 fi
 
+# --- Skill naming rules (D19, docs/skills.md) ------------------------------
+
+RESERVED_SKILL_NAMES="waybill meter verify inbox"
+for dir in skills/*/; do
+  [ -d "$dir" ] || continue
+  skill_name="$(basename "$dir")"
+  if printf '%s' "$skill_name" | grep -Eq '^[a-z]+$'; then
+    ok "skill name '$skill_name' is a single lowercase word"
+  else
+    fail "skill name '$skill_name' must be a single lowercase word (D19)"
+  fi
+  for reserved in $RESERVED_SKILL_NAMES; do
+    if [ "$skill_name" = "$reserved" ]; then
+      fail "skill name '$skill_name' is a reserved word (docs/skills.md)"
+    fi
+  done
+done
+
+# --- Shipped engine --------------------------------------------------------
+
+if [ -f bin/waybill.mjs ]; then
+  if [ -x bin/waybill.mjs ]; then
+    ok "bin/waybill.mjs is executable"
+  else
+    fail "bin/waybill.mjs is not executable (chmod +x)"
+  fi
+  if head -1 bin/waybill.mjs | grep -q '^#!/usr/bin/env node'; then
+    ok "bin/waybill.mjs has a node shebang"
+  else
+    fail "bin/waybill.mjs must start with #!/usr/bin/env node"
+  fi
+  if grep -q 'node_modules' bin/waybill.mjs; then
+    fail "bin/waybill.mjs references node_modules — the shipped engine must be dependency-free (D1)"
+  else
+    ok "bin/waybill.mjs is dependency-free (no node_modules references)"
+  fi
+else
+  fail "bin/waybill.mjs missing — run npm run build"
+fi
+
 # --- Scripts ---------------------------------------------------------------
 
 for script in scripts/*.sh; do

@@ -25,10 +25,31 @@ jobs:
       - name: ShellCheck
         run: shellcheck scripts/*.sh tests/*.sh
 
-  test:
+  hook:
     name: Test hook script
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Run hook tests
         run: bash tests/test-capture-session.sh
+
+  engine:
+    name: Engine — typecheck, tests, reproducible build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dev toolchain
+        run: npm ci
+      - name: Typecheck (strict)
+        run: npm run typecheck
+      - name: Unit, golden, determinism, conservation tests
+        run: npm test
+      - name: Rebuild bin/ and require zero diff
+        run: |
+          npm run build
+          git diff --exit-code bin/ \
+            || { echo "::error::bin/waybill.mjs does not match src/ — run npm run build and commit"; exit 1; }
