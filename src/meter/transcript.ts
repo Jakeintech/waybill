@@ -1,0 +1,312 @@
+import type { TokenCounts, UsageTokens } from "../core/events.ts";
+
+/** One tracker key sighting inside a session, with where it came from. */
+export interface EvidenceKey {
+  key: string;
+  source: "branch_checkout" | "commit_message" | "pr_operation";
+  turnIndex: number;
+}
+
+export interface ModelAggregate {
+  model: string;
+  tokens: UsageTokens;
+  extras: Record<string, number>;
+  lastTs: string;
+}
+
+export interface Turn {
+  index: number;
+  promptId: string | null;
+  branchAtStart: string | null;
+  firstMessageId: string | null;
+  lastMessageId: string | null;
+  models: ModelAggregate[];
+}
+
+export interface ParsedTranscript {
+  sessionId: string | null;
+  version: string | null;
+  cwd: string | null;
+  branches: string[];
+  models: string[];
+  firstTs: string | null;
+  lastTs: string | null;
+  turns: Turn[];
+  evidence: EvidenceKey[];
+  messageCount: number;
+  totals: TokenCounts;
+}
+
+interface RawLine {
+  type?: string;
+  uuid?: string;
+  parentUuid?: string | null;
+  isSidechain?: boolean;
+  sessionId?: string;
+  version?: string;
+  cwd?: string;
+  gitBranch?: string;
+  timestamp?: string;
+  promptId?: string;
+  toolUseResult?: unknown;
+  message?: {
+    id?: string;
+    role?: string;
+    model?: string;
+    usage?: Record<string, unknown>;
+    content?: unknown;
+  };
+}
+
+const KNOWN_USAGE_FIELDS = new Set([
+  "input_tokens",
+  "output_tokens",
+  "cache_read_input_tokens",
+  "cache_creation_input_tokens",
+  "cache_creation",
+]);
+
+function asInt(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : 0;
+}
+
+export function tokensFromUsage(usage: Record<string, unknown>): UsageTokens {
+  const cc = usage["cache_creation"];
+  const cc5m = asInt((cc as Record<string, unknown> | undefined)?.["ephemeral_5m_input_tokens"]);
+  const cc1h = asInt((cc as Record<string, unknown> | undefined)?.["ephemeral_1h_input_tokens"]);
+  let cacheCreation = asInt(usage["cache_creation_input_tokens"]);
+  if (cacheCreation === 0 && (cc5m > 0 || cc1h > 0)) cacheCreation = cc5m + cc1h;
+  return {
+    input: asInt(usage["input_tokens"]),
+    output: asInt(usage["output_tokens"]),
+    cache_read: asInt(usage["cache_read_input_tokens"]),
+    cache_creation: cacheCreation,
+    cache_creation_5m: cc5m,
+    cache_creation_1h: cc1h,
+  };
+}
+
+/** Flatten unknown numeric usage fields to dot-paths, e.g. server_tool_use.web_search_requests. */
+export function extraNumerics(usage: Record<string, unknown>, prefix = "", known = KNOWN_USAGE_FIELDS): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(usage)) {
+    if (prefix === "" && known.has(k)) continue;
+    const path = prefix === "" ? k : `${prefix}.${k}`;
+    if (typeof v === "number" && Number.isFinite(v)) {
+      out[path] = v;
+    } else if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      Object.assign(out, extraNumerics(v as Record<string, unknown>, path, known));
+    }
+  }
+  return out;
+}
+
+/** Is this line a real user prompt (a turn boundary)? */
+export function isPromptLine(line: RawLine): boolean {
+  if (line.type !== "user" || line.isSidechain === true) return false;
+  if (line.toolUseResult !== undefined) return false;
+  const msg = line.message;
+  if (!msg || (msg.role !== undefined && msg.role !== "user")) return false;
+  const content = msg.content;
+  if (typeof content === "string") return content.trim() !== "";
+  if (Array.isArray(content)) {
+    let hasText = false;
+    for (const item of content) {
+      const t = (item as { type?: string }).type;
+      if (t === "tool_result") return false;
+      if (t === "text") hasText = true;
+    }
+    return hasText;
+  }
+  return false;
+}
+
+const CHECKOUT_RE = /\bgit\s+(?:checkout|switch)\s+(?:-[bc]\s+)?(\S+)/g;
+const COMMIT_RE = /\bgit\s+commit\b[^\n]*?-m\s+(?:"([^"]*)"|'([^']*)')/g;
+const PR_RE = /\bgh\s+pr\s+(?:create|checkout|merge|view)\b[^\n]*/g;
+
+/** Extract tracker keys from a Bash-like tool command, per resolver rule 3. */
+export function evidenceFromCommand(command: string, keyPattern: RegExp): Array<Omit<EvidenceKey, "turnIndex">> {
+  const out: Array<Omit<EvidenceKey, "turnIndex">> = [];
+  for (const m of command.matchAll(CHECKOUT_RE)) {
+    const branch = m[1] ?? "";
+    for (const k of branch.match(keyPattern) ?? []) out.push({ key: k, source: "branch_checkout" });
+  }
+  for (const m of command.matchAll(COMMIT_RE)) {
+    const msg = m[1] ?? m[2] ?? "";
+    for (const k of msg.match(keyPattern) ?? []) out.push({ key: k, source: "commit_message" });
+  }
+  for (const m of command.matchAll(PR_RE)) {
+    for (const k of (m[0] ?? "").match(keyPattern) ?? []) out.push({ key: k, source: "pr_operation" });
+  }
+  return out;
+}
+
+function toolCommands(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  const out: string[] = [];
+  for (const item of content) {
+    const block = item as { type?: string; input?: { command?: unknown } };
+    if (block.type === "tool_use" && typeof block.input?.command === "string") {
+      out.push(block.input.command);
+    }
+  }
+  return out;
+}
+
+export interface ParseOptions {
+  branchKeyPattern: string;
+}
+
+export function parseTranscript(raw: string, options: ParseOptions): ParsedTranscript {
+  const keyPattern = new RegExp(options.branchKeyPattern, "g");
+  const text = raw;
+
+  const turns: Turn[] = [];
+  const evidence: EvidenceKey[] = [];
+  const branches: string[] = [];
+  const models: string[] = [];
+  const byMessage = new Map<
+    string,
+    { turnIndex: number; model: string; tokens: UsageTokens; extras: Record<string, number>; ts: string }
+  >();
+
+  let sessionId: string | null = null;
+  let version: string | null = null;
+  let cwd: string | null = null;
+  let currentBranch: string | null = null;
+  let firstTs: string | null = null;
+  let lastTs: string | null = null;
+  let turnIndex = 0;
+  let currentTurn: Turn | null = null;
+
+  const ensureTurn = (): Turn => {
+    if (!currentTurn) {
+      currentTurn = {
+        index: turnIndex,
+        promptId: null,
+        branchAtStart: currentBranch,
+        firstMessageId: null,
+        lastMessageId: null,
+        models: [],
+      };
+      turns.push(currentTurn);
+    }
+    return currentTurn;
+  };
+
+  for (const lineText of text.split("\n")) {
+    if (lineText.trim() === "") continue;
+    let line: RawLine;
+    try {
+      line = JSON.parse(lineText) as RawLine;
+    } catch {
+      continue;
+    }
+    if (sessionId === null && typeof line.sessionId === "string") sessionId = line.sessionId;
+    if (version === null && typeof line.version === "string") version = line.version;
+    if (cwd === null && typeof line.cwd === "string") cwd = line.cwd;
+    if (typeof line.gitBranch === "string" && line.gitBranch !== "") {
+      currentBranch = line.gitBranch;
+      if (!branches.includes(currentBranch)) branches.push(currentBranch);
+    }
+    if (typeof line.timestamp === "string") {
+      if (firstTs === null) firstTs = line.timestamp;
+      lastTs = line.timestamp;
+    }
+
+    if (isPromptLine(line)) {
+      turnIndex += 1;
+      currentTurn = {
+        index: turnIndex,
+        promptId: typeof line.promptId === "string" ? line.promptId : null,
+        branchAtStart: currentBranch,
+        firstMessageId: null,
+        lastMessageId: null,
+        models: [],
+      };
+      turns.push(currentTurn);
+      continue;
+    }
+
+    if (line.type === "assistant" && line.message) {
+      const msg = line.message;
+      for (const command of toolCommands(msg.content)) {
+        for (const ev of evidenceFromCommand(command, keyPattern)) {
+          evidence.push({ ...ev, turnIndex: currentTurn?.index ?? turnIndex });
+        }
+      }
+      if (typeof msg.id !== "string" || !msg.usage) continue;
+      const model = typeof msg.model === "string" ? msg.model : "unknown";
+      const ts = typeof line.timestamp === "string" ? line.timestamp : "";
+      const prior = byMessage.get(msg.id);
+      if (prior) {
+        prior.tokens = tokensFromUsage(msg.usage);
+        prior.extras = extraNumerics(msg.usage);
+        if (ts !== "") prior.ts = ts;
+      } else {
+        const turn = ensureTurn();
+        if (turn.firstMessageId === null) turn.firstMessageId = msg.id;
+        turn.lastMessageId = msg.id;
+        if (!models.includes(model)) models.push(model);
+        byMessage.set(msg.id, {
+          turnIndex: turn.index,
+          model,
+          tokens: tokensFromUsage(msg.usage),
+          extras: extraNumerics(msg.usage),
+          ts,
+        });
+      }
+    }
+  }
+
+  const totals: TokenCounts = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
+  const turnByIndex = new Map<number, Turn>();
+  for (const t of turns) turnByIndex.set(t.index, t);
+
+  for (const rec of byMessage.values()) {
+    totals.input += rec.tokens.input;
+    totals.output += rec.tokens.output;
+    totals.cache_read += rec.tokens.cache_read;
+    totals.cache_creation += rec.tokens.cache_creation;
+    const turn = turnByIndex.get(rec.turnIndex);
+    if (!turn) continue;
+    let agg = turn.models.find((m) => m.model === rec.model);
+    if (!agg) {
+      agg = {
+        model: rec.model,
+        tokens: { input: 0, output: 0, cache_read: 0, cache_creation: 0, cache_creation_5m: 0, cache_creation_1h: 0 },
+        extras: {},
+        lastTs: rec.ts,
+      };
+      turn.models.push(agg);
+    }
+    agg.tokens.input += rec.tokens.input;
+    agg.tokens.output += rec.tokens.output;
+    agg.tokens.cache_read += rec.tokens.cache_read;
+    agg.tokens.cache_creation += rec.tokens.cache_creation;
+    agg.tokens.cache_creation_5m += rec.tokens.cache_creation_5m;
+    agg.tokens.cache_creation_1h += rec.tokens.cache_creation_1h;
+    for (const [k, v] of Object.entries(rec.extras)) {
+      agg.extras[k] = (agg.extras[k] ?? 0) + v;
+    }
+    if (rec.ts > agg.lastTs) agg.lastTs = rec.ts;
+  }
+
+  const messageCount = byMessage.size;
+  const nonEmptyTurns = turns.filter((t) => t.models.length > 0);
+
+  return {
+    sessionId,
+    version,
+    cwd,
+    branches,
+    models,
+    firstTs,
+    lastTs,
+    turns: nonEmptyTurns,
+    evidence,
+    messageCount,
+    totals,
+  };
+}

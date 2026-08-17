@@ -1,11 +1,14 @@
 import { resolveHome } from "../core/home.ts";
 import { renderFindings, verifyHome } from "../verify/verify.ts";
+import { runMeter } from "./cmd-meter.ts";
 
 const USAGE = `waybill — token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
 
 Commands:
+  meter       Meter transcripts into usage events (deterministic, incremental)
+                --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -47,6 +50,8 @@ export async function main(argv: string[]): Promise<number> {
   }
   const cli = parseGlobal(rest);
   switch (cmd) {
+    case "meter":
+      return runMeter(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {
