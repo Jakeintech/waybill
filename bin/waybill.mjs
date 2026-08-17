@@ -895,9 +895,11 @@ function parseTranscript(raw, options) {
       const ts = typeof line.timestamp === "string" ? line.timestamp : "";
       const prior = byMessage.get(msg.id);
       if (prior) {
-        prior.tokens = tokensFromUsage(msg.usage);
-        prior.extras = extraNumerics(msg.usage);
-        if (ts !== "") prior.ts = ts;
+        if (!(probe.input === 0 && probe.output === 0 && probe.cache_read === 0 && probe.cache_creation === 0)) {
+          prior.tokens = probe;
+          prior.extras = extraNumerics(msg.usage);
+          if (ts !== "") prior.ts = ts;
+        }
       } else {
         const turn = ensureTurn();
         if (turn.firstMessageId === null) turn.firstMessageId = msg.id;
@@ -1044,9 +1046,22 @@ function meterTranscript(input) {
   );
   const usageByGrain = /* @__PURE__ */ new Map();
   for (const u of existingUsageAuth) {
+    if (u.source === "otel") continue;
     usageByGrain.set(`${u.turn.index}|${u.model}`, u);
   }
   const existingIds = new Set(input.existingUsage.map((u) => u.id));
+  for (const stale of existingUsageAuth) {
+    if (stale.source !== "otel") continue;
+    const retire = finalizeEvent("usage", {
+      ts: transcript.lastTs,
+      kind: "correction",
+      schema_version: SCHEMA_VERSION,
+      supersedes: stale.id,
+      session_id: sessionId,
+      detail: "superseded by transcript metering (transcript wins over otel)"
+    });
+    if (!existingIds.has(retire.id)) newUsage.push(retire);
+  }
   const emitted = zeroTotals();
   for (const turn of transcript.turns) {
     const { attribution: attribution2, ambiguity } = resolveTurn(turn, ctx);
@@ -1619,7 +1634,7 @@ function runInit(home, args, json) {
 import { readFileSync as readFileSync8 } from "node:fs";
 
 // src/meter/lock.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync7, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync7, renameSync, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join7 } from "node:path";
 function lockPath(home) {
   return join7(home, "pending-sessions", ".miner.lock");
@@ -1638,11 +1653,15 @@ function acquireLock(home) {
           process.kill(pid, 0);
           return false;
         }
-      } catch {
+      } catch (err) {
+        if (err.code === "ENOENT") continue;
       }
+      const claim = `${p}.reap.${process.pid}`;
       try {
-        unlinkSync(p);
+        renameSync(p, claim);
+        unlinkSync(claim);
       } catch {
+        return false;
       }
     }
   }
@@ -1678,8 +1697,16 @@ function attr(point, key) {
   }
   return null;
 }
+function safeNano(v) {
+  try {
+    return BigInt(v ?? 0);
+  } catch {
+    return 0n;
+  }
+}
 function parseOtelExport(raw) {
   const sessions = /* @__PURE__ */ new Map();
+  const cumulative = /* @__PURE__ */ new Map();
   for (const lineText of raw.split("\n")) {
     if (lineText.trim() === "") continue;
     let line;
@@ -1693,6 +1720,7 @@ function parseOtelExport(raw) {
       for (const sm of rm.scopeMetrics ?? []) {
         for (const metric of sm.metrics ?? []) {
           if (metric.name !== "claude_code.token.usage") continue;
+          const isDelta = metric.sum?.aggregationTemporality === 1;
           for (const point of metric.sum?.dataPoints ?? []) {
             const sessionId = attr(point, "session.id");
             const model = attr(point, "model") ?? "unknown";
@@ -1702,9 +1730,18 @@ function parseOtelExport(raw) {
             if (!Number.isFinite(count) || count <= 0) continue;
             const agg = sessions.get(sessionId) ?? { models: /* @__PURE__ */ new Map(), lastNano: 0n };
             const tokens = agg.models.get(model) ?? { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
-            tokens[TYPE_MAP[type]] += count;
+            const nano = safeNano(point.timeUnixNano);
+            if (isDelta) {
+              tokens[TYPE_MAP[type]] += count;
+            } else {
+              const key = `${sessionId}|${model}|${type}`;
+              const prior = cumulative.get(key);
+              if (!prior || nano >= prior.nano) {
+                cumulative.set(key, { value: count, nano });
+                tokens[TYPE_MAP[type]] = count;
+              }
+            }
             agg.models.set(model, tokens);
-            const nano = BigInt(point.timeUnixNano ?? 0);
             if (nano > agg.lastNano) agg.lastNano = nano;
             sessions.set(sessionId, agg);
           }
@@ -1730,6 +1767,16 @@ function meterOtel(input) {
     ...input.existingUsage.map((e) => e.id),
     ...input.existingSessions.map((e) => e.id)
   ]);
+  const priorOtelUsage = /* @__PURE__ */ new Map();
+  for (const u of authoritative(input.existingUsage)) {
+    if (u.kind === "usage" && u.source === "otel") {
+      priorOtelUsage.set(`${u.session_id}|${u.model}`, u);
+    }
+  }
+  const priorOtelReceipts = /* @__PURE__ */ new Map();
+  for (const s of authoritative(input.existingSessions)) {
+    if (s.kind === "session" && s.source === "otel") priorOtelReceipts.set(s.session_id, s);
+  }
   const pins = authoritative(input.ledgerEvents).filter((e) => e.kind === "pin");
   const openEntries = selectOpenEntries(input.ledgerEvents);
   for (const [sessionId, agg] of [...parsed.entries()].sort()) {
@@ -1789,8 +1836,16 @@ function meterOtel(input) {
         transcript_version: null,
         raw_extra: null
       };
-      const event = finalizeEvent("usage", body);
-      if (!existingIds.has(event.id)) newUsage.push(event);
+      const prior = priorOtelUsage.get(`${sessionId}|${model}`);
+      if (prior) {
+        const asPrior = finalizeEvent("usage", { ...body, supersedes: prior.supersedes });
+        if (asPrior.id === prior.id) continue;
+        const event = finalizeEvent("usage", { ...body, supersedes: prior.id });
+        if (!existingIds.has(event.id)) newUsage.push(event);
+      } else {
+        const event = finalizeEvent("usage", body);
+        if (!existingIds.has(event.id)) newUsage.push(event);
+      }
     }
     const receiptBody = {
       ts,
@@ -1811,8 +1866,23 @@ function meterOtel(input) {
       totals,
       source: "otel"
     };
-    const receipt = finalizeEvent("sessions", receiptBody);
-    if (!existingIds.has(receipt.id)) newSessions.push(receipt);
+    const priorReceipt = priorOtelReceipts.get(sessionId);
+    if (priorReceipt) {
+      const asPrior = finalizeEvent("sessions", {
+        ...receiptBody,
+        supersedes: priorReceipt.supersedes
+      });
+      if (asPrior.id !== priorReceipt.id) {
+        const receipt = finalizeEvent("sessions", {
+          ...receiptBody,
+          supersedes: priorReceipt.id
+        });
+        if (!existingIds.has(receipt.id)) newSessions.push(receipt);
+      }
+    } else {
+      const receipt = finalizeEvent("sessions", receiptBody);
+      if (!existingIds.has(receipt.id)) newSessions.push(receipt);
+    }
   }
   return { newUsage, newSessions, skipped_transcript_sessions: skipped };
 }
@@ -1970,7 +2040,10 @@ function runMine(home, args) {
   }
   const queueDir = join8(home, "pending-sessions");
   mkdirSync4(queueDir, { recursive: true });
-  if (!acquireLock(home)) return 0;
+  if (!acquireLock(home)) {
+    process.stdout.write("mined 0 session(s) (another metering process is running \u2014 queue intact)\n");
+    return 0;
+  }
   let mined = 0;
   try {
     const files = readdirSync3(queueDir).filter((f) => f.endsWith(".json")).sort();
@@ -2291,6 +2364,9 @@ function periodWindow(period, grantedAt) {
     return { from: from2.toISOString().slice(0, 19) + "Z", to: to.toISOString().slice(0, 19) + "Z" };
   }
   const from = Date.parse(grantedAt);
+  if (Number.isNaN(from)) {
+    return { from: "1970-01-01T00:00:00Z", to: "1970-04-01T00:00:00Z" };
+  }
   return {
     from: new Date(from).toISOString().slice(0, 19) + "Z",
     to: new Date(from + 90 * 864e5).toISOString().slice(0, 19) + "Z"
@@ -2324,10 +2400,23 @@ function paceData(ledgerEvents, usageEvents, exceptionEvents, config, nowIso2) {
   const auth = authoritative(ledgerEvents).filter(
     (e) => e.kind !== "pin"
   );
-  const inWindowEntries = auth.filter(
-    (e) => e.points !== null && e.ts >= window.from && e.ts <= window.to
-  );
-  const committed = inWindowEntries.reduce((n, e) => n + (e.points ?? 0), 0);
+  const byId = new Map(ledgerEvents.map((e) => [e.id, e]));
+  const originTs = (e) => {
+    let cur = e;
+    const seen = /* @__PURE__ */ new Set();
+    let ts = e.ts;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      ts = cur.ts;
+      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : void 0;
+    }
+    return ts;
+  };
+  const committed = auth.filter((e) => {
+    if (e.points === null) return false;
+    const origin = originTs(e);
+    return origin >= window.from && origin <= window.to;
+  }).reduce((n, e) => n + (e.points ?? 0), 0);
   const shippedViews = effectiveShipped(ledgerEvents).filter(
     (s) => s.shipped_ts >= window.from && s.shipped_ts <= window.to
   );
@@ -2701,6 +2790,12 @@ function runResolve(home, args, json) {
     );
     return 2;
   }
+  if (durablePin && repoDefault) {
+    process.stderr.write(
+      "waybill resolve: --pin and --repo-default are different durable choices \u2014 pass one, not both\n"
+    );
+    return 2;
+  }
   if (!/^(story:.+|adhoc:.+|unattributed)$/.test(account)) {
     process.stderr.write("waybill resolve: account must be story:<KEY>, adhoc:<label>, or unattributed\n");
     return 2;
@@ -2768,7 +2863,7 @@ function runResolve(home, args, json) {
       }
     } else {
       process.stderr.write(
-        "waybill resolve: a miner is running \u2014 the resolution is recorded and will apply on its next pass\n"
+        "waybill resolve: a miner is running \u2014 the resolution is recorded and will apply the next time this session is metered (run `waybill meter --all` shortly, or it applies automatically when the transcript next grows)\n"
       );
     }
   } else {
@@ -3201,6 +3296,7 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
   const shipped = [];
   const corrections = [];
   const orphans = [];
+  const shipChained = new Set(effectiveShipped(ledgerEvents).map((v) => v.entry.id));
   for (const item of items) {
     const entry = latestByKey.get(item.key);
     const itemChanges = changesByKey.get(item.key) ?? [];
@@ -3208,11 +3304,27 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
       if (item.done) orphans.push(orphanBody(item, itemChanges, now));
       continue;
     }
-    if ((entry.kind === "opened" || entry.kind === "progress") && item.done) {
+    if (!shipChained.has(entry.id) && item.done) {
       shipped.push(shippedBody(entry, item, itemChanges, now));
       continue;
     }
-    if (entry.kind === "shipped" || entry.kind === "correction") {
+    if (shipChained.has(entry.id)) {
+      if (item.done && entry.reopened === true) {
+        const body = {
+          ...(({ id: _id, ...rest }) => rest)(entry),
+          ts: now,
+          kind: "correction",
+          supersedes: entry.id,
+          points: item.points ?? entry.points,
+          epic_key: item.epic_key ?? entry.epic_key,
+          epic_name: item.epic_name ?? entry.epic_name,
+          sprint: item.sprint ?? entry.sprint,
+          reopened: false,
+          notes: `sync: re-resolved in tracker (status "${item.status}") after reopen`
+        };
+        corrections.push({ body, drift: [`re-resolved (status "${item.status}")`] });
+        continue;
+      }
       if (!item.done && entry.reopened !== true) {
         const body = {
           ...(({ id: _id, ...rest }) => rest)(entry),
@@ -3410,13 +3522,15 @@ Commands:
                 [--queue | --all]
   meter       Meter transcripts into usage events (deterministic, incremental)
                 --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
+                | --otel <export.jsonl>  (fills transcript-less sessions only)
                 [--force  re-meter even when checkpoints say current]
   append      Validate, seal, id, and append one event (the skills' write path)
                 --stream <name> (--event '<json>' | --stdin) [--commit]
   resolve     File an attribution-inbox item and re-attribute its turns
                 --ambiguity <id> --account <acct> [--pin | --repo-default <org/name>]
   sync-plan   Reconcile normalized tracker/git payloads into proposed entries
-                --tracker jira --items <raw.json> --git github|local --changes <raw.json>
+                --tracker jira|linear --items <raw.json>
+                --git github|gitlab|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]

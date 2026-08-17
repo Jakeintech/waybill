@@ -277,3 +277,48 @@ ladder minus transcript-only signals.
 **Rationale.** File-based OTLP is the only transport that keeps the
 no-network invariant; "transcript wins, never mix" is enforced by
 construction.
+
+## 2026-08-16 — Waste diagnostics: counts on the turn's first model event
+
+**Question.** Waste (retry loops, duplicate reads) is turn-level, but the
+usage grain is (turn, model).
+
+**Choice.** Tool blocks are deduped by block id (streamed lines repeat),
+tallied per turn, and the counts ride once — on the turn's
+lexicographically-first model event — as an optional `waste` field; D11
+means counts only, never command text or paths (asserted by a
+string-absence test).
+
+**Rationale.** One carrier per turn keeps rollups double-count-free while
+staying inside the frozen additive-schema rules.
+
+## 2026-08-16 — OTel temporality and re-ingestion (1.0.1)
+
+**Question.** The 0.4 OTel ingest summed every data point and never
+superseded on re-ingest — a growing collector file (the normal setup)
+over-counted cumulative series and double-counted sessions.
+
+**Choice.** Temporality-aware parsing: DELTA series sum; CUMULATIVE (and
+absent-temporality, the OTLP-counter default) series take the latest point
+per (session, model, type). Re-ingest supersedes the prior otel event per
+(session, model) and the prior receipt, with the same unchanged-modulo-
+supersedes guard as the transcript path. If a transcript later appears for
+an otel-metered session, transcript metering retires every otel event via
+superseding corrections — transcript wins, sources never mix.
+
+**Rationale.** Conservation is the product; both paths now converge to one
+authoritative account of a session no matter the ingest order or cadence.
+
+## 2026-08-16 — Reconcile classifies by chain, not surface kind (1.0.1)
+
+**Question.** A correction over an *open* entry was treated as shipped, and
+an item re-resolved after a reopen was never recorded.
+
+**Choice.** Ship-state comes from the supersession chain (effectiveShipped);
+open-chained corrections get shipped proposals when the item is done, and a
+done item whose entry says `reopened: true` gets a correction clearing the
+flag (`re-resolved in tracker`), fields refreshed. Pacing's committed points
+window on the chain-origin ts so corrections never re-date commitments.
+
+**Rationale.** The chain is the truth the schema freeze promises; surface
+kinds are just the latest edit.

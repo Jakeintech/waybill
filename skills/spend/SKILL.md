@@ -9,7 +9,7 @@ description: >
   or asks about token usage by model, week, epic, or story. Answers come
   from the local metered ledger — deterministic numbers, never estimates.
 metadata:
-  version: "0.4.0"
+  version: "1.0.1"
 ---
 
 # Spend
@@ -43,7 +43,9 @@ Render compactly, honest-auditor voice:
 - **Where-did-it-go**: top accounts table (account, tokens, min confidence,
   resolvers), then one line each for unattributed % ("11% unattributed —
   shown, never hidden"), open spend (the at-risk number: tokens on stories
-  not yet shipped), and the inbox count if nonzero.
+  not yet shipped), and the inbox count if nonzero. When an account's
+  `waste` counts are nonzero, add them to its row ("8 retried commands,
+  76 repeated reads") — what the tokens bought, and what they wasted.
 - **Story cost**: one line — total tokens, cache-read share, and
   tokens-per-point if shipped ("PLAT-482: 2.9M tokens, 61% cache reads,
   shipped at 5 pts → 0.58M/pt"). USD only if priced, labeled.
@@ -81,4 +83,7 @@ $WAYBILL resolve --ambiguity <id> --account story:PLAT-482
 - No peer comparisons, ever.
 - If metering is behind (mine reports new sessions), say the numbers just
   refreshed; if a transcript was pruned (`meter_gap` in exceptions), say
-  which session's tokens are unrecoverable rather than papering over it.
+  which session's tokens are missing and mention the OTel fallback: with
+  Claude Code telemetry exporting to a file,
+  `$WAYBILL meter --otel <export.jsonl>` can still recover its totals.
+  Never paper over a gap.

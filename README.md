@@ -8,7 +8,7 @@ A *waybill* is the shipping document that itemizes cargo and its charges. You sh
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757)](https://code.claude.com/docs/en/plugins)
 
-<!-- TODO before launch: 60–90s demo GIF here — sync → bootstrap report → the token pitch rendered as a receipt. -->
+<!-- TODO: 60–90s demo GIF here — init → bootstrap receipt → the token pitch rendered as a receipt. -->
 
 ## Why
 
@@ -55,15 +55,17 @@ ledger unlocks the stronger claims (see tiers below).
 |---|---|
 | You start a task | `log` records your **without-Claude estimate first** (pre-registration), sealed with a SHA-256 escrow hash |
 | You work | A `SessionEnd` hook queues the session and a detached, dependency-free miner meters real token usage from the transcript — no model calls, no network, never blocking |
-| Things merge | `sync` reconciles the ledger against your Jira issues and GitHub PRs |
-| You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own historical tokens-per-story-point |
+| Things merge | `sync` reconciles the ledger against your Jira issues and GitHub PRs (or Linear, GitLab, or plain local git) |
+| You wonder where it went | `spend` answers by story/epic/model/week, files the attribution inbox one tap at a time, and tracks budget pacing — one line at 80%/100%, never nagging |
+| You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own metered tokens-per-story-point |
 
-Since 0.3, metering is live: every Claude Code token is metered
-deterministically from your local transcripts and attributed to the story it
-served, with a per-event resolver name and confidence, a conservation check
-(Σ attributed = Σ observed, per session), and an attribution inbox for the
-ambiguous leftovers. Coming per the [spec](docs/product-spec.md) (0.4):
-the `spend` skill, budgets, and pacing.
+Every Claude Code token is metered deterministically from your local
+transcripts and attributed to the story it served, with a per-event resolver
+name and confidence, a conservation check (Σ attributed = Σ observed, per
+session) you can re-run offline with `waybill verify`, an attribution inbox
+for the ambiguous leftovers, and per-story waste diagnostics (what the
+tokens bought — and what they wasted on retry loops). As of 1.0 the
+[schema is frozen](docs/migration.md): the receipts are the contract.
 
 ### Evidence tiers (the whole idea)
 
@@ -78,9 +80,12 @@ Plus structural honesty: append-only storage (corrections supersede, never overw
 
 ## Report presets
 
-- **`token-pitch`** — the ask, the receipts, the efficiency trend, the forecast.
+- **`token-pitch`** — the ask, the receipts, the spend ledger, the efficiency trend, the forecast.
 - **`perf-review`** — epic-level outcomes for a review period, including review/incident/docs work.
 - **`sprint-recap`** / **`quarterly`** — the running record.
+
+Reports render at three audience levels — `self`, `internal`, `external` —
+with deterministic pseudonymization before anything leaves the org.
 
 ## What Waybill will never do
 
@@ -106,8 +111,8 @@ These are commitments, not gaps. See [ROADMAP.md](ROADMAP.md#non-goals).
 - **Tutorial**: this README's quickstart, above.
 - **How-to**: [swap Jira/GitHub for Linear, GitLab, Bitbucket…](docs/adapters.md)
 - **Reference**: [ledger entry & config schema](skills/ledger/references/schema.md) · [skill reference](docs/skills.md) — the docs Claude reads are the docs you read.
-- **Explanation**: [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](ROADMAP.md) · [brand & voice](docs/brand.md)
-- **Spec**: [full product specification](docs/product-spec.md) — automatic token metering, story-level spend attribution, budgets and pacing (shipping in 0.3–0.4).
+- **Explanation**: [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](ROADMAP.md) · [brand & voice](docs/brand.md) · [schema freeze & migration policy](docs/migration.md)
+- **Spec**: [full product specification](docs/product-spec.md) — the normative design the shipped engine implements.
 
 ## FAQ
 

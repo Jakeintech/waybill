@@ -1,4 +1,4 @@
-# Validation — FINALPASS gate (v1.0.0; v0.3.0 and v0.4.0 evidence retained below)
+# Validation — FINALPASS gate (v1.0.1; earlier release evidence retained below)
 
 Evidence for milestones M0 "Believable", M1 "Metered", M2 "Answerable",
 and M3 "Trustworthy at scale". Every claim below is reproducible from a
@@ -11,7 +11,7 @@ shellcheck scripts/*.sh tests/*.sh && bash tests/test-capture-session.sh`.
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) | clean |
-| `node --test` unit + golden + determinism + conservation + acceptance suites | **94 / 94 pass** |
+| `node --test` unit + golden + determinism + conservation + acceptance suites | **101 / 101 pass** |
 | Reproducible build (`npm run build` then `git diff --exit-code bin/`) | zero diff |
 | `scripts/validate-plugin.sh` (manifests, skills, D19 naming, schema examples, dependency-free engine) | pass |
 | `claude plugin validate` (official CLI) | pass, no warnings |
@@ -32,8 +32,9 @@ shellcheck scripts/*.sh tests/*.sh && bash tests/test-capture-session.sh`.
 - The pitch renders from real data: `query report` over this machine's
   actual metered history returns the full spend-ledger section (verified
   during the live e2e).
-- Adversarial review (15-agent workflow, five lenses, one verifier per
-  finding): 10 confirmed findings, all fixed with regression tests.
+- Adversarial review, two passes: 15 agents over the 0.3 core (10 confirmed
+  findings) and 16 agents over the 0.4/1.0 delta (12 confirmed) — every
+  confirmed finding fixed with a regression test.
 
 ## M3 DoD — "Trustworthy at scale"
 
@@ -45,7 +46,7 @@ shellcheck scripts/*.sh tests/*.sh && bash tests/test-capture-session.sh`.
   end-to-end runs against real Linear/GitLab accounts have not been
   performed; the adapters.md table says exactly that.
 - Trigger evals authored for every skill plus an overtrigger negative;
-  the CI job is gated behind an API-key variable. Honest limit: pass-rate
+  the CI job is gated behind the RUN_TRIGGER_EVALS repository variable (push events only). Honest limit: pass-rate
   thresholds have not been measured yet — this machine's CLI OAuth session
   is expired and `plugin eval` is early-access. First authenticated run:
   `claude plugin eval waybill@waybill --threshold 0.8`.

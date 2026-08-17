@@ -10,7 +10,7 @@ description: >
   Also use it at a natural stopping point after shipping something in a
   session, by offering (once, briefly) to log it.
 metadata:
-  version: "0.3.0"
+  version: "1.0.1"
 ---
 
 # Log Work

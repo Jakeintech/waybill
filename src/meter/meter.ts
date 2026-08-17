@@ -124,9 +124,27 @@ export function meterTranscript(input: MeterInput): MeterOutput {
   );
   const usageByGrain = new Map<string, UsageEvent>();
   for (const u of existingUsageAuth) {
+    if (u.source === "otel") continue; // retired wholesale below — transcript wins
     usageByGrain.set(`${u.turn.index}|${u.model}`, u);
   }
   const existingIds = new Set(input.existingUsage.map((u) => u.id));
+
+  // FR-M2: the transcript is the source of truth. If this session was
+  // previously metered from OTel (transcript pruned, then restored or mined
+  // late), retire every otel event with a superseding correction so nothing
+  // double-counts.
+  for (const stale of existingUsageAuth) {
+    if (stale.source !== "otel") continue;
+    const retire = finalizeEvent("usage", {
+      ts: transcript.lastTs,
+      kind: "correction" as const,
+      schema_version: SCHEMA_VERSION,
+      supersedes: stale.id,
+      session_id: sessionId,
+      detail: "superseded by transcript metering (transcript wins over otel)",
+    }) as unknown as UsageEvent;
+    if (!existingIds.has(retire.id)) newUsage.push(retire);
+  }
 
   const emitted: TokenCounts = zeroTotals();
 

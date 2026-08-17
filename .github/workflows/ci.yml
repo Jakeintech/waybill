@@ -55,12 +55,13 @@ jobs:
             || { echo "::error::bin/waybill.mjs does not match src/ — run npm run build and commit"; exit 1; }
 
   trigger-evals:
-    name: Skill trigger evals (skipped without an API key)
+    name: Skill trigger evals (opt-in)
     runs-on: ubuntu-latest
     # Descriptions are the UI; these prove each skill fires on its canonical
-    # phrases. Requires a paid model call, so the job only runs when the
-    # repository has an ANTHROPIC_API_KEY secret — forks stay green.
-    if: ${{ vars.RUN_TRIGGER_EVALS == 'true' }}
+    # phrases. Paid model calls, so the job runs only when the repository
+    # variable RUN_TRIGGER_EVALS is 'true' AND on push (never on fork PRs,
+    # where the ANTHROPIC_API_KEY secret is unavailable). Forks stay green.
+    if: ${{ vars.RUN_TRIGGER_EVALS == 'true' && github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

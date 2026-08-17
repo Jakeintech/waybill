@@ -52,9 +52,26 @@ interface SessionAgg {
   lastNano: bigint;
 }
 
-/** Parse OTLP-JSON lines and aggregate token.usage points per session/model. */
+function safeNano(v: string | number | undefined): bigint {
+  try {
+    return BigInt(v ?? 0);
+  } catch {
+    return 0n; // malformed timestamp: keep the point, ignore its time
+  }
+}
+
+/**
+ * Parse OTLP-JSON lines and aggregate token.usage points per session/model,
+ * temporality-aware: DELTA (1) series sum; CUMULATIVE (2 — what Claude
+ * Code's counters export, and the OTLP default assumption here when the
+ * field is absent) series take the latest point per
+ * (session, model, type), so re-emitted growing snapshots are never
+ * double-counted.
+ */
 export function parseOtelExport(raw: string): Map<string, SessionAgg> {
   const sessions = new Map<string, SessionAgg>();
+  // For cumulative series: latest (value, nano) per session|model|type.
+  const cumulative = new Map<string, { value: number; nano: bigint }>();
   for (const lineText of raw.split("\n")) {
     if (lineText.trim() === "") continue;
     let line: unknown;
@@ -68,9 +85,10 @@ export function parseOtelExport(raw: string): Map<string, SessionAgg> {
       for (const sm of (rm.scopeMetrics ?? []) as Array<{ metrics?: unknown[] }>) {
         for (const metric of (sm.metrics ?? []) as Array<{
           name?: string;
-          sum?: { dataPoints?: OtelDataPoint[] };
+          sum?: { dataPoints?: OtelDataPoint[]; aggregationTemporality?: number };
         }>) {
           if (metric.name !== "claude_code.token.usage") continue;
+          const isDelta = metric.sum?.aggregationTemporality === 1;
           for (const point of metric.sum?.dataPoints ?? []) {
             const sessionId = attr(point, "session.id");
             const model = attr(point, "model") ?? "unknown";
@@ -81,9 +99,18 @@ export function parseOtelExport(raw: string): Map<string, SessionAgg> {
             const agg = sessions.get(sessionId) ?? { models: new Map(), lastNano: 0n };
             const tokens =
               agg.models.get(model) ?? { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
-            tokens[TYPE_MAP[type]!] += count;
+            const nano = safeNano(point.timeUnixNano);
+            if (isDelta) {
+              tokens[TYPE_MAP[type]!] += count;
+            } else {
+              const key = `${sessionId}|${model}|${type}`;
+              const prior = cumulative.get(key);
+              if (!prior || nano >= prior.nano) {
+                cumulative.set(key, { value: count, nano });
+                tokens[TYPE_MAP[type]!] = count;
+              }
+            }
             agg.models.set(model, tokens);
-            const nano = BigInt(point.timeUnixNano ?? 0);
             if (nano > agg.lastNano) agg.lastNano = nano;
             sessions.set(sessionId, agg);
           }
@@ -129,6 +156,18 @@ export function meterOtel(input: OtelMeterInput): OtelMeterOutput {
     ...input.existingUsage.map((e) => e.id),
     ...input.existingSessions.map((e) => e.id),
   ]);
+  // A growing collector file re-ingests naturally: prior otel events for the
+  // same grain must be superseded, never left to double-count.
+  const priorOtelUsage = new Map<string, UsageEvent>();
+  for (const u of authoritative(input.existingUsage)) {
+    if (u.kind === "usage" && u.source === "otel") {
+      priorOtelUsage.set(`${u.session_id}|${u.model}`, u);
+    }
+  }
+  const priorOtelReceipts = new Map<string, SessionEvent>();
+  for (const s of authoritative(input.existingSessions)) {
+    if (s.kind === "session" && s.source === "otel") priorOtelReceipts.set(s.session_id, s);
+  }
   const pins = authoritative(input.ledgerEvents).filter((e): e is PinEntry => e.kind === "pin");
   const openEntries = selectOpenEntries(input.ledgerEvents);
 
@@ -171,7 +210,7 @@ export function meterOtel(input: OtelMeterInput): OtelMeterOutput {
         ts,
         kind: "usage" as const,
         schema_version: SCHEMA_VERSION,
-        supersedes: null,
+        supersedes: null as string | null,
         session_id: sessionId,
         turn: { index: 0, first_message_id: "", last_message_id: "", prompt_id: null },
         repo: null,
@@ -191,15 +230,23 @@ export function meterOtel(input: OtelMeterInput): OtelMeterOutput {
         transcript_version: null,
         raw_extra: null,
       };
-      const event = finalizeEvent("usage", body) as unknown as UsageEvent;
-      if (!existingIds.has(event.id)) newUsage.push(event);
+      const prior = priorOtelUsage.get(`${sessionId}|${model}`);
+      if (prior) {
+        const asPrior = finalizeEvent("usage", { ...body, supersedes: prior.supersedes }) as unknown as UsageEvent;
+        if (asPrior.id === prior.id) continue; // unchanged since last ingest
+        const event = finalizeEvent("usage", { ...body, supersedes: prior.id }) as unknown as UsageEvent;
+        if (!existingIds.has(event.id)) newUsage.push(event);
+      } else {
+        const event = finalizeEvent("usage", body) as unknown as UsageEvent;
+        if (!existingIds.has(event.id)) newUsage.push(event);
+      }
     }
 
     const receiptBody = {
       ts,
       kind: "session" as const,
       schema_version: SCHEMA_VERSION,
-      supersedes: null,
+      supersedes: null as string | null,
       session_id: sessionId,
       transcript_path: "",
       transcript_version: null,
@@ -214,8 +261,23 @@ export function meterOtel(input: OtelMeterInput): OtelMeterOutput {
       totals,
       source: "otel" as const,
     };
-    const receipt = finalizeEvent("sessions", receiptBody) as unknown as SessionEvent;
-    if (!existingIds.has(receipt.id)) newSessions.push(receipt);
+    const priorReceipt = priorOtelReceipts.get(sessionId);
+    if (priorReceipt) {
+      const asPrior = finalizeEvent("sessions", {
+        ...receiptBody,
+        supersedes: priorReceipt.supersedes,
+      }) as unknown as SessionEvent;
+      if (asPrior.id !== priorReceipt.id) {
+        const receipt = finalizeEvent("sessions", {
+          ...receiptBody,
+          supersedes: priorReceipt.id,
+        }) as unknown as SessionEvent;
+        if (!existingIds.has(receipt.id)) newSessions.push(receipt);
+      }
+    } else {
+      const receipt = finalizeEvent("sessions", receiptBody) as unknown as SessionEvent;
+      if (!existingIds.has(receipt.id)) newSessions.push(receipt);
+    }
   }
 
   return { newUsage, newSessions, skipped_transcript_sessions: skipped };

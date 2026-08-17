@@ -60,6 +60,12 @@ export function runResolve(home: string, args: string[], json: boolean): number 
     );
     return 2;
   }
+  if (durablePin && repoDefault) {
+    process.stderr.write(
+      "waybill resolve: --pin and --repo-default are different durable choices — pass one, not both\n",
+    );
+    return 2;
+  }
   if (!/^(story:.+|adhoc:.+|unattributed)$/.test(account)) {
     process.stderr.write("waybill resolve: account must be story:<KEY>, adhoc:<label>, or unattributed\n");
     return 2;
@@ -140,7 +146,9 @@ export function runResolve(home: string, args: string[], json: boolean): number 
       }
     } else {
       process.stderr.write(
-        "waybill resolve: a miner is running — the resolution is recorded and will apply on its next pass\n",
+        "waybill resolve: a miner is running — the resolution is recorded and will apply " +
+          "the next time this session is metered (run `waybill meter --all` shortly, or it " +
+          "applies automatically when the transcript next grows)\n",
       );
     }
   } else {

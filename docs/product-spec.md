@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft for implementation (releases 0.3 → 1.0) |
+| **Status** | Implemented — M0–M3 shipped in releases 0.3.0 → 1.0.0 (see [CHANGELOG](../CHANGELOG.md)); normative for future work |
 | **Owner** | Jakeintech |
 | **Last updated** | 2026-08-16 |
 | **Scope of this document** | The full product, with normative detail on the spend-attribution engine (new in 0.3) |
@@ -198,15 +198,16 @@ after Claude Code prunes the transcript. Normative field-level detail:
 **Usage event schema (v2, normative):**
 
 ```json
-{"id":"ue-20260817T101503Z-9a2c","ts":"2026-08-17T10:15:03Z",
- "session_id":"9f4c…","turn":{"first_message_id":"…","last_message_id":"…","prompt_id":null},
+{"id":"01J5T0A1B2C3D4E5F6G7H8J9K0","ts":"2026-08-17T10:15:03Z",
+ "kind":"usage","schema_version":2,"supersedes":null,
+ "session_id":"9f4c…","turn":{"index":3,"first_message_id":"…","last_message_id":"…","prompt_id":null},
  "repo":"acme/platform","model":"<model-id>",
  "tokens":{"input":41200,"output":6300,"cache_read":181000,
            "cache_creation":22000,"cache_creation_5m":22000,"cache_creation_1h":0},
  "cost_usd":{"value":0.3121,"pricing_version":"2026-08-01"},
  "attribution":{"account":"story:PLAT-482","tracker_key":"PLAT-482",
                 "resolver":"active_entry","confidence":0.9,"rules_version":"1"},
- "source":"transcript","kind":"usage","supersedes":null}
+ "source":"transcript","transcript_version":"2.1.229","raw_extra":null}
 ```
 
 Field naming follows the same input/output/cache-read/cache-creation
@@ -223,7 +224,8 @@ so the schema round-trips cleanly to a warehouse later (team mode).
             "models":{"<model-id>":{"input_per_mtok":0,"output_per_mtok":0,
               "cache_read_per_mtok":0,"cache_write_5m_per_mtok":0,
               "cache_write_1h_per_mtok":0}}},
- "budgets":{"allocation":"inherit","epics":{"PLAT-401":5000000}}}
+ "budgets":{"allocation":"inherit","epics":{"PLAT-401":5000000},
+            "renewal_reminder_days":14}}
 ```
 
 Ledger schema changes: work entries gain optional `budget_tokens`; the

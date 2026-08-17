@@ -73,7 +73,11 @@ export function runMine(home: string, args: string[]): number {
 
   const queueDir = join(home, "pending-sessions");
   mkdirSync(queueDir, { recursive: true });
-  if (!acquireLock(home)) return 0; // another metering process is live; the queue survives
+  if (!acquireLock(home)) {
+    // Another metering process is live; the queue survives untouched.
+    process.stdout.write("mined 0 session(s) (another metering process is running — queue intact)\n");
+    return 0;
+  }
 
   let mined = 0;
   try {

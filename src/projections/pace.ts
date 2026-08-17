@@ -38,6 +38,11 @@ export function periodWindow(period: string, grantedAt: string): { from: string;
     return { from: from.toISOString().slice(0, 19) + "Z", to: to.toISOString().slice(0, 19) + "Z" };
   }
   const from = Date.parse(grantedAt);
+  if (Number.isNaN(from)) {
+    // Unparseable period AND granted_at: an inert epoch window beats a
+    // crash in the SessionStart hook path.
+    return { from: "1970-01-01T00:00:00Z", to: "1970-04-01T00:00:00Z" };
+  }
   return {
     from: new Date(from).toISOString().slice(0, 19) + "Z",
     to: new Date(from + 90 * 86400_000).toISOString().slice(0, 19) + "Z",
@@ -72,14 +77,31 @@ export function paceData(
   const elapsed = Math.min(Math.max(Date.parse(nowIso) - Date.parse(window.from), 0), total);
   const elapsedPct = total > 0 ? Math.round((elapsed / total) * 1000) / 10 : null;
 
-  // Work-weighted pace: entries with points whose lifecycle touches the window.
+  // Work-weighted pace. Committed is windowed on the chain-ORIGIN ts (when
+  // the work was first opened) so a later correction never re-dates an item
+  // in or out of the window; shipped is windowed on the ship time.
   const auth = authoritative(ledgerEvents).filter(
     (e): e is LedgerEntry => e.kind !== "pin",
   );
-  const inWindowEntries = auth.filter(
-    (e) => e.points !== null && e.ts >= window.from && e.ts <= window.to,
-  );
-  const committed = inWindowEntries.reduce((n, e) => n + (e.points ?? 0), 0);
+  const byId = new Map<string, LedgerEntry | PinEntry>(ledgerEvents.map((e) => [e.id, e]));
+  const originTs = (e: LedgerEntry): string => {
+    let cur: LedgerEntry | PinEntry | undefined = e;
+    const seen = new Set<string>();
+    let ts = e.ts;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      ts = cur.ts;
+      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : undefined;
+    }
+    return ts;
+  };
+  const committed = auth
+    .filter((e) => {
+      if (e.points === null) return false;
+      const origin = originTs(e);
+      return origin >= window.from && origin <= window.to;
+    })
+    .reduce((n, e) => n + (e.points ?? 0), 0);
   const shippedViews = effectiveShipped(ledgerEvents).filter(
     (s) => s.shipped_ts >= window.from && s.shipped_ts <= window.to,
   );

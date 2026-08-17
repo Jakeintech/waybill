@@ -31,7 +31,8 @@ never depends on a model call (see the [product spec](product-spec.md),
   protected concept in [brand.md](brand.md); the skill documents that
   structure rather than performing an action.
 - **Reserved words never used as skill names:** `waybill` (the plugin),
-  `meter` and `verify` (engine subcommands, by design), `inbox` (a surface
+  every engine subcommand (`init`, `bootstrap`, `mine`, `meter`, `append`,
+  `resolve`, `verify`, `query`, `pace`, `sync-plan`), `inbox` (a surface
   inside `spend`, not a skill), and the brand concept names
   (`evidence tiers`, `open spend`, `pre-registration`).
 

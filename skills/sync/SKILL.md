@@ -9,7 +9,7 @@ description: >
   Works zero-config from local git history; the Atlassian and/or GitHub MCP
   servers bundled with this plugin (or equivalents) upgrade it.
 metadata:
-  version: "0.3.0"
+  version: "1.0.1"
 ---
 
 # Sync
@@ -66,10 +66,13 @@ own data.
 
    The plan JSON contains: `shipped` proposals (open entries whose issue is
    Done and PR merged — escrow and estimates carried forward), `corrections`
-   (field drift: points, epic, sprint), `orphans` (Done items with no ledger
+   (field drift — points, epic, sprint — plus rework transitions: an item
+   reopened after shipping gets `reopened: true`, and a later re-resolve
+   clears it; reports count these), `orphans` (Done items with no ledger
    entry, marked "Claude involvement unrecorded"), `unmatched_changes`
    (merged PRs with no tracker key — surfaced, never silently dropped), and
-   a derived `baseline` when requested.
+   a derived `baseline` when requested. Other trackers/hosts swap in the
+   same flow: `--tracker linear`, `--git gitlab`.
 5. Present the plan as a short table and get **one confirmation**. If the
    user excludes rows, delete them from the plan JSON before applying.
 6. **Apply:** `$WAYBILL sync-plan --apply /tmp/waybill-plan.json` — appends

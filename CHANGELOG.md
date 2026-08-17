@@ -7,6 +7,37 @@ compatibility surface.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-16
+
+A second adversarial review pass (four lenses over the 0.4/1.0 delta, one
+verifier per finding — 12 confirmed) plus a docs-currency sweep.
+
+### Fixed
+- **OTel cumulative temporality** — `meter --otel` now reads
+  `aggregationTemporality`: cumulative series (Claude Code's counters, and
+  the default when absent) take the latest point per (session, model,
+  type) instead of summing re-emitted snapshots; delta series still sum.
+  Re-ingesting a grown collector file supersedes the prior events instead
+  of double-counting, and a transcript appearing later retires a session's
+  OTel events entirely via superseding corrections — transcript wins,
+  sources never mix, in either order.
+- **Reconcile classifies by supersession chain**, not surface kind: a
+  correction over an open entry still gets its shipped proposal, and an
+  item re-resolved after a reopen gets a correction clearing the flag.
+- **Pacing commitments window on the chain-origin ts**, so a late
+  correction never re-dates committed points in or out of the period.
+- **Stale-lock takeover is race-free** (atomic rename — exactly one
+  reaper wins); `resolve` rejects `--pin` together with `--repo-default`;
+  a degenerate all-zero duplicate transcript line can no longer clobber
+  real usage; unparseable period + granted_at can no longer throw in the
+  SessionStart hook path.
+- Docs and skills brought fully current: README no longer promises shipped
+  features, the frozen schema reference documents `waste`, `reopened`,
+  `source: "otel"`, and `budgets.renewal_reminder_days`, CLI help lists
+  `--otel` and all adapter enums, report/spend skills render the waste and
+  rework numbers, spend owns its trigger phrases, skill versions and the
+  lockfile match the release, and dead CHANGELOG links are gone.
+
 ## [1.0.0] - 2026-08-16
 
 Milestone M3 "Trustworthy at scale". **Schema v2 is frozen** — see
@@ -164,7 +195,6 @@ metering/attribution path.
 - Validator enforces D19 skill naming (single lowercase word, reserved
   words) and the dependency-free engine.
 
-[0.3.0]: https://github.com/Jakeintech/waybill/compare/v0.2.1...v0.3.0
 
 ## [0.2.1] - 2026-08-16
 
@@ -220,9 +250,9 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Jakeintech/waybill/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Jakeintech/waybill/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/Jakeintech/waybill/compare/v0.3.0...v0.4.0
-[0.2.1]: https://github.com/Jakeintech/waybill/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/Jakeintech/waybill/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/Jakeintech/waybill/releases/tag/v0.1.0
+[0.3.0]: https://github.com/Jakeintech/waybill/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/Jakeintech/waybill/releases/tag/v0.2.1

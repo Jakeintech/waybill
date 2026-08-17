@@ -295,9 +295,12 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
       const ts = typeof line.timestamp === "string" ? line.timestamp : "";
       const prior = byMessage.get(msg.id);
       if (prior) {
-        prior.tokens = tokensFromUsage(msg.usage);
-        prior.extras = extraNumerics(msg.usage);
-        if (ts !== "") prior.ts = ts;
+        // Never let a degenerate all-zero duplicate line clobber real usage.
+        if (!(probe.input === 0 && probe.output === 0 && probe.cache_read === 0 && probe.cache_creation === 0)) {
+          prior.tokens = probe;
+          prior.extras = extraNumerics(msg.usage);
+          if (ts !== "") prior.ts = ts;
+        }
       } else {
         const turn = ensureTurn();
         if (turn.firstMessageId === null) turn.firstMessageId = msg.id;

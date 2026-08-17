@@ -16,7 +16,7 @@ always works. Coupling lives in exactly four places:
    **conformance kit** (`src/adapters/conformance.ts`) runs any adapter
    against the contract's invariants (own-data scoping, opaque keys, no
    invented points, stable ordering, determinism). Bundled adapters — Jira,
-   GitHub, git-local — all pass the same kit, and CI runs it.
+   Linear, GitHub, GitLab, git-local — all pass the same kit, and CI runs it.
 4. **The `sync` skill's query examples** — JQL for Jira, search syntax for
    GitHub. The skill treats these as examples; with a different server
    connected, Claude adapts to that server's tools, but tested guidance makes

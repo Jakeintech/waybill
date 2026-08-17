@@ -5,10 +5,10 @@ description: >
   entry schema, configuration, or integrity rules — when the user asks to
   "initialize my waybill ledger", "set up waybill", "what's in my ledger",
   "what have I logged", "show my ledger", "verify my ledger", or whenever
-  another waybill skill (log, sync, report, forecast) needs to read or write
-  ledger data.
+  another waybill skill (log, spend, sync, report, forecast) needs to read
+  or write ledger data.
 metadata:
-  version: "0.3.0"
+  version: "1.0.1"
 ---
 
 # The Waybill Ledger

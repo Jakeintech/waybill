@@ -93,7 +93,9 @@ fi
 
 # --- Skill naming rules (D19, docs/skills.md) ------------------------------
 
-RESERVED_SKILL_NAMES="waybill meter verify inbox"
+# Keep in lockstep with docs/skills.md: the plugin name, every engine
+# subcommand, and surfaces that are not skills.
+RESERVED_SKILL_NAMES="waybill init bootstrap mine meter append resolve verify query pace sync-plan inbox"
 for dir in skills/*/; do
   [ -d "$dir" ] || continue
   skill_name="$(basename "$dir")"

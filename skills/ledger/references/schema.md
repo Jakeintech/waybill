@@ -68,6 +68,7 @@ plus:
 | `budget_tokens` | number \| null | no | Optional per-item token envelope. |
 | `time_saved_hours` | object \| null | no | `{ "low": n, "high": n, "confidence": "high"\|"medium"\|"low", "basis": "pre_registered"\|"baseline"\|"judgment" }`. |
 | `notes` | string \| null | no | Free text. |
+| `reopened` | boolean | no | Set by sync corrections when the tracker reopened an item after it shipped; reports count these without erasing the shipped work. Absent unless set (additive, 1.0). |
 
 ### Escrow (pre-registration seal)
 
@@ -127,9 +128,10 @@ activity within a turn rolls up to that turn's account. Never split a turn.
 | `tokens` | object | `{ "input", "output", "cache_read", "cache_creation", "cache_creation_5m", "cache_creation_1h" }` — all integers; the 5m/1h split is 0/0 when the source lacks it. |
 | `cost_usd` | object \| null | `{ "value": number, "pricing_version": str }`; **null when the model is missing from the pricing table** — tokens reported, cost never guessed. |
 | `attribution` | object | `{ "account", "tracker_key", "resolver", "confidence", "rules_version" }`. Account is `story:<KEY>`, `adhoc:<label>`, or `unattributed`. |
-| `source` | string | `"transcript"` (OTel arrives in 0.4; a session never mixes sources). |
-| `transcript_version` | string \| null | Claude Code version that wrote the transcript lines. |
+| `source` | string | `"transcript"` or `"otel"` (the OTel secondary source fills only sessions with no transcript; a session never mixes sources). |
+| `transcript_version` | string \| null | Claude Code version that wrote the transcript lines (null for OTel events). |
 | `raw_extra` | object \| null | Unknown source usage fields, preserved, never dropped. |
+| `waste` | object \| null | Turn-level waste diagnostics, carried once per turn on its first model event: `{ "retried_commands": n, "repeated_reads": n }` — counts only, never commands or paths. Absent on pre-1.0 events (additive; see `docs/migration.md`). |
 
 ```json
 {"id":"01J5T0A1B2C3D4E5F6G7H8J9K0","ts":"2026-08-17T10:15:03Z","kind":"usage","schema_version":2,"supersedes":null,"session_id":"9f4c1e2a-77aa-4b02-9d31-5c2f8ab9d001","turn":{"index":3,"first_message_id":"msg_01AAA","last_message_id":"msg_01AAC","prompt_id":"prompt_7"},"repo":"acme/platform","model":"claude-opus-4-6","tokens":{"input":41200,"output":6300,"cache_read":181000,"cache_creation":22000,"cache_creation_5m":22000,"cache_creation_1h":0},"cost_usd":null,"attribution":{"account":"story:PLAT-482","tracker_key":"PLAT-482","resolver":"active_entry","confidence":0.9,"rules_version":"1"},"source":"transcript","transcript_version":"2.1.229","raw_extra":null}
@@ -144,8 +146,8 @@ prunes the transcript.
 
 | Field | Type | Notes |
 |---|---|---|
-| `session_id` | string | Transcript `sessionId`. |
-| `transcript_path` | string | Where the source lived. |
+| `session_id` | string | Transcript `sessionId` (or OTel `session.id`). |
+| `transcript_path` | string | Where the source lived (empty string for OTel receipts, which also carry a synthetic single-turn shape and no branches). |
 | `transcript_version` | string \| null | e.g. `"2.1.229"`. |
 | `cwd` | string \| null | Session working directory. |
 | `repo` | string \| null | Repo identity, when derivable. |
@@ -155,7 +157,7 @@ prunes the transcript.
 | `turns` | number | Turn count. |
 | `messages` | number | Unique assistant API messages metered. |
 | `totals` | object | Source-side sums `{ input, output, cache_read, cache_creation }` — the conservation reference. |
-| `source` | string | `"transcript"`. |
+| `source` | string | `"transcript"` or `"otel"` — a transcript receipt supersedes any earlier otel receipt for the same session (transcript wins). |
 
 ## Exceptions stream (`streams/exceptions/`)
 
@@ -219,7 +221,7 @@ work, never anyone else's:
     "unknown_model_policy": "tokens_only",
     "models": {}
   },
-  "budgets": { "allocation": "inherit", "epics": {} },
+  "budgets": { "allocation": "inherit", "epics": {}, "renewal_reminder_days": 14 },
   "audience_default": "self",
   "last_sync": null
 }
@@ -234,7 +236,12 @@ work, never anyone else's:
   on its events. Tokens are the native unit; USD is a labeled list-price
   equivalent for subscription users.
 - `allocations`: `[{ "period": "2026-Q3", "tokens_granted": 50000000,
-  "granted_at": "2026-07-01" }]`.
+  "granted_at": "2026-07-01" }]`. Periods `YYYY-Qn` and `YYYY-MM` parse
+  exactly for pacing windows; anything else falls back to
+  `granted_at` + 90 days.
+- `budgets`: optional per-epic token envelopes plus
+  `renewal_reminder_days` — how many days before the allocation period ends
+  `waybill pace --notice` nudges (once) to draft the pitch.
 - `audience_default`: `self` | `internal` | `external` — the redaction level
   reports use when none is requested (see `docs/skills.md` and the report
   skill for what each level strips).

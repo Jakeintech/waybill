@@ -21,10 +21,18 @@ claude plugin install waybill@waybill
 ```
 
 Requirements for the checks: `bash`, `jq`, `shellcheck`, and Node ≥ 24
-(the test runner uses Node's native TypeScript type-stripping). The
-engine is TypeScript in `src/`, strict mode, compiled by `npm run build`
-into the committed, dependency-free `bin/waybill.mjs` — the only runtime
-the shipped plugin needs is Node itself.
+(the test runner uses Node's native TypeScript type-stripping; the shipped
+`bin/waybill.mjs` itself runs on Node ≥ 20). The engine is TypeScript in
+`src/`, strict mode, compiled by `npm run build` into the committed,
+dependency-free `bin/waybill.mjs` — the only runtime the shipped plugin
+needs is Node itself.
+
+Skill trigger evals live in `evals/` (one case per skill's canonical
+phrases plus an overtrigger negative). They cost real model calls, so they
+are not part of the local gate; run them with an authenticated CLI via
+`claude plugin eval waybill@waybill --threshold 0.8` when you change a
+skill description. CI runs them only when the repo variable
+`RUN_TRIGGER_EVALS` is set.
 
 ## Quality gates (run before pushing)
 
@@ -55,8 +63,8 @@ Skills follow the [Claude Code plugin conventions](https://code.claude.com/docs/
 - **Trigger-test your description** before opening the PR: run a handful of
   realistic phrasings through `claude -p "<phrase>"` in a session with the
   plugin installed and confirm the skill loads. Note the phrases you tested
-  in the PR description. (A scripted version of this check is on the
-  [roadmap](ROADMAP.md).)
+  in the PR description, or run the scripted version: `claude plugin eval`
+  over the cases in `evals/`.
 - Schema or methodology changes must update
   `skills/ledger/references/schema.md` / `methodology.md` in the same PR —
   the example entries in `schema.md` are validated by CI, so they can't rot.

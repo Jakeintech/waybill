@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 function lockPath(home: string): string {
@@ -7,9 +7,10 @@ function lockPath(home: string): string {
 
 /**
  * Atomic writer lock shared by every metering entry point (miner, meter,
- * resolve): exclusive-create (wx) so two processes can never both hold it —
- * the check-then-write race of 0.3 is gone. A lock whose pid is dead is
- * stale and taken over.
+ * resolve): exclusive-create (wx) so two processes can never both hold it.
+ * A lock whose pid is dead is stale; takeover goes through an atomic
+ * rename, so of two processes that both observe the dead holder exactly
+ * one claims it — the unlink-then-recreate window of 0.4 is gone.
  */
 export function acquireLock(home: string): boolean {
   mkdirSync(join(home, "pending-sessions"), { recursive: true });
@@ -25,13 +26,16 @@ export function acquireLock(home: string): boolean {
           process.kill(pid, 0); // throws if the process is gone
           return false; // live holder
         }
-      } catch {
-        // unreadable or dead holder — stale
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue; // freed — retry wx
+        // unreadable content or dead holder — stale, fall through to takeover
       }
+      const claim = `${p}.reap.${process.pid}`;
       try {
-        unlinkSync(p);
+        renameSync(p, claim); // atomic: exactly one reaper wins
+        unlinkSync(claim);
       } catch {
-        // someone else cleaned it first
+        return false; // another process reaped (or the holder revived) — yield
       }
     }
   }

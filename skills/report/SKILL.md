@@ -6,13 +6,15 @@ description: >
   say "generate my value report", "build my token pitch", "make my case for
   more tokens", "sprint recap", "quarterly Claude report", "what did Claude
   help me ship this month", "show my impact", "help me with my performance
-  review", "draft my promo packet", "what did I accomplish this quarter",
-  "where did my tokens go", "what did PLAT-123 cost", or "give me a bootstrap
-  report". Use it even when they don't say "report" — any request to
-  summarize their own shipped work or token spend should go through the
-  ledger. Produces a one-page, receipt-backed report; never invents numbers.
+  review", "draft my promo packet", "what did I accomplish this quarter", or
+  "give me a bootstrap report". Use it even when they don't say "report" —
+  any request to summarize their own shipped work should go through the
+  ledger. (Pure spend questions — "where did my tokens go", "what did
+  PLAT-123 cost" — belong to the spend skill; this one builds the
+  narrative report around those numbers.) Produces a one-page,
+  receipt-backed report; never invents numbers.
 metadata:
-  version: "0.3.0"
+  version: "1.0.1"
 ---
 
 # Report
@@ -83,8 +85,11 @@ claims to fill the gap.
    open items, add one line offering to resolve them.
 5. **Costs & caveats** — tokens spent vs. granted (utilization) from
    `report.costs`; USD only if `pricing_version` is set, labeled
-   "list-price equivalent"; rework if recorded; one line on what was
-   excluded (judgment-tier claims, in-flight work).
+   "list-price equivalent"; rework from `costs.reopened_count` ("1 item
+   reopened after shipping") and waste from `costs.waste` ("14 retried
+   commands, 79 repeated reads across the window") — the unflattering
+   numbers are what make the flattering ones believable; one line on what
+   was excluded (judgment-tier claims, in-flight work).
 6. **The ask** (token-pitch only) — from the `forecast` skill's output if
    upcoming work is known; otherwise state that the forecast can be
    generated next.

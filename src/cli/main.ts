@@ -22,13 +22,15 @@ Commands:
                 [--queue | --all]
   meter       Meter transcripts into usage events (deterministic, incremental)
                 --transcript <path> [--repo org/name] | --all [--projects-dir <dir>]
+                | --otel <export.jsonl>  (fills transcript-less sessions only)
                 [--force  re-meter even when checkpoints say current]
   append      Validate, seal, id, and append one event (the skills' write path)
                 --stream <name> (--event '<json>' | --stdin) [--commit]
   resolve     File an attribution-inbox item and re-attribute its turns
                 --ambiguity <id> --account <acct> [--pin | --repo-default <org/name>]
   sync-plan   Reconcile normalized tracker/git payloads into proposed entries
-                --tracker jira --items <raw.json> --git github|local --changes <raw.json>
+                --tracker jira|linear --items <raw.json>
+                --git github|gitlab|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]

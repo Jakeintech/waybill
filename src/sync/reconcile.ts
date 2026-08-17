@@ -1,5 +1,6 @@
 import type { LedgerEntry, PinEntry } from "../core/events.ts";
 import { authoritative } from "../core/streams.ts";
+import { effectiveShipped } from "../projections/queries.ts";
 import type { MergedChange, WorkItem } from "../adapters/contract.ts";
 
 export type EntryBody = Omit<LedgerEntry, "id">;
@@ -147,6 +148,9 @@ export function reconcile(
   const shipped: EntryBody[] = [];
   const corrections: Array<{ body: EntryBody; drift: string[] }> = [];
   const orphans: EntryBody[] = [];
+  // Classify by supersession chain, not by surface kind: a correction over
+  // an open entry is still open work; one over a shipped entry is shipped.
+  const shipChained = new Set(effectiveShipped(ledgerEvents).map((v) => v.entry.id));
 
   for (const item of items) {
     const entry = latestByKey.get(item.key);
@@ -155,11 +159,28 @@ export function reconcile(
       if (item.done) orphans.push(orphanBody(item, itemChanges, now));
       continue;
     }
-    if ((entry.kind === "opened" || entry.kind === "progress") && item.done) {
+    if (!shipChained.has(entry.id) && item.done) {
       shipped.push(shippedBody(entry, item, itemChanges, now));
       continue;
     }
-    if (entry.kind === "shipped" || entry.kind === "correction") {
+    if (shipChained.has(entry.id)) {
+      // Rework closed out: the tracker re-resolved a previously reopened item.
+      if (item.done && entry.reopened === true) {
+        const body: EntryBody = {
+          ...(({ id: _id, ...rest }) => rest)(entry),
+          ts: now,
+          kind: "correction",
+          supersedes: entry.id,
+          points: item.points ?? entry.points,
+          epic_key: item.epic_key ?? entry.epic_key,
+          epic_name: item.epic_name ?? entry.epic_name,
+          sprint: item.sprint ?? entry.sprint,
+          reopened: false,
+          notes: `sync: re-resolved in tracker (status "${item.status}") after reopen`,
+        };
+        corrections.push({ body, drift: [`re-resolved (status "${item.status}")`] });
+        continue;
+      }
       // Rework tracking: the tracker reopened an item that shipped. The
       // correction also carries the tracker's current fields so one sync
       // pass captures everything.
