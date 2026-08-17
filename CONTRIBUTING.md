@@ -20,18 +20,27 @@ claude plugin marketplace add .
 claude plugin install waybill@waybill
 ```
 
-Requirements for the checks: `bash`, `jq`, `shellcheck` (CI runs all three
-on Ubuntu).
+Requirements for the checks: `bash`, `jq`, `shellcheck`, and Node ≥ 24
+(the test runner uses Node's native TypeScript type-stripping). The
+engine is TypeScript in `src/`, strict mode, compiled by `npm run build`
+into the committed, dependency-free `bin/waybill.mjs` — the only runtime
+the shipped plugin needs is Node itself.
 
 ## Quality gates (run before pushing)
 
 ```bash
-bash scripts/validate-plugin.sh    # structure, manifests, frontmatter, schema examples
-shellcheck scripts/*.sh tests/*.sh # shell lint
-bash tests/test-capture-session.sh # hook behavior
+npm ci                              # dev toolchain (typescript, esbuild) — never shipped
+npm run typecheck                   # tsc --noEmit, strict
+npm test                            # node --test: unit, golden, determinism, conservation
+npm run build && git diff --exit-code bin/  # committed bundle must match src/
+bash scripts/validate-plugin.sh     # structure, manifests, frontmatter, schema examples
+shellcheck scripts/*.sh tests/*.sh  # shell lint
+bash tests/test-capture-session.sh  # hook behavior
 ```
 
-CI runs the same three jobs on every PR; green checks are required to merge.
+CI runs the same jobs on every PR; green checks are required to merge. If
+you change `src/` without rebuilding `bin/`, the build-diff job fails — the
+committed artifact must provably match the sources.
 
 ## Writing and changing skills
 
@@ -64,6 +73,9 @@ in the tested-configs table.
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org)
   (`feat:`, `fix:`, `docs:`, `test:`, `chore:`). Scope by component when
   useful: `feat(sync): …`.
+- **DCO**: every commit must carry a `Signed-off-by:` line
+  ([Developer Certificate of Origin](https://developercertificate.org)) —
+  use `git commit -s`. No CLA.
 - **PRs**: fill the template; one logical change per PR; add a line to
   `CHANGELOG.md` under `Unreleased`.
 - **Releases**: [SemVer](https://semver.org). Ledger **schema** changes are

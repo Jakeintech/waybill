@@ -30,12 +30,16 @@ engine — lives in [docs/product-spec.md](docs/product-spec.md).
   habit change.
 - Gold-star repo baseline: CI, validator, tests, community health files.
 
-## Next — 0.3 "Metered" (spec M1)
+## Next — 0.3 "Believable + Metered" (spec M0 + M1)
 
-- **Deterministic metering engine** (`scripts/meter`): exact token counts
-  from local session records, incremental with checkpoints, retroactive
-  ~90-day bootstrap, conservation check enforced in CI with fixture
-  transcripts.
+- **Trust scaffolding (M0)**: identity map, ledger init as a git repo with
+  monthly-sharded streams, transcript-retention check, git-local adapter +
+  bootstrap receipt (< 60 s, zero auth, zero config), SessionEnd hook with a
+  detached dependency-free miner, SHA-256 pre-registration escrow.
+- **Deterministic metering engine (M1)** (`bin/waybill.mjs meter`): exact
+  token counts from local session records, incremental with checkpoints,
+  retroactive ~90-day bootstrap, conservation check enforced in CI with
+  fixture transcripts.
 - **Attribution engine**: spend assigned to Jira stories/epics via the
   pin → active-entry → transcript-evidence → branch → repo-default resolver
   chain, confidence on every event, and an attribution inbox for ambiguity.

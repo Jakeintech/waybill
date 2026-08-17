@@ -174,14 +174,22 @@ Fact streams (append-only JSONL) and projections under
 `$WAYBILL_HOME`:
 
 ```
-ledger.jsonl        # work entries (existing schema: opened/shipped/…)
-usage.jsonl         # usage events (new)
-exceptions.jsonl    # queued attribution ambiguities + resolutions
-meter_state.json    # per-session checkpoints, rules/pricing versions
-config.json         # scope, pricing, budgets, metering rules
-rollups/            # derived caches; deletable, always rebuildable
-pending-sessions/   # raw SessionEnd captures (existing)
+streams/ledger/YYYY-MM.jsonl      # work entries, pins, corrections
+streams/usage/YYYY-MM.jsonl       # usage events (new)
+streams/sessions/YYYY-MM.jsonl    # per-session receipts: source totals (new)
+streams/exceptions/YYYY-MM.jsonl  # attribution inbox, discrepancies, gaps
+meter_state.json                  # per-session checkpoints, rules/pricing versions
+config.json                       # scope, pricing, budgets, metering rules
+identity.json                     # identity map (git emails, GitHub, Jira)
+rollups/                          # derived caches; deletable, always rebuildable
+pending-sessions/                 # raw SessionEnd captures (existing)
 ```
+
+Streams are monthly-sharded by each event's UTC `ts`; every event carries a
+deterministic ULID `id` and `schema_version`. The session receipt stream
+preserves each session's source-side totals so conservation stays verifiable
+after Claude Code prunes the transcript. Normative field-level detail:
+[schema reference](../skills/ledger/references/schema.md).
 
 **Usage event schema (v2, normative):**
 
@@ -270,9 +278,10 @@ Each must be answerable in one interaction from local projections:
 | `forecast` | metered rates | unchanged |
 | `sync` | + story→epic/sprint map refresh | unchanged |
 
-The meter itself is **not** a skill: it is a deterministic script
-(`scripts/meter`, POSIX-runnable, stdlib-only) invoked by the hook and by
-skills, so the automatic path involves no model calls.
+The meter itself is **not** a skill: it is a deterministic, stdlib-only
+executable (`bin/waybill.mjs`, TypeScript compiled to a single dependency-free
+Node bundle) invoked by the hook and by skills, so the automatic path
+involves no model calls and no network.
 
 ## 6. Pipeline architecture
 
@@ -358,10 +367,20 @@ last-known facts and say so.
 
 ## 11. Milestones & acceptance criteria
 
-**M1 — 0.3 "Metered" (core engine).** `scripts/meter` with transcript
+**M0 — "Believable" (ships in 0.3).** Trust scaffolding before metering:
+identity map (`identity.json` — git emails, GitHub login, Jira accountId),
+ledger init as a git repo with monthly-sharded streams, transcript-retention
+check (surface `cleanupPeriodDays`, recommend raising, warn on 0), the
+git-local adapter and a **bootstrap receipt** from local git history alone
+(< 60 s, zero auth), SessionEnd hook + detached miner, and SHA-256
+pre-registration escrow in `log`. *Accept:* on a machine with no MCP servers
+and no tracker, init → bootstrap receipt works end-to-end in under a minute;
+the hook never blocks; escrow hashes verify.
+
+**M1 — 0.3 "Metered" (core engine).** `bin/waybill meter` with transcript
 source, checkpoints, resolver rules 1–6, conservation check, retroactive
-bootstrap; `usage.jsonl`/`exceptions.jsonl`/config v2; hook invokes meter
-async. *Accept:* fixture-transcript CI suite proves conservation,
+bootstrap; `streams/usage/`, `streams/exceptions/`, config v2; hook invokes
+the miner async. *Accept:* fixture-transcript CI suite proves conservation,
 idempotency, segmentation, and every resolver rule; a 90-day retro run on a
 real machine completes and reconciles.
 

@@ -114,10 +114,10 @@ if [ -f "$schema_doc" ]; then
   entry_count=0
   while IFS= read -r line; do
     entry_count=$((entry_count + 1))
-    if printf '%s' "$line" | jq -e '.id and .ts and .kind and .title' >/dev/null 2>&1; then
+    if printf '%s' "$line" | jq -e '.id and .ts and .kind and .schema_version == 2' >/dev/null 2>&1; then
       ok "schema.md example entry $entry_count is valid (id: $(printf '%s' "$line" | jq -r .id))"
     else
-      fail "schema.md example entry $entry_count is invalid JSON or missing required fields"
+      fail "schema.md example entry $entry_count is invalid JSON or missing envelope fields (id, ts, kind, schema_version)"
     fi
   done < <(grep -o '^{.*}$' "$schema_doc")
   if [ "$entry_count" -eq 0 ]; then

@@ -2,12 +2,22 @@
 
 Waybill's core is tool-agnostic: the ledger schema, evidence tiers, and
 report logic don't care where receipts come from. Jira and GitHub are just
-the bundled defaults. Coupling lives in exactly three places:
+the bundled defaults, and **git-local** — reading your own commits and
+merges straight from local repos, zero auth — is the zero-config floor that
+always works. Coupling lives in exactly four places:
 
 1. **`.mcp.json`** — which MCP servers are available.
 2. **`~/.waybill/config.json`** — `tracker.kind` and `git.kind`, plus
    project/repo scope.
-3. **The `sync` skill's query examples** — JQL for Jira, search syntax for
+3. **The adapter contracts** (`src/adapters/contract.ts`) — TypeScript
+   interfaces every adapter implements: a tracker adapter normalizes raw
+   items into `WorkItem`s, a git-host adapter into `MergedChange`s. The
+   normalizers are pure, deterministic functions with fixture tests; a
+   **conformance kit** (`src/adapters/conformance.ts`) runs any adapter
+   against the contract's invariants (own-data scoping, opaque keys, no
+   invented points, stable ordering, determinism). Bundled adapters — Jira,
+   GitHub, git-local — all pass the same kit, and CI runs it.
+4. **The `sync` skill's query examples** — JQL for Jira, search syntax for
    GitHub. The skill treats these as examples; with a different server
    connected, Claude adapts to that server's tools, but tested guidance makes
    it reliable.
@@ -58,6 +68,7 @@ Open a PR that adds:
 
 | Tracker / Git host | MCP server | Status | Notes |
 |---|---|---|---|
+| git-local | none — reads local `git log` directly | ✅ bundled, default | Zero auth; commits and merges by your own `git config` identities |
 | Jira + Confluence (Atlassian Cloud) | `https://mcp.atlassian.com/v1/mcp/authv2` (official, OAuth) | ✅ bundled | Points, epics, sprints all available |
 | GitHub | `https://api.githubcopilot.com/mcp/` (official, PAT header) | ✅ bundled | Fine-grained read-only PAT recommended |
 | Linear | — | 🙋 wanted | Estimates map to `points` |

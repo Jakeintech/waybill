@@ -4,9 +4,11 @@ Waybill's skills follow one naming scheme: **a single plain word — verb where
 it acts, noun where it informs.** The plugin prefix carries the brand
 (`/waybill:sync`), so skill names stay short, predictable addresses; the
 frontmatter *description* carries the trigger phrases and does the discovery.
-The deterministic meter is intentionally **not** a skill — it is a script
-invoked by hooks and skills, so the automatic path never depends on a model
-call (see the [product spec](product-spec.md), §5.7).
+The deterministic engine is intentionally **not** a skill — it is a single
+dependency-free executable, `bin/waybill.mjs` (subcommands: `init`,
+`bootstrap`, `mine`, `meter`, `verify`, `query`, `sync-plan`), invoked by
+hooks and skills, so the automatic path never depends on a model call
+(see the [product spec](product-spec.md), §5.7).
 
 ## The skills
 
@@ -28,9 +30,9 @@ call (see the [product spec](product-spec.md), §5.7).
   protected concept in [brand.md](brand.md); the skill documents that
   structure rather than performing an action.
 - **Reserved words never used as skill names:** `waybill` (the plugin),
-  `meter` (a script, by design), `inbox` (a surface inside `spend`, not a
-  skill), and the brand concept names (`evidence tiers`, `open spend`,
-  `pre-registration`).
+  `meter` and `verify` (engine subcommands, by design), `inbox` (a surface
+  inside `spend`, not a skill), and the brand concept names
+  (`evidence tiers`, `open spend`, `pre-registration`).
 
 ## Rules for new skills (contributors)
 

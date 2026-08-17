@@ -19,32 +19,51 @@ Two conversations decide a lot of an engineer's year, and both run on the same b
 
 Humans answer both from memory, the night before, in adjectives. The person deciding can't tell honest claims from inflated ones, so they discount everything. Waybill fixes the *evidence*, not the persuasion: it records work as it happens, ties every claim to an artifact — a PR, an issue, a deploy tag, a transcript — and refuses to let you make the kind of claim that gets your next pitch ignored.
 
-## Five minutes to your first report
+## Sixty seconds to your first receipt
 
 ```bash
 claude plugin marketplace add Jakeintech/waybill
 claude plugin install waybill@waybill
+```
+
+Then in a Claude Code session, say **"initialize my waybill ledger"**. That's
+the whole setup: no accounts, no tokens, no OAuth. Waybill seeds your
+identity from `git config`, checks your transcript-retention setting, and
+renders a **bootstrap receipt** from your local git history alone — your
+shipped work, itemized, in under a minute.
+
+### The upgrade path (optional, five minutes)
+
+Connecting your tracker and git host turns commits into receipts with story
+points, epics, and merge timestamps:
+
+```bash
 export GITHUB_MCP_PAT=github_pat_...   # fine-grained PAT, read access to your repos/PRs
 ```
 
-Then in a Claude Code session:
-
 1. `/mcp` → complete the OAuth flow for `atlassian`.
-2. Say **"initialize my waybill ledger"** (Jira project keys, repos — 60 seconds).
-3. Say **"sync my ledger and give me a bootstrap report."**
+2. Say **"sync my ledger and give me a bootstrap report."**
 
-That last step imports your last ~90 days of *your own* issues and merged PRs and produces a facts-only report immediately — shipped items, points, PRs, deploys — before you've changed a single habit. From then on, opening tasks through the ledger unlocks the stronger claims (see tiers below).
+That imports your last ~90 days of *your own* issues and merged PRs and
+produces a facts-only report — shipped items, points, PRs, deploys — before
+you've changed a single habit. From then on, opening tasks through the
+ledger unlocks the stronger claims (see tiers below).
 
 ## How it works
 
 | Moment | What happens |
 |---|---|
-| You start a task | `log` records your **without-Claude estimate first** (pre-registration) |
-| You work | A `SessionEnd` hook silently queues session metadata; transcripts are mined later for what happened and real token usage |
+| You start a task | `log` records your **without-Claude estimate first** (pre-registration), sealed with a SHA-256 escrow hash |
+| You work | A `SessionEnd` hook queues the session and a detached, dependency-free miner meters real token usage from the transcript — no model calls, no network, never blocking |
 | Things merge | `sync` reconciles the ledger against your Jira issues and GitHub PRs |
 | You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own historical tokens-per-story-point |
 
-Coming per the [spec](docs/product-spec.md) (0.3–0.4): automatic token metering with story-level spend attribution, budgets, and pacing — every token itemized to the work it paid for, maintained with zero manual effort.
+Since 0.3, metering is live: every Claude Code token is metered
+deterministically from your local transcripts and attributed to the story it
+served, with a per-event resolver name and confidence, a conservation check
+(Σ attributed = Σ observed, per session), and an attribution inbox for the
+ambiguous leftovers. Coming per the [spec](docs/product-spec.md) (0.4):
+the `spend` skill, budgets, and pacing.
 
 ### Evidence tiers (the whole idea)
 
@@ -92,7 +111,7 @@ These are commitments, not gaps. See [ROADMAP.md](ROADMAP.md#non-goals).
 
 ## FAQ
 
-**Does it work without Jira or GitHub?** Yes, degraded: manual logging and `git log` still work; you lose auto-sync. Any tracker/git host with an MCP server can be swapped in ([adapters](docs/adapters.md)).
+**Does it work without Jira or GitHub?** Yes — that's the default. Git-only mode needs zero configuration and zero auth: metering, attribution by branch/pin, and the bootstrap receipt all run from local data. Connecting a tracker/git host upgrades the receipts; any of them with an MCP server can be swapped in ([adapters](docs/adapters.md)).
 
 **Can I use this for performance reviews if my company doesn't ration tokens?** Yes — that's the `perf-review` preset. The token pitch is one output of the ledger, not the point of it.
 

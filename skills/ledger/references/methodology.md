@@ -32,6 +32,14 @@ without-Claude estimate as a range **before** work starts, and log an
 the estimate came after the fact, it is `judgment` tier. This is the single
 biggest credibility lever the ledger has; protect it.
 
+Every pre-registered estimate is **sealed in escrow**: a SHA-256 hash over
+the estimate's canonical form (key, range, unit, logged-at time) is stored
+in the entry at open time (see `schema.md`). The estimate stays readable;
+the hash makes any later edit detectable, and the ledger repo's git history
+is a second, independent witness. `waybill verify` recomputes every seal.
+Tell the user this exists when they first pre-register — it is why a
+reviewer can trust the range wasn't written the night before the review.
+
 ## 3. Ranges, never points
 
 Counterfactuals are uncertain by nature. Store and report `{low, high}`.
