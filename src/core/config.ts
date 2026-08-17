@@ -39,7 +39,13 @@ export interface Config {
     unknown_model_policy: "tokens_only";
     models: Record<string, ModelPricing>;
   };
-  budgets: { allocation: string; epics: Record<string, number> };
+  budgets: {
+    allocation: string;
+    epics: Record<string, number>;
+    /** Days before the allocation period ends to surface the renewal
+     * reminder (draft-the-pitch nudge). */
+    renewal_reminder_days: number;
+  };
   audience_default: Audience;
   last_sync: string | null;
 }
@@ -63,7 +69,7 @@ export function defaultConfig(): Config {
       repo_defaults: {},
     },
     pricing: { version: null, unknown_model_policy: "tokens_only", models: {} },
-    budgets: { allocation: "inherit", epics: {} },
+    budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14 },
     audience_default: "self",
     last_sync: null,
   };

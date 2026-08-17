@@ -16,6 +16,8 @@ export interface PaceData {
   epics: Array<{ epic_key: string; budget_tokens: number; spent_tokens: number; spent_pct: number }>;
   thresholds_crossed: number[];
   biggest_open_spend: { account: string; tokens: number } | null;
+  /** Whole days until the allocation period ends (negative = past). */
+  days_to_renewal: number | null;
 }
 
 /** Allocation period → window. "2026-Q3" and "2026-08" parse exactly;
@@ -57,6 +59,7 @@ export function paceData(
       allocation: null, window: null, spent_tokens: 0, spent_pct: null, elapsed_pct: null,
       committed_points: null, shipped_points: null, shipped_pct_of_committed: null,
       epics: [], thresholds_crossed: [], biggest_open_spend: null,
+      days_to_renewal: null,
     };
   }
   const window = periodWindow(allocation.period, allocation.granted_at);
@@ -118,6 +121,7 @@ export function paceData(
     epics,
     thresholds_crossed: THRESHOLDS.filter((t) => spentPct !== null && spentPct >= t),
     biggest_open_spend: spend.open_spend[0] ?? null,
+    days_to_renewal: Math.floor((Date.parse(window.to) - Date.parse(nowIso)) / 86400_000),
   };
 }
 

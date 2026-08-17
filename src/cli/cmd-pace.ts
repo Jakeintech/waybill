@@ -8,6 +8,7 @@ import { paceData, renderPace } from "../projections/pace.ts";
 interface PaceState {
   period: string;
   notified_thresholds: number[];
+  renewal_notified?: boolean;
 }
 
 function stateFile(home: string): string {
@@ -52,25 +53,46 @@ export function runPace(home: string, args: string[], json: boolean): number {
   if (notice) {
     if (!pace.allocation) return 0;
     const prior = loadPaceState(home);
-    const already =
-      prior && prior.period === pace.allocation.period ? prior.notified_thresholds : [];
+    const samePeriod = prior !== null && prior.period === pace.allocation.period;
+    const already = samePeriod ? prior.notified_thresholds : [];
     const fresh = pace.thresholds_crossed.filter((t) => !already.includes(t));
-    if (fresh.length === 0) return 0;
-    const top = Math.max(...fresh);
-    const line =
-      `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` +
-      (pace.shipped_pct_of_committed !== null
-        ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped`
-        : "") +
-      (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") +
-      ". Worth a look, not an alarm.";
-    process.stdout.write(line + "\n");
+
+    // Allocation-cycle reminder: N days before the grant renews, one nudge
+    // to draft the pitch while the receipts are fresh.
+    const reminderDays = config.budgets.renewal_reminder_days;
+    const renewalDue =
+      pace.days_to_renewal !== null &&
+      pace.days_to_renewal >= 0 &&
+      pace.days_to_renewal <= reminderDays &&
+      !(samePeriod && prior.renewal_notified === true);
+
+    const lines: string[] = [];
+    if (fresh.length > 0) {
+      const top = Math.max(...fresh);
+      lines.push(
+        `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` +
+          (pace.shipped_pct_of_committed !== null
+            ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped`
+            : "") +
+          (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") +
+          ". Worth a look, not an alarm.",
+      );
+    }
+    if (renewalDue) {
+      lines.push(
+        `waybill: the ${pace.allocation.period} grant renews in ${pace.days_to_renewal} day(s) — ` +
+          `a good moment to build the token pitch while the receipts are fresh.`,
+      );
+    }
+    if (lines.length === 0) return 0;
+    process.stdout.write(lines.join("\n") + "\n");
     mkdirSync(join(home, "rollups"), { recursive: true });
     writeFileSync(
       stateFile(home),
       JSON.stringify({
         period: pace.allocation.period,
         notified_thresholds: [...new Set([...already, ...fresh])].sort((a, b) => a - b),
+        renewal_notified: (samePeriod && prior.renewal_notified === true) || renewalDue,
       }) + "\n",
       "utf8",
     );

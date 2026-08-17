@@ -505,7 +505,7 @@ function defaultConfig() {
       repo_defaults: {}
     },
     pricing: { version: null, unknown_model_policy: "tokens_only", models: {} },
-    budgets: { allocation: "inherit", epics: {} },
+    budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14 },
     audience_default: "self",
     last_sync: null
   };
@@ -784,14 +784,18 @@ function evidenceFromCommand(command, keyPattern) {
   }
   return out;
 }
-function toolCommands(content) {
+function toolBlocks(content) {
   if (!Array.isArray(content)) return [];
   const out = [];
   for (const item of content) {
     const block = item;
-    if (block.type === "tool_use" && typeof block.input?.command === "string") {
-      out.push(block.input.command);
-    }
+    if (block.type !== "tool_use" || typeof block.id !== "string") continue;
+    out.push({
+      id: block.id,
+      name: typeof block.name === "string" ? block.name : "",
+      command: typeof block.input?.command === "string" ? block.input.command : null,
+      file_path: typeof block.input?.file_path === "string" ? block.input.file_path : null
+    });
   }
   return out;
 }
@@ -811,6 +815,9 @@ function parseTranscript(raw, options) {
   let lastTs = null;
   let turnIndex = 0;
   let currentTurn = null;
+  const seenToolIds = /* @__PURE__ */ new Set();
+  const commandTallies = /* @__PURE__ */ new Map();
+  const readTallies = /* @__PURE__ */ new Map();
   const ensureTurn = () => {
     if (!currentTurn) {
       currentTurn = {
@@ -819,7 +826,8 @@ function parseTranscript(raw, options) {
         branchAtStart: currentBranch,
         firstMessageId: null,
         lastMessageId: null,
-        models: []
+        models: [],
+        waste: { retried_commands: 0, repeated_reads: 0 }
       };
       turns.push(currentTurn);
     }
@@ -852,16 +860,30 @@ function parseTranscript(raw, options) {
         branchAtStart: currentBranch,
         firstMessageId: null,
         lastMessageId: null,
-        models: []
+        models: [],
+        waste: { retried_commands: 0, repeated_reads: 0 }
       };
       turns.push(currentTurn);
       continue;
     }
     if (line.type === "assistant" && line.message) {
       const msg = line.message;
-      for (const command of toolCommands(msg.content)) {
-        for (const ev of evidenceFromCommand(command, keyPattern)) {
-          evidence.push({ ...ev, turnIndex: currentTurn?.index ?? turnIndex });
+      for (const block of toolBlocks(msg.content)) {
+        if (seenToolIds.has(block.id)) continue;
+        seenToolIds.add(block.id);
+        const tIdx = currentTurn?.index ?? turnIndex;
+        if (block.command !== null) {
+          for (const ev of evidenceFromCommand(block.command, keyPattern)) {
+            evidence.push({ ...ev, turnIndex: tIdx });
+          }
+          const tally = commandTallies.get(tIdx) ?? /* @__PURE__ */ new Map();
+          tally.set(block.command, (tally.get(block.command) ?? 0) + 1);
+          commandTallies.set(tIdx, tally);
+        }
+        if (block.name === "Read" && block.file_path !== null) {
+          const tally = readTallies.get(tIdx) ?? /* @__PURE__ */ new Map();
+          tally.set(block.file_path, (tally.get(block.file_path) ?? 0) + 1);
+          readTallies.set(tIdx, tally);
         }
       }
       if (typeof msg.id !== "string" || !msg.usage) continue;
@@ -921,6 +943,14 @@ function parseTranscript(raw, options) {
       agg.extras[k] = (agg.extras[k] ?? 0) + v;
     }
     if (rec.ts > agg.lastTs) agg.lastTs = rec.ts;
+  }
+  for (const t of turns) {
+    for (const n of commandTallies.get(t.index)?.values() ?? []) {
+      t.waste.retried_commands += Math.max(0, n - 1);
+    }
+    for (const n of readTallies.get(t.index)?.values() ?? []) {
+      t.waste.repeated_reads += Math.max(0, n - 1);
+    }
   }
   const messageCount = byMessage.size;
   const nonEmptyTurns = turns.filter((t) => t.models.length > 0);
@@ -1038,11 +1068,13 @@ function meterTranscript(input) {
         newExceptions.push(amb);
       }
     }
-    for (const agg of [...turn.models].sort((a, b) => a.model < b.model ? -1 : 1)) {
+    const sortedModels = [...turn.models].sort((a, b) => a.model < b.model ? -1 : 1);
+    for (const agg of sortedModels) {
       addTotals(emitted, agg.tokens);
       const ts = agg.lastTs !== "" ? agg.lastTs : transcript.lastTs;
       const prior = usageByGrain.get(`${turn.index}|${agg.model}`);
       const extras = Object.keys(agg.extras).length > 0 ? sortRecord(agg.extras) : null;
+      const waste = agg === sortedModels[0] && (turn.waste.retried_commands > 0 || turn.waste.repeated_reads > 0) ? turn.waste : null;
       const body = {
         ts,
         kind: "usage",
@@ -1062,7 +1094,8 @@ function meterTranscript(input) {
         attribution: attribution2,
         source: "transcript",
         transcript_version: transcript.version,
-        raw_extra: extras
+        raw_extra: extras,
+        waste
       };
       if (prior) {
         const asPrior = finalizeEvent("usage", { ...body, supersedes: prior.supersedes });
@@ -1728,7 +1761,8 @@ function meterOtel(input) {
         branchAtStart: null,
         firstMessageId: null,
         lastMessageId: null,
-        models: []
+        models: [],
+        waste: { retried_commands: 0, repeated_reads: 0 }
       };
       const { attribution: attribution2 } = resolveTurn(syntheticTurn, ctx);
       const body = {
@@ -2068,7 +2102,8 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
       cost_usd: null,
       min_confidence: 1,
       resolvers: [],
-      sessions: 0
+      sessions: 0,
+      waste: { retried_commands: 0, repeated_reads: 0 }
     };
     acc.tokens += t;
     acc.input += u.tokens.input;
@@ -2078,6 +2113,10 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
     if (u.cost_usd) acc.cost_usd = Math.round(((acc.cost_usd ?? 0) + u.cost_usd.value) * 1e4) / 1e4;
     if (u.attribution.confidence < acc.min_confidence) acc.min_confidence = u.attribution.confidence;
     if (!acc.resolvers.includes(u.attribution.resolver)) acc.resolvers.push(u.attribution.resolver);
+    if (u.waste) {
+      acc.waste.retried_commands += u.waste.retried_commands;
+      acc.waste.repeated_reads += u.waste.repeated_reads;
+    }
     accounts.set(u.attribution.account, acc);
     const sess = accountSessions.get(u.attribution.account) ?? /* @__PURE__ */ new Set();
     sess.add(u.session_id);
@@ -2180,7 +2219,15 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
       window_tokens: spend.total_tokens,
       granted_tokens: allocation?.tokens_granted ?? null,
       utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null,
-      unattributed_pct: spend.unattributed_pct
+      unattributed_pct: spend.unattributed_pct,
+      reopened_count: views.filter((v) => v.entry.reopened === true).length,
+      waste: spend.accounts.reduce(
+        (w, a) => ({
+          retried_commands: w.retried_commands + a.waste.retried_commands,
+          repeated_reads: w.repeated_reads + a.waste.repeated_reads
+        }),
+        { retried_commands: 0, repeated_reads: 0 }
+      )
     },
     spend_ledger: spend,
     baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null ? config.baseline : null
@@ -2264,7 +2311,8 @@ function paceData(ledgerEvents, usageEvents, exceptionEvents, config, nowIso2) {
       shipped_pct_of_committed: null,
       epics: [],
       thresholds_crossed: [],
-      biggest_open_spend: null
+      biggest_open_spend: null,
+      days_to_renewal: null
     };
   }
   const window = periodWindow(allocation.period, allocation.granted_at);
@@ -2314,7 +2362,8 @@ function paceData(ledgerEvents, usageEvents, exceptionEvents, config, nowIso2) {
     shipped_pct_of_committed: committed > 0 ? Math.round(shippedPts / committed * 1e3) / 10 : null,
     epics,
     thresholds_crossed: THRESHOLDS.filter((t) => spentPct !== null && spentPct >= t),
-    biggest_open_spend: spend.open_spend[0] ?? null
+    biggest_open_spend: spend.open_spend[0] ?? null,
+    days_to_renewal: Math.floor((Date.parse(window.to) - Date.parse(nowIso2)) / 864e5)
   };
 }
 function renderPace(p) {
@@ -2379,18 +2428,32 @@ function runPace(home, args, json) {
   if (notice) {
     if (!pace.allocation) return 0;
     const prior = loadPaceState(home);
-    const already = prior && prior.period === pace.allocation.period ? prior.notified_thresholds : [];
+    const samePeriod = prior !== null && prior.period === pace.allocation.period;
+    const already = samePeriod ? prior.notified_thresholds : [];
     const fresh = pace.thresholds_crossed.filter((t) => !already.includes(t));
-    if (fresh.length === 0) return 0;
-    const top = Math.max(...fresh);
-    const line = `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` + (pace.shipped_pct_of_committed !== null ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped` : "") + (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") + ". Worth a look, not an alarm.";
-    process.stdout.write(line + "\n");
+    const reminderDays = config.budgets.renewal_reminder_days;
+    const renewalDue = pace.days_to_renewal !== null && pace.days_to_renewal >= 0 && pace.days_to_renewal <= reminderDays && !(samePeriod && prior.renewal_notified === true);
+    const lines = [];
+    if (fresh.length > 0) {
+      const top = Math.max(...fresh);
+      lines.push(
+        `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` + (pace.shipped_pct_of_committed !== null ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped` : "") + (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") + ". Worth a look, not an alarm."
+      );
+    }
+    if (renewalDue) {
+      lines.push(
+        `waybill: the ${pace.allocation.period} grant renews in ${pace.days_to_renewal} day(s) \u2014 a good moment to build the token pitch while the receipts are fresh.`
+      );
+    }
+    if (lines.length === 0) return 0;
+    process.stdout.write(lines.join("\n") + "\n");
     mkdirSync5(join9(home, "rollups"), { recursive: true });
     writeFileSync6(
       stateFile(home),
       JSON.stringify({
         period: pace.allocation.period,
-        notified_thresholds: [.../* @__PURE__ */ new Set([...already, ...fresh])].sort((a, b) => a - b)
+        notified_thresholds: [.../* @__PURE__ */ new Set([...already, ...fresh])].sort((a, b) => a - b),
+        renewal_notified: samePeriod && prior.renewal_notified === true || renewalDue
       }) + "\n",
       "utf8"
     );
@@ -2977,6 +3040,48 @@ var gitLocalAdapter = {
   }
 };
 
+// src/adapters/gitlab.ts
+function str4(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+function repoOf2(mr) {
+  const full = str4(mr.references?.full);
+  if (full) {
+    const m = /^(.+)!\d+$/.exec(full);
+    if (m) return m[1];
+  }
+  const url = str4(mr.web_url);
+  if (url) {
+    const m = /^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\//.exec(url);
+    if (m) return m[1];
+  }
+  return null;
+}
+var gitlabAdapter = {
+  kind: "gitlab",
+  normalizeChanges(raw, ctx) {
+    const items = Array.isArray(raw) ? raw : raw?.merge_requests ?? [];
+    const out = [];
+    for (const mr of items) {
+      const mergedAt = str4(mr.merged_at);
+      const url = str4(mr.web_url);
+      const repo = repoOf2(mr);
+      if (!mergedAt || !url || !repo) continue;
+      const title = str4(mr.title) ?? url;
+      const branch = str4(mr.source_branch);
+      out.push({
+        url,
+        title,
+        repo,
+        branch,
+        merged_at: mergedAt,
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern)
+      });
+    }
+    return sortChanges(out);
+  }
+};
+
 // src/sync/reconcile.ts
 function median(values) {
   if (values.length === 0) return null;
@@ -3108,6 +3213,22 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
       continue;
     }
     if (entry.kind === "shipped" || entry.kind === "correction") {
+      if (!item.done && entry.reopened !== true) {
+        const body = {
+          ...(({ id: _id, ...rest }) => rest)(entry),
+          ts: now,
+          kind: "correction",
+          supersedes: entry.id,
+          points: item.points ?? entry.points,
+          epic_key: item.epic_key ?? entry.epic_key,
+          epic_name: item.epic_name ?? entry.epic_name,
+          sprint: item.sprint ?? entry.sprint,
+          reopened: true,
+          notes: `sync: reopened in tracker (status "${item.status}")`
+        };
+        corrections.push({ body, drift: [`reopened (status "${item.status}")`] });
+        continue;
+      }
       const drift = [];
       if (item.points !== null && entry.points !== item.points) {
         drift.push(`points ${entry.points ?? "null"} \u2192 ${item.points}`);
@@ -3156,7 +3277,7 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
 
 // src/cli/cmd-sync-plan.ts
 var TRACKERS = { jira: jiraAdapter, linear: linearAdapter };
-var GIT_HOSTS = { github: githubAdapter, local: gitLocalAdapter };
+var GIT_HOSTS = { github: githubAdapter, gitlab: gitlabAdapter, local: gitLocalAdapter };
 function runSyncPlan(home, args) {
   let tracker = null;
   let gitHost = null;

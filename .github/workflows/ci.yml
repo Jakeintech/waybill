@@ -53,3 +53,25 @@ jobs:
           npm run build
           git diff --exit-code bin/ \
             || { echo "::error::bin/waybill.mjs does not match src/ — run npm run build and commit"; exit 1; }
+
+  trigger-evals:
+    name: Skill trigger evals (skipped without an API key)
+    runs-on: ubuntu-latest
+    # Descriptions are the UI; these prove each skill fires on its canonical
+    # phrases. Requires a paid model call, so the job only runs when the
+    # repository has an ANTHROPIC_API_KEY secret — forks stay green.
+    if: ${{ vars.RUN_TRIGGER_EVALS == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run trigger evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          claude plugin marketplace add .
+          claude plugin install waybill@waybill
+          claude plugin eval waybill@waybill --threshold 0.8

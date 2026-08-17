@@ -5,6 +5,7 @@ import { jiraAdapter } from "../adapters/jira.ts";
 import { linearAdapter } from "../adapters/linear.ts";
 import { githubAdapter } from "../adapters/github.ts";
 import { gitLocalAdapter } from "../adapters/gitlocal-adapter.ts";
+import { gitlabAdapter } from "../adapters/gitlab.ts";
 import { loadConfig, loadIdentity, saveConfig } from "../core/config.ts";
 import { finalizeEvent, type Envelope, type LedgerEntry, type PinEntry } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
@@ -14,7 +15,7 @@ import { reconcile, type EntryBody, type SyncPlan } from "../sync/reconcile.ts";
 import type { MergedChange, WorkItem } from "../adapters/contract.ts";
 
 const TRACKERS = { jira: jiraAdapter, linear: linearAdapter } as const;
-const GIT_HOSTS = { github: githubAdapter, local: gitLocalAdapter } as const;
+const GIT_HOSTS = { github: githubAdapter, gitlab: gitlabAdapter, local: gitLocalAdapter } as const;
 
 export function runSyncPlan(home: string, args: string[]): number {
   let tracker: keyof typeof TRACKERS | null = null;

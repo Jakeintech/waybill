@@ -72,6 +72,6 @@ Open a PR that adds:
 | Jira + Confluence (Atlassian Cloud) | `https://mcp.atlassian.com/v1/mcp/authv2` (official, OAuth) | ✅ bundled | Points, epics, sprints all available |
 | GitHub | `https://api.githubcopilot.com/mcp/` (official, PAT header) | ✅ bundled | Fine-grained read-only PAT recommended |
 | Linear | `https://mcp.linear.app/mcp` (official, OAuth) | ✅ bundled adapter, conformance-tested | Estimates → `points`, cycles → `sprint`, projects → `epic_name`; a live end-to-end test report is a welcome first contribution |
-| GitLab | — | 🙋 wanted | MRs map to `artifacts.prs` |
+| GitLab | `npx @zereight/mcp-gitlab` (community, PAT) | ✅ bundled adapter, conformance-tested | MRs map to `artifacts.prs`; a live end-to-end test report is a welcome contribution |
 | Bitbucket | — | 🙋 wanted | Available via Atlassian's server; needs testing |
 | Azure DevOps | — | 🙋 wanted | |
