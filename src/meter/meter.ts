@@ -159,11 +159,17 @@ export function meterTranscript(input: MeterInput): MeterOutput {
         newExceptions.push(amb);
       }
     }
-    for (const agg of [...turn.models].sort((a, b) => (a.model < b.model ? -1 : 1))) {
+    const sortedModels = [...turn.models].sort((a, b) => (a.model < b.model ? -1 : 1));
+    for (const agg of sortedModels) {
       addTotals(emitted, agg.tokens);
       const ts = agg.lastTs !== "" ? agg.lastTs : transcript.lastTs;
       const prior = usageByGrain.get(`${turn.index}|${agg.model}`);
       const extras = Object.keys(agg.extras).length > 0 ? sortRecord(agg.extras) : null;
+      // Waste is turn-level; carry it once, on the turn's first model event.
+      const waste =
+        agg === sortedModels[0] && (turn.waste.retried_commands > 0 || turn.waste.repeated_reads > 0)
+          ? turn.waste
+          : null;
       const body = {
         ts,
         kind: "usage" as const,
@@ -184,6 +190,7 @@ export function meterTranscript(input: MeterInput): MeterOutput {
         source: "transcript" as const,
         transcript_version: transcript.version,
         raw_extra: extras,
+        waste,
       };
       // Unchanged means "same content modulo the supersedes link" — an event
       // that already supersedes an older one must not be re-superseded by an

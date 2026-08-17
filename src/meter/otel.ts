@@ -164,6 +164,7 @@ export function meterOtel(input: OtelMeterInput): OtelMeterOutput {
         firstMessageId: null,
         lastMessageId: null,
         models: [],
+        waste: { retried_commands: 0, repeated_reads: 0 },
       };
       const { attribution } = resolveTurn(syntheticTurn, ctx);
       const body = {

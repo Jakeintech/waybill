@@ -160,6 +160,25 @@ export function reconcile(
       continue;
     }
     if (entry.kind === "shipped" || entry.kind === "correction") {
+      // Rework tracking: the tracker reopened an item that shipped. The
+      // correction also carries the tracker's current fields so one sync
+      // pass captures everything.
+      if (!item.done && entry.reopened !== true) {
+        const body: EntryBody = {
+          ...(({ id: _id, ...rest }) => rest)(entry),
+          ts: now,
+          kind: "correction",
+          supersedes: entry.id,
+          points: item.points ?? entry.points,
+          epic_key: item.epic_key ?? entry.epic_key,
+          epic_name: item.epic_name ?? entry.epic_name,
+          sprint: item.sprint ?? entry.sprint,
+          reopened: true,
+          notes: `sync: reopened in tracker (status "${item.status}")`,
+        };
+        corrections.push({ body, drift: [`reopened (status "${item.status}")`] });
+        continue;
+      }
       const drift: string[] = [];
       if (item.points !== null && entry.points !== item.points) {
         drift.push(`points ${entry.points ?? "null"} → ${item.points}`);

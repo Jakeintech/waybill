@@ -14,6 +14,13 @@ export interface ModelAggregate {
   lastTs: string;
 }
 
+export interface TurnWaste {
+  /** Identical commands run again within the turn (retry loops). */
+  retried_commands: number;
+  /** Identical file reads repeated within the turn. */
+  repeated_reads: number;
+}
+
 export interface Turn {
   index: number;
   promptId: string | null;
@@ -21,6 +28,7 @@ export interface Turn {
   firstMessageId: string | null;
   lastMessageId: string | null;
   models: ModelAggregate[];
+  waste: TurnWaste;
 }
 
 export interface ParsedTranscript {
@@ -142,14 +150,30 @@ export function evidenceFromCommand(command: string, keyPattern: RegExp): Array<
   return out;
 }
 
-function toolCommands(content: unknown): string[] {
+interface ToolBlock {
+  id: string;
+  name: string;
+  command: string | null;
+  file_path: string | null;
+}
+
+function toolBlocks(content: unknown): ToolBlock[] {
   if (!Array.isArray(content)) return [];
-  const out: string[] = [];
+  const out: ToolBlock[] = [];
   for (const item of content) {
-    const block = item as { type?: string; input?: { command?: unknown } };
-    if (block.type === "tool_use" && typeof block.input?.command === "string") {
-      out.push(block.input.command);
-    }
+    const block = item as {
+      type?: string;
+      id?: string;
+      name?: string;
+      input?: { command?: unknown; file_path?: unknown };
+    };
+    if (block.type !== "tool_use" || typeof block.id !== "string") continue;
+    out.push({
+      id: block.id,
+      name: typeof block.name === "string" ? block.name : "",
+      command: typeof block.input?.command === "string" ? block.input.command : null,
+      file_path: typeof block.input?.file_path === "string" ? block.input.file_path : null,
+    });
   }
   return out;
 }
@@ -179,6 +203,11 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
   let lastTs: string | null = null;
   let turnIndex = 0;
   let currentTurn: Turn | null = null;
+  // Waste tallies (D11: counts only — commands and paths never reach the
+  // ledger). Tool blocks are deduped by block id: streamed lines repeat.
+  const seenToolIds = new Set<string>();
+  const commandTallies = new Map<number, Map<string, number>>();
+  const readTallies = new Map<number, Map<string, number>>();
 
   const ensureTurn = (): Turn => {
     if (!currentTurn) {
@@ -189,6 +218,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         firstMessageId: null,
         lastMessageId: null,
         models: [],
+        waste: { retried_commands: 0, repeated_reads: 0 },
       };
       turns.push(currentTurn);
     }
@@ -224,6 +254,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         firstMessageId: null,
         lastMessageId: null,
         models: [],
+        waste: { retried_commands: 0, repeated_reads: 0 },
       };
       turns.push(currentTurn);
       continue;
@@ -231,9 +262,22 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
 
     if (line.type === "assistant" && line.message) {
       const msg = line.message;
-      for (const command of toolCommands(msg.content)) {
-        for (const ev of evidenceFromCommand(command, keyPattern)) {
-          evidence.push({ ...ev, turnIndex: currentTurn?.index ?? turnIndex });
+      for (const block of toolBlocks(msg.content)) {
+        if (seenToolIds.has(block.id)) continue; // streamed duplicate line
+        seenToolIds.add(block.id);
+        const tIdx = currentTurn?.index ?? turnIndex;
+        if (block.command !== null) {
+          for (const ev of evidenceFromCommand(block.command, keyPattern)) {
+            evidence.push({ ...ev, turnIndex: tIdx });
+          }
+          const tally = commandTallies.get(tIdx) ?? new Map<string, number>();
+          tally.set(block.command, (tally.get(block.command) ?? 0) + 1);
+          commandTallies.set(tIdx, tally);
+        }
+        if (block.name === "Read" && block.file_path !== null) {
+          const tally = readTallies.get(tIdx) ?? new Map<string, number>();
+          tally.set(block.file_path, (tally.get(block.file_path) ?? 0) + 1);
+          readTallies.set(tIdx, tally);
         }
       }
       if (typeof msg.id !== "string" || !msg.usage) continue;
@@ -301,6 +345,15 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
       agg.extras[k] = (agg.extras[k] ?? 0) + v;
     }
     if (rec.ts > agg.lastTs) agg.lastTs = rec.ts;
+  }
+
+  for (const t of turns) {
+    for (const n of commandTallies.get(t.index)?.values() ?? []) {
+      t.waste.retried_commands += Math.max(0, n - 1);
+    }
+    for (const n of readTallies.get(t.index)?.values() ?? []) {
+      t.waste.repeated_reads += Math.max(0, n - 1);
+    }
   }
 
   const messageCount = byMessage.size;

@@ -74,6 +74,8 @@ export interface LedgerEntry extends Envelope {
   budget_tokens: number | null;
   time_saved_hours: TimeSaved | null;
   notes: string | null;
+  /** Set by sync when the tracker reopened an item after it shipped. */
+  reopened?: boolean;
 }
 
 export interface PinEntry extends Envelope {
@@ -124,6 +126,9 @@ export interface UsageEvent extends Envelope {
   source: "transcript" | "otel";
   transcript_version: string | null;
   raw_extra: Record<string, unknown> | null;
+  /** Turn-level waste diagnostics (counts only, D11); carried on the
+   * turn's first model event, null elsewhere. Absent on pre-1.0 events. */
+  waste?: { retried_commands: number; repeated_reads: number } | null;
 }
 
 export interface SessionEvent extends Envelope {

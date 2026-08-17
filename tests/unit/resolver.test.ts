@@ -30,6 +30,7 @@ function turn(index: number, overrides: Partial<Turn> = {}): Turn {
         lastTs: `2026-08-17T10:${String(10 + index).padStart(2, "0")}:00Z`,
       },
     ],
+    waste: { retried_commands: 0, repeated_reads: 0 },
     ...overrides,
   };
 }

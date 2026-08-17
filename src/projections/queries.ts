@@ -88,6 +88,8 @@ export interface AccountSpend {
   min_confidence: number;
   resolvers: string[];
   sessions: number;
+  /** Deterministic waste diagnostics rolled up per account (counts only). */
+  waste: { retried_commands: number; repeated_reads: number };
 }
 
 export interface SpendData {
@@ -143,6 +145,7 @@ export function spendData(
       min_confidence: 1,
       resolvers: [] as string[],
       sessions: 0,
+      waste: { retried_commands: 0, repeated_reads: 0 },
     };
     acc.tokens += t;
     acc.input += u.tokens.input;
@@ -152,6 +155,10 @@ export function spendData(
     if (u.cost_usd) acc.cost_usd = Math.round(((acc.cost_usd ?? 0) + u.cost_usd.value) * 10000) / 10000;
     if (u.attribution.confidence < acc.min_confidence) acc.min_confidence = u.attribution.confidence;
     if (!acc.resolvers.includes(u.attribution.resolver)) acc.resolvers.push(u.attribution.resolver);
+    if (u.waste) {
+      acc.waste.retried_commands += u.waste.retried_commands;
+      acc.waste.repeated_reads += u.waste.repeated_reads;
+    }
     accounts.set(u.attribution.account, acc);
     const sess = accountSessions.get(u.attribution.account) ?? new Set<string>();
     sess.add(u.session_id);
@@ -255,6 +262,8 @@ export interface ReportData {
     granted_tokens: number | null;
     utilization_pct: number | null;
     unattributed_pct: number;
+    reopened_count: number;
+    waste: { retried_commands: number; repeated_reads: number };
   };
   spend_ledger: SpendData;
   baseline: Config["baseline"] | null;
@@ -329,6 +338,14 @@ export function reportData(
           ? Math.round((spend.total_tokens / allocation.tokens_granted) * 1000) / 10
           : null,
       unattributed_pct: spend.unattributed_pct,
+      reopened_count: views.filter((v) => v.entry.reopened === true).length,
+      waste: spend.accounts.reduce(
+        (w, a) => ({
+          retried_commands: w.retried_commands + a.waste.retried_commands,
+          repeated_reads: w.repeated_reads + a.waste.repeated_reads,
+        }),
+        { retried_commands: 0, repeated_reads: 0 },
+      ),
     },
     spend_ledger: spend,
     baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null
