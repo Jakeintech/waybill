@@ -161,3 +161,87 @@ The bootstrap receipt renders from local git history alone.
 git config and gh auth (the account the brief names).
 
 **Rationale.** Matches the identity that signs the commits (DCO).
+
+## 2026-08-16 — Incremental metering by recompute, not byte-offset streaming
+
+**Question.** FR-M3 sketches checkpoints as "last processed message id +
+byte offset". Resuming a parse mid-file requires carrying parser context
+(current turn, branch, session identity) inside the checkpoint, which makes
+the checkpoint itself a correctness liability.
+
+**Choice.** The meter re-parses the whole transcript deterministically and
+achieves incrementality through content-derived ids: unchanged turns
+produce identical events (skipped), changed turns produce superseding
+events, and `meter_state.json` keeps `file_bytes` per session as the
+fast-path short-circuit (size unchanged + same rules/pricing versions ⇒
+skip the file entirely).
+
+**Rationale.** O(session bytes) per changed file is comfortably inside
+NFR-2 (<2 s/session; the real-machine retro run metered 14 sessions in
+about a second), and idempotency-by-id is provable with golden tests
+rather than trusted to resume bookkeeping.
+
+## 2026-08-16 — raw_extra: unknown numeric usage fields, summed per turn
+
+**Question.** FR-M1 says unknown usage fields are "preserved under
+raw_extra rather than dropped", but a usage event aggregates many source
+messages.
+
+**Choice.** Unknown *numeric* usage fields are flattened to dot-paths
+(e.g. `server_tool_use.web_search_requests`) and summed per (turn, model);
+non-numeric unknowns are not copied (the transcript remains the archive,
+and D11 bars content-like values from the ledger).
+
+**Rationale.** Sums are meaningful, deterministic, and audit-friendly;
+copying arbitrary structures per event would bloat the stream and risk
+carrying text.
+
+## 2026-08-16 — Bootstrap receipt renders; it never writes ledger entries
+
+**Question.** Should the M0 git-local bootstrap create `shipped` entries
+from commit history?
+
+**Choice.** No. `waybill bootstrap` is a rendered report (receipt) over
+git facts and any metered usage; ledger entries are only written through
+`log`/`sync` flows with explicit confirmation, and history-imported
+orphans are marked `claude_role: "none"` with a note that Claude
+involvement is unrecorded.
+
+**Rationale.** Zero-auth first value must not seed the ledger with
+weak-evidence entries; the ledger's credibility is the product.
+
+## 2026-08-16 — Pricing in e4 fixed-point
+
+**Question.** Float arithmetic put half-cases (e.g. $0.047850) on the
+wrong side of the rounding boundary depending on binary representation.
+
+**Choice.** Rates are converted to integer e4 units (1/10000 USD per
+mtok); token×rate products stay integral, and the 4-decimal rounding is
+exact. Rates with more than four decimals fall back to float math.
+
+**Rationale.** An accounting tool's rounding should be reproducible by a
+reviewer with a calculator.
+
+## 2026-08-16 — Spend questions live in `waybill query` until 0.4
+
+**Question.** The `spend` *skill* is reserved for 0.4, but M1 must answer
+the FR-Q spend questions.
+
+**Choice.** The deterministic engine answers them now (`waybill query
+spend | story <KEY> | inbox`), and the `report` skill fronts them
+conversationally; the dedicated `spend` skill ships in 0.4 as planned.
+
+**Rationale.** Keeps the 0.4 scope promise while making every canonical
+question answerable from local data in 0.3.
+
+## 2026-08-16 — GitHub release created alongside the v0.3.0 tag
+
+**Question.** The brief mandates tagging `v0.3.0`; it does not mention a
+GitHub release object.
+
+**Choice.** Tag and a GitHub release with the CHANGELOG excerpt, since the
+repo's own CONTRIBUTING documents tagged releases as the distribution
+mechanism for a public plugin.
+
+**Rationale.** A public marketplace plugin without a visible release is
+harder to audit; the release notes are the receipt.

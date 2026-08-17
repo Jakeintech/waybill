@@ -7,6 +7,80 @@ compatibility surface.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-16
+
+Milestones M0 "Believable" and M1 "Metered". The deterministic engine
+ships: TypeScript (strict) compiled to a single dependency-free
+`bin/waybill.mjs`; no model calls and no network anywhere in the
+metering/attribution path.
+
+### Added
+- **Schema v2**: monthly-sharded append-only streams
+  (`streams/{ledger,usage,sessions,exceptions}/YYYY-MM.jsonl`) with
+  deterministic content-derived ULID ids and `schema_version` on every
+  event; durable per-session receipts keep conservation checkable after
+  Claude Code prunes transcripts.
+- **`waybill init`** — ledger home as a git repo, identity map
+  (git emails, GitHub login, Jira accountId slot), repo scope from the
+  current checkout, and a transcript-retention check (surfaces
+  `cleanupPeriodDays`, recommends raising it, warns on 0).
+- **`waybill bootstrap`** — the zero-auth bootstrap receipt from local git
+  history alone (< 60 s first value; measured 0.52 s).
+- **`waybill mine`** — detached, dependency-free miner spawned by the
+  SessionEnd hook at queue time; session identity from the transcript's
+  own `sessionId`; meter gaps recorded for pruned transcripts; lockfile
+  against concurrent miners; never blocks a session.
+- **`waybill meter`** — deterministic metering: per-(turn, model, account)
+  usage events with input/output/cache-read/cache-creation (5m/1h split),
+  streaming-duplicate dedupe by message id, sidechain rollup to the parent
+  turn, unknown numeric usage fields preserved as summed `raw_extra`,
+  incremental re-metering via id dedupe + supersession, retroactive
+  `--all` bootstrap, and a conservation self-check.
+- **Attribution resolver ladder** (rules_version 1): pin 1.00 →
+  active-entry 0.90 → transcript-evidence 0.75 (applies strictly forward;
+  a turn is never split) → session-branch 0.60 → repo-default 0.40 →
+  unattributed 1.00; ambiguities queue to the attribution inbox and never
+  drop tokens.
+- **SHA-256 pre-registration escrow** — estimates sealed at the write
+  path (`waybill append`), backdating refused, seals verified and carried
+  through sync.
+- **`waybill verify`** — the integrity contract: envelopes, shard
+  placement, unique + recomputable ids, supersedes resolution, escrow
+  seals, backdated pre-registration, per-session token conservation.
+- **Contract-first adapters** with a conformance kit (determinism,
+  ordering, key legality, no fabrication): Jira, GitHub, and the
+  zero-auth git-local floor.
+- **`waybill sync-plan`** — deterministic reconciliation into
+  shipped/correction/orphan proposals with one-confirmation apply and
+  median-based baseline derivation (velocity, cycle time).
+- **`waybill query`** — spend by account/model/week with confidence,
+  story cost with cache-read share, open spend, attribution health and
+  inbox, report data (receipts, efficiency, ranged time-saved kept
+  separate by basis, utilization), metered tokens-per-point forecasts
+  with low-data labeling.
+- **Audience redaction** (self / internal / external): external output is
+  deterministically pseudonymized (keys, epics, repos, titles, URLs) while
+  every number survives.
+- **Pricing**: exact e4 fixed-point USD derivation from a configured
+  per-model table with `pricing_version`; unknown model ⇒ tokens only,
+  `cost_usd: null`, labeled list-price equivalent.
+- CI **engine job**: strict typecheck, 69-test suite (unit, golden,
+  determinism, conservation, e2e), and a reproducible-build check —
+  the committed `bin/waybill.mjs` must match `src/` byte-for-byte.
+- `DECISIONS.md` (judgment log) and `VALIDATION.md` (gate evidence).
+
+### Changed
+- Skills (`ledger`, `log`, `sync`, `report`, `forecast`) rewritten against
+  the engine: all writes go through `waybill append` (deterministic ids,
+  escrow), reports and forecasts consume `waybill query` numbers verbatim,
+  sync applies deterministic plans. `log` gains session pinning.
+- README quickstart now leads with the zero-auth sixty-second path;
+  MCP servers are the upgrade, not the entry fee.
+- Validator enforces D19 skill naming (single lowercase word, reserved
+  words) and the dependency-free engine.
+
+[0.3.0]: https://github.com/Jakeintech/waybill/compare/v0.2.1...v0.3.0
+
 ## [0.2.1] - 2026-08-16
 
 ### Changed
@@ -61,7 +135,7 @@ compatibility surface.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v0.3.0...HEAD
 [0.2.1]: https://github.com/Jakeintech/waybill/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Jakeintech/waybill/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Jakeintech/waybill/releases/tag/v0.1.0
