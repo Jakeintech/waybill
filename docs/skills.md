@@ -11,6 +11,15 @@ dependency-free executable, `bin/waybill.mjs` (subcommands: `init`,
 skills, so the automatic path never depends on a model call (see the
 [product spec](product-spec.md), §5.7).
 
+**The export-pack boundary** (same principle, output side): document
+rendering stays out of the engine. The engine emits numbers and structured
+data (`query`, `export` — CSV/JSON); skills render prose and Markdown; any
+formatted document beyond that (HTML, DOCX, PDF) is a handoff to the host's
+document tooling, never an engine feature. Prose is Claude's job; numbers
+are the engine's. A renderer in the engine would put presentation code
+inside the deterministic, conservation-checked path — that boundary is what
+keeps `verify` meaningful.
+
 ## The skills
 
 | Skill | Invocation | Kind | Purpose | Say things like |
