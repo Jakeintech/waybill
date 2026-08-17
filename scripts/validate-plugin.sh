@@ -150,7 +150,7 @@ fi
 
 # The launcher exists so skills never need the node-prefix incantation;
 # a reintroduced WAYBILL= variable resurrects the zsh word-splitting bug class.
-if grep -rn 'WAYBILL="\|node "\$WAYBILL"' skills/ >/dev/null 2>&1; then
+if grep -rn 'WAYBILL="\|node "[$]WAYBILL"' skills/ >/dev/null 2>&1; then
   fail "skills reference the old node/\$WAYBILL incantation — use \"\${CLAUDE_PLUGIN_ROOT}/bin/waybill\" instead"
 else
   ok "skills invoke the engine via the bin/waybill launcher only"
