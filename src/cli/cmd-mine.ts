@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { finalizeEvent, SCHEMA_VERSION, type ExceptionEvent, type MeterGapEvent } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
@@ -88,7 +88,7 @@ export function runMine(home: string, args: string[]): number {
   }
 
   const queueDir = join(home, "pending-sessions");
-  if (!existsSync(queueDir)) return 0;
+  mkdirSync(queueDir, { recursive: true });
   if (!acquireLock(home)) return 0; // another miner is live; the queue survives
 
   let mined = 0;

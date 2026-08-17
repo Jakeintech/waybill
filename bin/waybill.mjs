@@ -1533,7 +1533,7 @@ function runMeter(home, args, json) {
 
 // src/cli/cmd-mine.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync7, readFileSync as readFileSync7, readdirSync as readdirSync3, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync7, mkdirSync as mkdirSync3, readFileSync as readFileSync7, readdirSync as readdirSync3, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join7 } from "node:path";
 function lockPath(home) {
   return join7(home, "pending-sessions", ".miner.lock");
@@ -1599,7 +1599,7 @@ function runMine(home, args) {
     }
   }
   const queueDir = join7(home, "pending-sessions");
-  if (!existsSync7(queueDir)) return 0;
+  mkdirSync3(queueDir, { recursive: true });
   if (!acquireLock(home)) return 0;
   let mined = 0;
   try {

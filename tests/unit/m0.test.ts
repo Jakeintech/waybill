@@ -168,6 +168,30 @@ test("e2e M0: init → capture queue → mine → verify (zero auth, zero config
   }
 });
 
+test("mine --all works on a completely fresh home (no init, no queue dir)", () => {
+  const home = mkdtempSync(join(tmpdir(), "wb-fresh-"));
+  const projects = mkdtempSync(join(tmpdir(), "wb-projects-"));
+  try {
+    mkdirSync(join(projects, "-home-dev-acme-platform"), { recursive: true });
+    for (const f of ["basic.jsonl", "multiturn.jsonl"]) {
+      writeFileSync(
+        join(projects, "-home-dev-acme-platform", f),
+        readFileSync(join(FIXTURES, "v2.1", f), "utf8"),
+        "utf8",
+      );
+    }
+    const out = cli(home, ["mine", "--all", "--projects-dir", projects]);
+    assert.equal(out.code, 0, out.stdout);
+    assert.match(out.stdout, /mined 2 session\(s\)/);
+    assert.ok(readEvents<UsageEvent>(home, "usage").length > 0);
+    const verify = cli(home, ["verify"]);
+    assert.match(verify.stdout, /All checks passed/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(projects, { recursive: true, force: true });
+  }
+});
+
 test("append: seals escrow on pre-registered opens; refuses backdating; dedupes", () => {
   const home = mkdtempSync(join(tmpdir(), "wb-append-"));
   try {
