@@ -70,7 +70,7 @@ export const githubIssuesAdapter: TrackerAdapter = {
     const m = ISSUE_URL.exec(url);
     return m ? `${m[1]}/${m[2]}#${m[3]}` : null;
   },
-  normalizeItems(raw: unknown, _ctx: AdapterContext): WorkItem[] {
+  normalizeItems(raw: unknown, ctx: AdapterContext): WorkItem[] {
     const root = raw as { items?: GhIssue[]; issues?: GhIssue[] };
     const nodes: GhIssue[] = Array.isArray(raw)
       ? (raw as GhIssue[])
@@ -92,9 +92,9 @@ export const githubIssuesAdapter: TrackerAdapter = {
         str(issue.assignee?.login),
       ].filter((l): l is string => l !== null);
       if (
-        _ctx.githubLogin !== null &&
+        ctx.githubLogin !== null &&
         assignees.length > 0 &&
-        !assignees.some((l) => l.toLowerCase() === _ctx.githubLogin!.toLowerCase())
+        !assignees.some((l) => l.toLowerCase() === ctx.githubLogin!.toLowerCase())
       ) {
         continue;
       }

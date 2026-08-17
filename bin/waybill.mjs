@@ -3764,7 +3764,7 @@ var githubIssuesAdapter = {
     const m = ISSUE_URL.exec(url);
     return m ? `${m[1]}/${m[2]}#${m[3]}` : null;
   },
-  normalizeItems(raw, _ctx) {
+  normalizeItems(raw, ctx) {
     const root = raw;
     const nodes = Array.isArray(raw) ? raw : root.items ?? root.issues ?? [];
     const out = [];
@@ -3781,7 +3781,7 @@ var githubIssuesAdapter = {
         ...(issue.assignees ?? []).map((a) => str4(a.login)),
         str4(issue.assignee?.login)
       ].filter((l) => l !== null);
-      if (_ctx.githubLogin !== null && assignees.length > 0 && !assignees.some((l) => l.toLowerCase() === _ctx.githubLogin.toLowerCase())) {
+      if (ctx.githubLogin !== null && assignees.length > 0 && !assignees.some((l) => l.toLowerCase() === ctx.githubLogin.toLowerCase())) {
         continue;
       }
       const done = state === "closed";
