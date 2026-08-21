@@ -18,7 +18,9 @@ export interface RedactionResult {
 }
 
 const SESSION_KEYS = new Set(["session_id", "transcript_path", "cwd", "sessions"]);
-const EXTERNAL_DROP = new Set(["title", "prs", "url", "urls", "deploy", "notes"]);
+// `branches` (standup session_summary): branch names embed tracker keys and
+// story titles — machine-adjacent detail with no place outside the org.
+const EXTERNAL_DROP = new Set(["title", "prs", "url", "urls", "deploy", "notes", "branches"]);
 
 function collectStrings(value: unknown, field: string, into: Set<string>): void {
   if (value === null || typeof value !== "object") return;
@@ -28,7 +30,11 @@ function collectStrings(value: unknown, field: string, into: Set<string>): void 
   }
   for (const [k, v] of Object.entries(value)) {
     if (k === field && typeof v === "string") into.add(v);
-    else collectStrings(v, field, into);
+    // A plural field carrying a string array (e.g. standup's `repos`)
+    // contributes each element to the same pseudonym map.
+    else if (k === `${field}s` && Array.isArray(v)) {
+      for (const item of v) if (typeof item === "string") into.add(item);
+    } else collectStrings(v, field, into);
   }
 }
 

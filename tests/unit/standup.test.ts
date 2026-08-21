@@ -107,7 +107,7 @@ test("standupData: sessions overlap the window; waste rolls up; inbox counted", 
     last_ts: "2026-08-18T09:00:00Z",
   });
   const d = standupData([], usage, [spanning, before], [makeAmbiguity("2026-08-20T10:00:00Z")], config, DAY);
-  assert.equal(d.sessions.count, 1); // the midnight-spanning session counts; the 08-18 one does not
+  assert.equal(d.session_summary.count, 1); // the midnight-spanning session counts; the 08-18 one does not
   assert.deepEqual(d.waste, { retried_commands: 2, repeated_reads: 1 });
   assert.equal(d.attention.inbox_open, 1);
 });
@@ -153,21 +153,36 @@ test("localDayWindow: covers exactly one local calendar day, end-exclusive by 1m
   assert.equal(from.getHours(), 0);
 });
 
-test("standup redaction: external drops titles and PR urls, pseudonymizes accounts", () => {
+test("standup redaction: internal keeps the session summary; external drops titles, PRs, branches and pseudonymizes accounts + repos", () => {
   const config = defaultConfig();
   const opened = makeOpened({ ts: "2026-08-10T09:00:00Z" });
   const shipped = shippedFrom(opened, "2026-08-20T16:30:00Z");
   const usage = [
     makeUsage({ ts: "2026-08-20T12:00:00Z", turnIndex: 1, account: "story:DATA-77", tokens: { input: 300, output: 0, cache_read: 0, cache_creation: 0 } }),
   ];
-  const d = standupData([opened, shipped], usage, [], [], config, DAY);
+  const receipt = makeSessionReceipt(usage, {
+    first_ts: "2026-08-20T11:00:00Z",
+    last_ts: "2026-08-20T12:30:00Z",
+    branches: ["feat/PLAT-482-retry"],
+    repo: "acme/platform",
+  });
+  const d = standupData([opened, shipped], usage, [receipt], [], config, DAY);
+
+  // Internal: machine-local detail goes, the roll-up section stays.
+  const internal = redact(d, "internal");
+  const internalData = internal.data as { session_summary?: { count: number } };
+  assert.equal(internalData.session_summary?.count, 1, "session_summary must survive internal redaction");
+  assert.ok(!JSON.stringify(internal.data).includes("session_id"));
+
   const external = redact(d, "external");
   const json = JSON.stringify(external.data);
-  assert.ok(!json.includes("PLAT-482"));
+  assert.ok(!json.includes("PLAT-482")); // branch names dropped, keys pseudonymized
   assert.ok(!json.includes("DATA-77"));
   assert.ok(!json.includes("github.com"));
   assert.ok(!json.includes("Retry logic"));
+  assert.ok(!json.includes("acme/platform"), "repos array must be pseudonymized externally");
   assert.ok(json.includes("story:STORY-"));
+  assert.ok(json.includes("repo-1"));
 });
 
 test("CLI: query standup returns the query envelope; standup-only flags rejected elsewhere", () => {

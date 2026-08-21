@@ -46,7 +46,10 @@ export interface StandupData {
     ts: string;
     pre_registered: boolean;
   }>;
-  sessions: {
+  /** Named session_summary, not `sessions`: redaction strips `sessions`
+   * keys as machine-local detail (LedgerEntry.sessions carries transcript
+   * paths); this roll-up must survive the internal audience. */
+  session_summary: {
     count: number;
     repos: string[];
     branches: string[];
@@ -198,7 +201,7 @@ export function standupData(
     shipped,
     progressed,
     opened,
-    sessions: { count: receipts.length, repos, branches, turns },
+    session_summary: { count: receipts.length, repos, branches, turns },
     tokens: {
       total,
       totals,

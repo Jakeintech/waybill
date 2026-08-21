@@ -2762,7 +2762,7 @@ function forecastData(ledgerEvents, usageEvents, config) {
 
 // src/report/redaction.ts
 var SESSION_KEYS = /* @__PURE__ */ new Set(["session_id", "transcript_path", "cwd", "sessions"]);
-var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes"]);
+var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes", "branches"]);
 function collectStrings(value, field, into) {
   if (value === null || typeof value !== "object") return;
   if (Array.isArray(value)) {
@@ -2771,7 +2771,9 @@ function collectStrings(value, field, into) {
   }
   for (const [k, v] of Object.entries(value)) {
     if (k === field && typeof v === "string") into.add(v);
-    else collectStrings(v, field, into);
+    else if (k === `${field}s` && Array.isArray(v)) {
+      for (const item of v) if (typeof item === "string") into.add(item);
+    } else collectStrings(v, field, into);
   }
 }
 function redact(data, audience) {
@@ -3473,7 +3475,7 @@ function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, 
     shipped,
     progressed,
     opened,
-    sessions: { count: receipts.length, repos, branches, turns },
+    session_summary: { count: receipts.length, repos, branches, turns },
     tokens: {
       total,
       totals,
