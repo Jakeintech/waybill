@@ -3995,7 +3995,7 @@ function repoOf(pr) {
     const m = /repos\/([^/]+\/[^/]+)$/.exec(repoUrl);
     if (m) return m[1];
   }
-  const html = str3(pr.html_url);
+  const html = str3(pr.html_url) ?? str3(pr.url);
   if (html) {
     const m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(html);
     if (m) return m[1];
@@ -4008,14 +4008,15 @@ var githubAdapter = {
     const items = Array.isArray(raw) ? raw : raw?.items ?? [];
     const out = [];
     for (const pr of items) {
-      const mergedAt = str3(pr.merged_at) ?? str3(pr.pull_request?.merged_at);
-      const url = str3(pr.html_url);
+      const mergedAt = str3(pr.merged_at) ?? str3(pr.pull_request?.merged_at) ?? str3(pr.mergedAt);
+      const url = str3(pr.html_url) ?? str3(pr.url);
       const repo = repoOf(pr);
       if (!mergedAt || !url || !repo) continue;
-      const author = str3(pr.user?.login);
+      if (!/\/pull\/\d+$/.test(url)) continue;
+      const author = str3(pr.user?.login) ?? str3(pr.author?.login);
       if (ctx.githubLogin && author && author !== ctx.githubLogin) continue;
       const title = str3(pr.title) ?? url;
-      const branch = str3(pr.head?.ref);
+      const branch = str3(pr.head?.ref) ?? str3(pr.headRefName);
       out.push({
         url,
         title,

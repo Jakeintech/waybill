@@ -436,6 +436,10 @@ tool results flow through context. Same facts, a fraction of the tokens —
 and per-item `view` keeps fidelity (statusCategory, resolutiondate,
 custom fields) that acli's search output drops. Transport preference
 belongs in the skill layer; the engine's contract stays payload-shaped.
+The same rule now covers the git-host half: `gh pr list --json` is the
+preferred PR fetch, and the github adapter accepts gh's camelCase rows
+(repo derived from the PR's own URL) alongside both REST shapes — the
+`github-issues` adapter had already set that both-shapes precedent.
 
 ## 2026-08-21 — Standup is a query projection; the skill renders (1.5.0)
 

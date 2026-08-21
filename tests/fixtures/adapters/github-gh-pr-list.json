@@ -1,0 +1,26 @@
+[
+  {
+    "author": { "id": "MDQ6VXNlcjE=", "is_bot": false, "login": "a-engineer", "name": "A. Engineer" },
+    "body": "Retry with jittered backoff.\n\nFixes #12",
+    "headRefName": "feat/PLAT-482-retry",
+    "mergedAt": "2026-08-12T16:00:11Z",
+    "title": "PLAT-482: retry logic for checkout webhook",
+    "url": "https://github.com/acme/platform/pull/1932"
+  },
+  {
+    "author": { "id": "MDQ6VXNlcjI=", "is_bot": false, "login": "b-colleague", "name": "B. Colleague" },
+    "body": "",
+    "headRefName": "chore/deps",
+    "mergedAt": "2026-08-13T09:30:00Z",
+    "title": "chore: bump dependencies",
+    "url": "https://github.com/acme/platform/pull/1940"
+  },
+  {
+    "author": { "id": "MDQ6VXNlcjE=", "is_bot": false, "login": "a-engineer", "name": "A. Engineer" },
+    "body": "Still in review.",
+    "headRefName": "feat/PLAT-490-limiter",
+    "mergedAt": null,
+    "title": "PLAT-490: rate limiter rollout",
+    "url": "https://github.com/acme/platform/pull/1951"
+  }
+]

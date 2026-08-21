@@ -89,12 +89,24 @@ own data.
    payload; the adapter derives `owner/repo#number` keys from the issue
    URLs itself, and the conformance contract depends on the payload being
    raw. The REST `/issues` shape works too.
-3. **Git host (GitHub MCP):** search PRs authored by the user in configured
-   repos merged since `last_sync` into the default branch (e.g.
-   `is:pr author:@me is:merged merged:>=<date> repo:<org/name>`). Request
-   the PR **body** along with url/title/branch/merged_at — closing keywords
-   there ("Fixes #12") are how PRs link to GitHub issues. Save the
-   raw JSON to a temp file. **No MCP servers?** Use the git-local floor —
+3. **Git host — GitHub.** Prefer an authenticated gh CLI (`gh auth
+   status`): one command, exactly the fields the adapter needs —
+
+   ```bash
+   gh pr list -R <org/name> --author "@me" --state merged \
+     --search "merged:>=<date> base:<default_branch>" --limit 200 \
+     --json url,title,headRefName,mergedAt,body > /tmp/waybill-changes.json
+   ```
+
+   (Repeat per repo; concatenate arrays with `jq -s 'add'` if needed.
+   Request the **body** — closing keywords there, "Fixes #12", are how PRs
+   link to GitHub issues.) **GitHub MCP fallback:** search PRs authored by
+   the user in configured repos merged since `last_sync` into the default
+   branch (e.g. `is:pr author:@me is:merged merged:>=<date>
+   repo:<org/name>`), requesting the body along with
+   url/title/branch/merged_at, and save the raw JSON to the same temp
+   file — the adapter accepts both shapes. **Neither available?** Use the
+   git-local floor —
    the engine reads local history itself, no files needed:
    `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" sync-plan --local-repo <path-to-repo> --baseline` (repeat
    `--local-repo` per repo; `--since <iso>` overrides the window). Or skip

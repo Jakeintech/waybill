@@ -9,16 +9,22 @@ import {
 
 interface RawPr {
   html_url?: string;
+  /** gh CLI (`gh pr list --json url,...`): the PR's html URL. In the REST
+   * search shape this key is the API URL instead — html_url always wins. */
+  url?: string;
   title?: string;
   body?: string | null;
   merged_at?: string | null;
+  mergedAt?: string | null; // gh CLI
   closed_at?: string | null;
   pull_request?: { merged_at?: string | null };
   head?: { ref?: string };
+  headRefName?: string; // gh CLI
   base?: { repo?: { full_name?: string } };
   repository_url?: string;
   repository?: { full_name?: string };
   user?: { login?: string };
+  author?: { login?: string }; // gh CLI
 }
 
 function str(v: unknown): string | null {
@@ -33,7 +39,8 @@ function repoOf(pr: RawPr): string | null {
     const m = /repos\/([^/]+\/[^/]+)$/.exec(repoUrl);
     if (m) return m[1]!;
   }
-  const html = str(pr.html_url);
+  // gh CLI rows carry no repo object; the PR's own html URL names it.
+  const html = str(pr.html_url) ?? str(pr.url);
   if (html) {
     const m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(html);
     if (m) return m[1]!;
@@ -42,8 +49,10 @@ function repoOf(pr: RawPr): string | null {
 }
 
 /**
- * GitHub REST payloads → MergedChanges. Accepts both the pulls-list shape
- * and the search-issues shape; silently drops unmerged PRs. Pure.
+ * GitHub payloads → MergedChanges. Accepts the REST pulls-list shape, the
+ * REST search-issues shape, and gh CLI output (`gh pr list --json
+ * url,title,headRefName,mergedAt,body,author` — camelCase); silently drops
+ * unmerged PRs. Pure.
  */
 export const githubAdapter: GitHostAdapter = {
   kind: "github",
@@ -53,16 +62,20 @@ export const githubAdapter: GitHostAdapter = {
       : ((raw as { items?: RawPr[] })?.items ?? []);
     const out: MergedChange[] = [];
     for (const pr of items) {
-      const mergedAt = str(pr.merged_at) ?? str(pr.pull_request?.merged_at);
-      const url = str(pr.html_url);
+      const mergedAt =
+        str(pr.merged_at) ?? str(pr.pull_request?.merged_at) ?? str(pr.mergedAt);
+      const url = str(pr.html_url) ?? str(pr.url);
       const repo = repoOf(pr);
       if (!mergedAt || !url || !repo) continue;
+      // gh CLI's `url` is the html URL; a REST row's `url` is the API URL —
+      // never a receipt. html_url won when both exist; drop API-only rows.
+      if (!/\/pull\/\d+$/.test(url)) continue;
       // Own data only: a PR that names another author is dropped, even if
       // a mis-scoped query fetched it.
-      const author = str(pr.user?.login);
+      const author = str(pr.user?.login) ?? str(pr.author?.login);
       if (ctx.githubLogin && author && author !== ctx.githubLogin) continue;
       const title = str(pr.title) ?? url;
-      const branch = str(pr.head?.ref);
+      const branch = str(pr.head?.ref) ?? str(pr.headRefName);
       out.push({
         url,
         title,

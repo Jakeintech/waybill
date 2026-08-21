@@ -22,15 +22,19 @@ and CLI-first Jira syncs — plus a recorded architecture review
   standup", "weekly digest" = `--days 7`; Monday standups use `--days 3`
   to cover the weekend), with a trigger eval. Facts only — an empty
   window says so; the ledger doesn't pad.
-- **CLI-first Jira sync (acli)** — the sync skill now prefers Atlassian's
-  official CLI when authenticated: `workitem search --fields key` for the
-  JQL window, then `workitem view --json --fields <exactly what sync
-  needs>` per item — REST-shaped with custom fields, composed verbatim
-  into a bare array the jira adapter already accepts (conformance-tested
-  against an acli-composed fixture). Same facts as the Atlassian MCP
-  path in a fraction of the payload; the MCP flow remains the documented
-  fallback, and `waybill status` reports which path is active with the
-  exact setup command for the lighter one.
+- **CLI-first sync fetches** — the sync skill now prefers official CLIs
+  over MCP tools for both halves. Jira via Atlassian's acli when
+  authenticated: `workitem search --fields key` for the JQL window, then
+  `workitem view --json --fields <exactly what sync needs>` per item —
+  REST-shaped with custom fields, composed verbatim into a bare array the
+  jira adapter already accepts (conformance-tested against an
+  acli-composed fixture). GitHub PRs via the gh CLI: `gh pr list --json
+  url,title,headRefName,mergedAt,body` — the github adapter now accepts
+  gh's camelCase rows alongside both REST shapes, deriving the repo from
+  the PR's own URL (conformance-tested). Same facts as the MCP paths in a
+  fraction of the payload; the MCP flows remain the documented fallbacks,
+  and `waybill status` reports which Jira path is active with the exact
+  setup command for the lighter one.
 - **Pricing coverage** — `query spend` (and the report's spend ledger)
   now carries `pricing_coverage`: priced/unpriced tokens, priced %, and
   the unpriced models, so a USD total always says what it covers. The
