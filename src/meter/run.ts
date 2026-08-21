@@ -16,7 +16,7 @@ import type {
 } from "../core/events.ts";
 import { appendEvents, authoritative, readEvents } from "../core/streams.ts";
 import { RULES_VERSION } from "../attribution/resolver.ts";
-import { meterTranscript, selectOpenEntries } from "./meter.ts";
+import { METER_LOGIC_VERSION, meterTranscript, selectOpenEntries } from "./meter.ts";
 import { parseTranscript } from "./transcript.ts";
 import { isCurrent, loadState, saveState } from "./state.ts";
 
@@ -210,6 +210,7 @@ export function meterFile(
       transcript_version: out.transcript.version,
       metered_through_ts: out.transcript.lastTs,
       rules_version: RULES_VERSION,
+      meter_version: METER_LOGIC_VERSION,
       pricing_version: config.pricing.version,
       attribution_inputs: fingerprint,
     };

@@ -376,3 +376,84 @@ the required `pricing_version` label are untouched — this only removes the
 friction of re-entering rates Anthropic already publishes. Scoping the
 auto-import to fresh installs preserves the same non-destructive guarantee
 the rest of `init` already gives re-run config.
+
+## 2026-08-21 — Rate lookup made honest: resolution, empty-table import, unpriced surfacing (1.5.0)
+
+**Question.** Users reported "rates not auto-configured, though the docs
+say they are." Three real gaps behind one symptom: `priceTokens` looked up
+the pricing table by exact model id, so a transcript's dated id
+(`claude-opus-4-6-20260120`) missed the bundle's undated key and metered
+tokens-only; `init` auto-imported bundled rates **only on a fresh
+install**, so a ledger initialized before 1.2.0 stayed rate-less forever
+with no flag; and nothing anywhere named the models that had metered
+without a resolvable rate — the cost totals were quietly partial.
+
+**Choice.** (1) Rate resolution (`core/pricing-resolve.ts`): exact key,
+else the key whose date-normalized form (trailing `-YYYYMMDD` stripped)
+matches — undated family key preferred, then the latest dated variant;
+deterministic, never across families; no match still means `cost_usd:
+null`. (2) `init` imports bundled rates whenever the table is **empty** —
+fresh install or upgrader — and never touches a table holding any rate,
+so `pricing set` customizations still survive every re-init. (3) `waybill
+status` and `pricing show` cross-check the table against the models
+actually metered and print each unresolvable model with the exact fix;
+`init` lists missing pricing under "Needs action" instead of omitting the
+line. (4) A `meter_version` joins the per-session checkpoint, so this (and
+any future) metering-logic change re-meters stale sessions once,
+automatically — superseding corrections re-price events without `--force`
+folklore.
+
+**Rationale.** "Costs appear from day one" is a claim about outcomes, not
+about an import having run — it holds only if the ids in real transcripts
+resolve, upgraders are included, and any gap is named rather than averaged
+away. Date-stamp normalization is the narrowest rule that fixes the id
+mismatch without ever guessing a rate across model families.
+
+## 2026-08-21 — CLI-first sync fetches: acli for Jira (1.5.0)
+
+**Question.** The sync skill fetched Jira through the Atlassian MCP
+server, whose tool results carry the provider's full issue payload through
+model context — reported as noticeably heavy for routine syncs. Atlassian
+now ships an official CLI (`acli`, GA since May 2025) with JQL search and
+per-item field selection.
+
+**Choice.** The sync skill prefers `acli` when authenticated (the same
+pattern as `gh` for GitHub Issues): `workitem search` with
+`--fields key` returns only keys for the JQL window; each key is then
+fetched with `workitem view --json --fields <exactly what sync needs>`,
+REST-shaped with custom fields (points, sprint, epic link) included, and
+composed verbatim into a bare array with `jq -s` — a shape the jira
+adapter already accepts, so the engine is unchanged and the conformance
+kit's verbatim-leaf checks still hold. `acli`'s flattened `search` JSON is
+never fed to the adapter (it cannot carry custom fields or status
+category). The Atlassian MCP remains the documented fallback, and
+`waybill status` reports which path is active with the exact command to
+set up the lighter one. Adapters keep accepting both transports — payload
+shape, not transport, is the contract.
+
+**Rationale.** A CLI call requests scoped fields and writes to a file;
+tool results flow through context. Same facts, a fraction of the tokens —
+and per-item `view` keeps fidelity (statusCategory, resolutiondate,
+custom fields) that acli's search output drops. Transport preference
+belongs in the skill layer; the engine's contract stays payload-shaped.
+
+## 2026-08-21 — Standup is a query projection; the skill renders (1.5.0)
+
+**Question.** "What did I do yesterday" standup digests: engine
+subcommand with a rendered receipt (like `bootstrap`), or query
+projection with a rendering skill (like `spend`/`report`)?
+
+**Choice.** `waybill query standup` — a pure projection over the four
+streams (shipped windowed on ship time, metered work-in-progress by
+account, newly opened entries, session/token totals, attention items),
+plus a new `standup` skill that renders the bullets. Window resolution
+(`--date yesterday|today|<day>`, `--days <n>`, local-calendar) lives at
+the CLI edge with `--now` injectable; the projection itself stays
+clock-free. The skill name `standup` stays legal because the engine half
+is a projection, not a subcommand (D19 reserves subcommand names).
+
+**Rationale.** The export-pack boundary: prose is Claude's job, numbers
+are the engine's — `bootstrap`'s engine-rendered receipt is the recorded
+exception, not the pattern. A projection also gets the query envelope's
+`--audience` redaction for free, which a digest pasted into a team
+channel actually needs.

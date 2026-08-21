@@ -106,6 +106,14 @@ export interface SpendData {
     inbox_open: number;
   };
   pricing_version: string | null;
+  /** How much of the window's tokens the USD figures actually cover — a
+   * dollar total that silently omits unpriced events is not a receipt. */
+  pricing_coverage: {
+    priced_tokens: number;
+    unpriced_tokens: number;
+    priced_pct: number;
+    unpriced_models: string[];
+  };
 }
 
 function isoWeek(ts: string): string {
@@ -134,10 +142,14 @@ export function spendData(
   const weeks = new Map<string, number>();
   const accountSessions = new Map<string, Set<string>>();
   let total = 0;
+  let pricedTokens = 0;
+  const unpricedByModel = new Set<string>();
 
   for (const u of usage) {
     const t = totalTokens(u);
     total += t;
+    if (u.cost_usd) pricedTokens += t;
+    else unpricedByModel.add(u.model);
     const acc = accounts.get(u.attribution.account) ?? {
       account: u.attribution.account,
       tokens: 0, input: 0, output: 0, cache_read: 0, cache_creation: 0,
@@ -213,6 +225,12 @@ export function spendData(
       inbox_open: openAmbiguities,
     },
     pricing_version: config.pricing.version,
+    pricing_coverage: {
+      priced_tokens: pricedTokens,
+      unpriced_tokens: total - pricedTokens,
+      priced_pct: total > 0 ? Math.round((pricedTokens / total) * 1000) / 10 : 0,
+      unpriced_models: [...unpricedByModel].sort(),
+    },
   };
 }
 

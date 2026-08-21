@@ -4,7 +4,12 @@ Waybill's core is tool-agnostic: the ledger schema, evidence tiers, and
 report logic don't care where receipts come from. Jira and GitHub are just
 the bundled defaults, and **git-local** — reading your own commits and
 merges straight from local repos, zero auth — is the zero-config floor that
-always works. Coupling lives in exactly four places:
+always works. Fetches prefer official CLIs where one exists (`acli` for
+Jira, `gh` for GitHub Issues): a CLI call requests exactly the fields sync
+needs and writes to a file, where an MCP tool result carries the provider's
+full payload through model context. The adapters accept both — the payload
+shape, not the transport, is the contract. Coupling lives in exactly four
+places:
 
 1. **`.mcp.json`** — which MCP servers are available.
 2. **`~/.waybill/config.json`** — `tracker.kind` and `git.kind`, plus
@@ -77,7 +82,8 @@ Open a PR that adds:
 | Tracker / Git host | MCP server | Status | Notes |
 |---|---|---|---|
 | git-local | none — reads local `git log` directly | ✅ bundled, default | Zero auth; commits and merges by your own `git config` identities |
-| Jira + Confluence (Atlassian Cloud) | `https://mcp.atlassian.com/v1/mcp/authv2` (official, OAuth) | ✅ bundled | Points, epics, sprints all available |
+| Jira (Atlassian Cloud) | [acli](https://developer.atlassian.com/cloud/acli/) — `acli jira auth login --web` | ✅ bundled adapter, preferred path | `workitem search` for keys, `workitem view --fields …` per item (REST-shaped, custom fields included) — scoped fields, small payloads; see the sync skill |
+| Jira + Confluence (Atlassian Cloud) | `https://mcp.atlassian.com/v1/mcp/authv2` (official, OAuth) | ✅ bundled | Points, epics, sprints all available; fallback when acli isn't installed |
 | GitHub | `https://api.githubcopilot.com/mcp/` (official, PAT header) | ✅ bundled | Fine-grained read-only PAT recommended |
 | GitHub Issues (as tracker) | the GitHub server above, or the `gh` CLI directly | ✅ bundled adapter, conformance-tested | Keys are GitHub's own `owner/repo#number` syntax, derived from the issue URL (see note below); labels → `work_type`, milestone → `sprint`; no estimates, so `points` stays null |
 | Linear | `https://mcp.linear.app/mcp` (official, OAuth) | ✅ bundled adapter, conformance-tested | Estimates → `points`, cycles → `sprint`, projects → `epic_name`; a live end-to-end test report is a welcome first contribution |

@@ -1,5 +1,5 @@
 import { loadConfig, type Audience, type Detail } from "../core/config.ts";
-import type { ExceptionEvent, LedgerEntry, PinEntry, UsageEvent } from "../core/events.ts";
+import type { ExceptionEvent, LedgerEntry, PinEntry, SessionEvent, UsageEvent } from "../core/events.ts";
 import { readEvents } from "../core/streams.ts";
 import {
   effectiveShipped,
@@ -9,6 +9,7 @@ import {
   spendData,
   type Window,
 } from "../projections/queries.ts";
+import { resolveStandupWindow, standupData } from "../projections/standup.ts";
 import { redact } from "../report/redaction.ts";
 
 const AUDIENCES: Audience[] = ["self", "internal", "external"];
@@ -18,6 +19,9 @@ export function runQuery(home: string, args: string[]): number {
   const [what, ...rest] = args;
   let from: string | null = null;
   let to: string | null = null;
+  let date: string | null = null;
+  let days: string | null = null;
+  let now: string | null = null;
   let audience: Audience | null = null;
   let detail: Detail | null = null;
   const positional: string[] = [];
@@ -25,6 +29,9 @@ export function runQuery(home: string, args: string[]): number {
     const a = rest[i]!;
     if (a === "--from") from = rest[++i] ?? null;
     else if (a === "--to") to = rest[++i] ?? null;
+    else if (a === "--date") date = rest[++i] ?? null;
+    else if (a === "--days") days = rest[++i] ?? null;
+    else if (a === "--now") now = rest[++i] ?? null;
     else if (a === "--audience") {
       const v = rest[++i];
       if (!v || !AUDIENCES.includes(v as Audience)) {
@@ -40,6 +47,15 @@ export function runQuery(home: string, args: string[]): number {
       }
       detail = v as Detail;
     } else positional.push(a);
+  }
+
+  if (what !== "standup" && (date !== null || days !== null || now !== null)) {
+    process.stderr.write("waybill query: --date/--days/--now apply to `query standup` only\n");
+    return 2;
+  }
+  if (now !== null && Number.isNaN(Date.parse(now))) {
+    process.stderr.write(`waybill query: --now is not a date: ${now}\n`);
+    return 2;
   }
 
   const config = loadConfig(home);
@@ -111,9 +127,27 @@ export function runQuery(home: string, args: string[]): number {
       payload = exceptions.filter((e) => e.kind === "ambiguity" && !resolved.has(e.id));
       break;
     }
+    case "standup": {
+      // The one projection with a relative default window (yesterday): day
+      // math happens here at the CLI edge, injectable via --now; the
+      // projection itself stays clock-free.
+      let resolved: { window: Window; label: string | null };
+      try {
+        resolved = resolveStandupWindow(
+          { date, days: days !== null ? Number(days) : null, from, to },
+          now !== null ? new Date(now) : new Date(),
+        );
+      } catch (err) {
+        process.stderr.write(`waybill query standup: ${(err as Error).message}\n`);
+        return 2;
+      }
+      const sessions = readEvents<SessionEvent>(home, "sessions");
+      payload = standupData(ledger, usage, sessions, exceptions, config, resolved.window, resolved.label);
+      break;
+    }
     default:
       process.stderr.write(
-        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox\n",
+        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup\n",
       );
       return 2;
   }

@@ -5,9 +5,55 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
-## [1.4.0] - 2026-08-17
+## [1.5.0] - 2026-08-21
+
+The tested-feedback batch: the standup digest, honest pricing end to end,
+and CLI-first Jira syncs — plus a recorded architecture review
+([docs/architecture.md](docs/architecture.md)).
 
 ### Added
+- **Standup digest** — "what did I do yesterday", answered from the ledger
+  instead of memory: `waybill query standup` (shipped items windowed on
+  ship time, metered work in progress by account, newly opened entries,
+  session/token totals, waste, and attention items), with local-calendar
+  window words (`--date yesterday|today|YYYY-MM-DD`, `--days <n>`,
+  `--now` injectable for determinism) and the query envelope's audience
+  redaction. A new `standup` skill renders the bullets ("prep my
+  standup", "weekly digest" = `--days 7`; Monday standups use `--days 3`
+  to cover the weekend), with a trigger eval. Facts only — an empty
+  window says so; the ledger doesn't pad.
+- **CLI-first Jira sync (acli)** — the sync skill now prefers Atlassian's
+  official CLI when authenticated: `workitem search --fields key` for the
+  JQL window, then `workitem view --json --fields <exactly what sync
+  needs>` per item — REST-shaped with custom fields, composed verbatim
+  into a bare array the jira adapter already accepts (conformance-tested
+  against an acli-composed fixture). Same facts as the Atlassian MCP
+  path in a fraction of the payload; the MCP flow remains the documented
+  fallback, and `waybill status` reports which path is active with the
+  exact setup command for the lighter one.
+- **Pricing coverage** — `query spend` (and the report's spend ledger)
+  now carries `pricing_coverage`: priced/unpriced tokens, priced %, and
+  the unpriced models, so a USD total always says what it covers. The
+  spend/report skills state coverage whenever it is below 100%.
+
+### Fixed
+- **Rates really are auto-configured now** — three gaps behind the
+  "pricing claims to be configured but costs stay tokens-only" report:
+  (1) rate lookup was exact-match, so dated transcript model ids
+  (`claude-opus-4-6-20260120`) missed undated table keys — lookup now
+  resolves date stamps deterministically (exact key, then the undated
+  family key, then the latest dated variant; never across families,
+  never guessed); (2) `waybill init` auto-imported bundled rates only on
+  a fresh install, silently leaving pre-1.2.0 ledgers rate-less — it now
+  imports whenever the rate table is empty, still never touching a table
+  holding any rate; (3) nothing named the gap — `waybill status` and
+  `pricing show` now cross-check the table against the models actually
+  metered and print each unpriced model with the exact fix, and init
+  lists missing pricing under "Needs action". A `meter_version` joined
+  the per-session checkpoints, so upgraded engines re-meter stale
+  sessions once, automatically — existing tokens-only events gain costs
+  via superseding corrections on the next `mine`/`meter` run, no
+  `--force` needed.
 - **`github-issues` tracker adapter** — GitHub Issues as the tracker of
   record: `waybill sync-plan --tracker github-issues`. Keys are GitHub's
   own cross-repo syntax (`owner/repo#15`), derived purely from the issue
@@ -415,7 +461,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/Jakeintech/waybill/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Jakeintech/waybill/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Jakeintech/waybill/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Jakeintech/waybill/compare/v1.1.1...v1.2.0

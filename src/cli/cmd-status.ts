@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../core/config.ts";
 import type { ExceptionEvent, LedgerEntry, PinEntry, UsageEvent } from "../core/events.ts";
-import { readEvents } from "../core/streams.ts";
+import { resolveRate, unpricedModels } from "../core/pricing-resolve.ts";
+import { authoritative, readEvents } from "../core/streams.ts";
 import { countOpenAmbiguities, spendData } from "../projections/queries.ts";
 import { loadState } from "../meter/state.ts";
 import { verifyHome } from "../verify/verify.ts";
@@ -61,6 +62,17 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
   const findings = verifyHome(home);
 
+  // Pricing health — the check behind "costs appear from day one": which
+  // models actually metered into the ledger have no resolvable rate, and
+  // how many events still carry no cost (cured by the next meter run).
+  const authUsage = authoritative(usage).filter((u) => u.kind === "usage");
+  const seenModels = [...new Set(authUsage.map((u) => u.model))];
+  const unpriced = unpricedModels(config.pricing, seenModels);
+  const unpricedEvents = authUsage.filter((u) => u.cost_usd === null).length;
+  const repriceable = authUsage.filter(
+    (u) => u.cost_usd === null && u.model !== "unknown" && resolveRate(config.pricing, u.model) !== null,
+  ).length;
+
   // MCP credential check — env only, no network: helps generate the
   // credentials instead of leaving a red error in the plugin panel.
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
@@ -70,6 +82,15 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     ghCliAvailable = true;
   } catch {
     // gh missing or unauthenticated — fine
+  }
+  // Atlassian CLI (acli) — the light-payload Jira sync path. Local exec
+  // reading its own config; exit 0 only when authenticated.
+  let acliAuthenticated = false;
+  try {
+    execFileSync("acli", ["jira", "auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5000 });
+    acliAuthenticated = true;
+  } catch {
+    // acli missing or unauthenticated — fine; the MCP path still works
   }
 
   // The menu, not just the health screen: state-derived trigger phrases —
@@ -96,6 +117,14 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     mcp: {
       github_pat_set: githubPatSet,
       gh_cli_authenticated: ghCliAvailable,
+      acli_jira_authenticated: acliAuthenticated,
+    },
+    pricing: {
+      version: config.pricing.version,
+      models_priced: Object.keys(config.pricing.models).length,
+      unpriced_models: unpriced,
+      unpriced_events: unpricedEvents,
+      repriceable_events: repriceable,
     },
     metering: {
       enabled: config.metering.enabled,
@@ -143,6 +172,22 @@ export function runStatus(home: string, args: string[], json: boolean): number {
         ? `; ${spend.attribution_health.inbox_open} in the attribution inbox — see: waybill query inbox`
         : ""),
   );
+  if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
+    lines.push(
+      "pricing: NOT CONFIGURED — costs stay tokens-only. Fix: waybill pricing import",
+    );
+  } else {
+    lines.push(
+      `pricing: version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s)` +
+        (unpriced.length > 0
+          ? `; NO RATE for metered model(s): ${unpriced.join(", ")} — costs shown tokens-only.` +
+            " Fix: waybill pricing set <model-id> ... (then: waybill meter --all)"
+          : "") +
+        (repriceable > 0
+          ? `; ${fmtInt(repriceable)} event(s) metered before their rate existed — re-price: waybill meter --all`
+          : ""),
+    );
+  }
   lines.push(
     findings.length === 0
       ? "verify: all checks pass"
@@ -158,6 +203,13 @@ export function runStatus(home: string, args: string[], json: boolean): number {
         : "  Generate a fine-grained read-only PAT at https://github.com/settings/personal-access-tokens and:  export GITHUB_MCP_PAT=github_pat_…",
     );
     lines.push("  (Atlassian needs no token — run /mcp in Claude Code and complete its OAuth.)");
+  }
+  if (config.tracker.kind === "jira") {
+    lines.push(
+      acliAuthenticated
+        ? "tracker: acli (Atlassian CLI) authenticated — Jira syncs fetch through it (light payloads; the Atlassian MCP is not needed)."
+        : "tracker: acli (Atlassian CLI) not detected — Jira syncs use the Atlassian MCP. Lighter: install acli (developer.atlassian.com/cloud/acli) and run: acli jira auth login --web",
+    );
   }
   if (data.next.length > 0) lines.push(`next: ${data.next.join(" · ")}`);
   process.stdout.write(lines.join("\n") + "\n");

@@ -20,7 +20,7 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.4.0 (2026-08)
+## Shipped — 1.5.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
@@ -39,7 +39,14 @@ honest `--json`, the status next-actions menu, and the documented exit
 path. 1.4.0 made GitHub Issues a first-class tracker: the `github-issues`
 adapter (derivation-verified `owner/repo#N` keys) and closing-keyword
 linkage ("Fixes #12" in PR/commit bodies pairs changes with items — squash
-commits included).
+commits included). 1.5.0 shipped the tested-feedback batch: the
+**standup digest** (`query standup` + the `standup` skill — "what did I
+do yesterday" from the ledger), **honest pricing end to end** (date-stamp
+rate resolution, empty-table auto-import for upgraders, unpriced models
+named by `status`/`pricing show`, `pricing_coverage` on every spend
+payload), **CLI-first Jira syncs** via Atlassian's acli (scoped fields,
+small payloads; MCP fallback kept), and a recorded architecture review
+([docs/architecture.md](docs/architecture.md)).
 
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.

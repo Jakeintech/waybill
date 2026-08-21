@@ -9,7 +9,7 @@ description: >
   or asks about token usage by model, week, epic, or story. Answers come
   from the local metered ledger — deterministic numbers, never estimates.
 metadata:
-  version: "1.1.1"
+  version: "1.5.0"
 ---
 
 # Spend
@@ -61,6 +61,10 @@ expand only when asked. Numbers first, prose second, nothing twice:
   not yet shipped), and the inbox count if nonzero. When an account's
   `waste` counts are nonzero, add them to its row ("8 retried commands,
   76 repeated reads") — what the tokens bought, and what they wasted.
+  When a USD total appears and `.data.pricing_coverage.priced_pct` < 100,
+  say what it covers ("$41.20 covers 92% of tokens; the rest is unpriced —
+  models: <list>") — a dollar figure that silently omits events is not a
+  receipt. `waybill status` prints the fix for any unpriced model.
 - **Story cost**: one line — total tokens, cache-read share, and
   tokens-per-point if shipped ("PLAT-482: 2.9M tokens, 61% cache reads,
   shipped at 5 pts → 0.58M/pt"). USD only if priced, labeled.

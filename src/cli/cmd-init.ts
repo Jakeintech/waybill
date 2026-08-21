@@ -114,10 +114,13 @@ export function runInit(home: string, args: string[], json: boolean): number {
   const cwdRepo = repoFromCwd(process.cwd());
   if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
 
-  // Bundled pricing only auto-imports on a fresh install — a re-init on an
-  // existing ledger must never clobber rates the user has since customized
-  // with `pricing set`.
-  const pricing: PricingImportResult | null = freshConfig ? applyBundledPricing(config) : null;
+  // Bundled pricing auto-imports whenever the rate table is EMPTY — a fresh
+  // install, or a re-init on a ledger initialized before bundled rates
+  // shipped ("costs appear from day one" must hold for upgraders too).
+  // A table holding any rate is never touched: re-init must not clobber
+  // rates the user has customized with `pricing set`.
+  const pricing: PricingImportResult | null =
+    Object.keys(config.pricing.models).length === 0 ? applyBundledPricing(config) : null;
   saveConfig(home, config);
 
   const identity = buildIdentity();
@@ -156,6 +159,10 @@ export function runInit(home: string, args: string[], json: boolean): number {
     identity.git_emails.length === 0 ? "no git user.email found — set one so sessions attribute to you" : null,
     retention.warning,
     retention.recommendation,
+    // Never claim costs work when no rate can price anything.
+    config.pricing.version === null || Object.keys(config.pricing.models).length === 0
+      ? "no pricing configured — costs stay tokens-only; run: waybill pricing import"
+      : null,
     !githubPatSet ? GITHUB_PAT_MESSAGE : null,
   ].filter((line): line is string => line !== null);
 
@@ -189,6 +196,11 @@ export function runInit(home: string, args: string[], json: boolean): number {
         `Pricing: imported ${pricing.imported.length} bundled Anthropic model(s) (version ${pricing.version}). ` +
           "Override any rate with: waybill pricing set <model-id> ...\n",
       );
+      if (!freshConfig) {
+        process.stdout.write(
+          "Existing events re-price on the next meter run: waybill meter --all\n",
+        );
+      }
     }
     process.stdout.write("\nConfigured:\n");
     for (const line of configured) process.stdout.write(`  - ${line}\n`);

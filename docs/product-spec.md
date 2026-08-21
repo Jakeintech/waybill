@@ -131,10 +131,17 @@ analytics.
 - **FR-M5 — Pricing.** Cost in USD is derived as tokens × the effective
   pricing table in config (per-model rates for input, output, cache read,
   and 5-minute/1-hour cache writes, with effective dates and a
-  `pricing_version`). Bundled Anthropic list rates are auto-imported on
-  `waybill init` and loadable on demand via `waybill pricing import`;
-  `waybill pricing set` overrides any model's rate. Unknown model → tokens
-  reported, `cost_usd: null`, never guessed. For subscription users,
+  `pricing_version`). Bundled Anthropic list rates are auto-imported by
+  `waybill init` whenever the rate table is empty (fresh install or
+  upgrade — a table holding any rate is never touched) and loadable on
+  demand via `waybill pricing import`; `waybill pricing set` overrides any
+  model's rate. Rate lookup is date-stamp tolerant: a metered model id and
+  a table key that differ only by a trailing `-YYYYMMDD` stamp resolve to
+  the same rate (exact match first, then the undated family key, then the
+  latest dated variant — deterministic, never across families). Unknown
+  model → tokens reported, `cost_usd: null`, never guessed — and `waybill
+  status` / `waybill pricing show` name every metered model that has no
+  resolvable rate, with the exact fix. For subscription users,
   token-denominated reporting is the default and USD is labeled
   "list-price equivalent."
 - **FR-M6 — Aggregation grain.** One usage event per (turn, model,
@@ -277,6 +284,14 @@ Each must be answerable in one interaction from local projections:
 - FR-R3. Bootstrap report includes a spend section from day one, since
   transcripts predate installation: historical sessions are metered
   retroactively, attributed at rule-3/4 confidence.
+- FR-R4. **Standup digest**: `waybill query standup` answers "what did I
+  do yesterday" from the ledger — shipped items (windowed on ship time),
+  metered work in progress, newly opened entries, session/token totals,
+  and attention items (open inbox, unattributed share), for any window
+  (`--date yesterday|today|YYYY-MM-DD`, `--days <n>`, or explicit
+  `--from`/`--to`; day math is local-calendar, injectable via `--now`).
+  The engine emits data; the `standup` skill renders the bullets. Facts
+  only — an empty window says so rather than padding.
 
 ### 5.7 Skill surface (FR-S)
 
@@ -286,7 +301,8 @@ Each must be answerable in one interaction from local projections:
 | `log` | + pinning | "pin this session to PLAT-482", "unpin" |
 | `report` | + spend ledger section | unchanged |
 | `forecast` | metered rates | unchanged |
-| `sync` | + story→epic/sprint map refresh | unchanged |
+| `sync` | + story→epic/sprint map refresh; acli-first Jira fetch | unchanged |
+| `standup` | **new** | "what did I do yesterday", "prep my standup", "weekly digest" |
 
 The meter itself is **not** a skill: it is a deterministic, stdlib-only
 executable (`bin/waybill.mjs`, TypeScript compiled to a single dependency-free

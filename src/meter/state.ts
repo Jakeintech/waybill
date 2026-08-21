@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { RULES_VERSION } from "../attribution/resolver.ts";
+import { METER_LOGIC_VERSION } from "./meter.ts";
 
 export interface SessionCheckpoint {
   transcript_path: string;
@@ -11,6 +12,7 @@ export interface SessionCheckpoint {
   /** Versions this session was last metered under — compared per session,
    * so a version bump re-meters every stale session, not just the first. */
   rules_version: string;
+  meter_version: string;
   pricing_version: string | null;
   /** Fingerprint of the attribution inputs (pins, open entries, repo
    * defaults, inbox resolutions) at meter time. Pinning or resolving after
@@ -51,6 +53,9 @@ export function loadState(home: string): MeterState {
       transcript_version: legacy.transcript_version ?? null,
       metered_through_ts: legacy.metered_through_ts ?? null,
       rules_version: legacy.rules_version ?? "",
+      // Absent on pre-1.5 checkpoints: stale, forcing one clean re-meter
+      // (which re-prices dated model ids under the resolution rules).
+      meter_version: legacy.meter_version ?? "",
       pricing_version: legacy.pricing_version ?? null,
       attribution_inputs: legacy.attribution_inputs ?? null,
     };
@@ -75,6 +80,7 @@ export function isCurrent(
   return (
     cp.file_bytes === fileBytes &&
     cp.rules_version === RULES_VERSION &&
+    cp.meter_version === METER_LOGIC_VERSION &&
     cp.pricing_version === pricingVersion &&
     cp.attribution_inputs === attributionInputs
   );

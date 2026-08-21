@@ -41,6 +41,8 @@ Commands:
                 --git github|gitlab|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
+                | standup ("what did I do" digest — default window: yesterday;
+                --date yesterday|today|YYYY-MM-DD or --days <n>, local-calendar)
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
                 [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,

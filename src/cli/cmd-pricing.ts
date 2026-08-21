@@ -1,5 +1,8 @@
 import { loadConfig, saveConfig, type Config } from "../core/config.ts";
+import type { UsageEvent } from "../core/events.ts";
 import { loadPricingBundle, resolveBundledModel } from "../core/pricing-bundle.ts";
+import { unpricedModels } from "../core/pricing-resolve.ts";
+import { authoritative, readEvents } from "../core/streams.ts";
 
 /**
  * Pricing onboarding without hand-editing config.json. Bundled Anthropic
@@ -16,7 +19,21 @@ export function runPricing(home: string, args: string[], json: boolean): number 
   }
 
   if (verb === "show" || verb === undefined) {
-    if (json) process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
+    // Cross-check the table against what actually metered: a configured
+    // table that cannot price the models in the ledger is not "configured".
+    const seenModels = [
+      ...new Set(
+        authoritative(readEvents<UsageEvent>(home, "usage"))
+          .filter((u) => u.kind === "usage")
+          .map((u) => u.model),
+      ),
+    ];
+    const missing = unpricedModels(config.pricing, seenModels);
+    if (json) {
+      process.stdout.write(
+        JSON.stringify({ data: { ...config.pricing, unpriced_models: missing } }, null, 2) + "\n",
+      );
+    }
     else if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
       process.stdout.write(
         "No pricing configured — tokens stay the native unit (by design).\n" +
@@ -34,6 +51,15 @@ export function runPricing(home: string, args: string[], json: boolean): number 
           `  ${model}: in ${r.input_per_mtok} · out ${r.output_per_mtok} · ` +
             `cache-read ${r.cache_read_per_mtok} · 5m ${r.cache_write_5m_per_mtok} · ` +
             `1h ${r.cache_write_1h_per_mtok}  (USD/mtok)\n`,
+        );
+      }
+      process.stdout.write(
+        "Dated model ids (…-YYYYMMDD) resolve to their family rate automatically.\n",
+      );
+      if (missing.length > 0) {
+        process.stdout.write(
+          `Metered but UNPRICED (no resolvable rate): ${missing.join(", ")}\n` +
+            "  Fix: waybill pricing set <model-id> ...  (or pricing import), then: waybill meter --all\n",
         );
       }
       process.stdout.write("Re-meter to price existing events: waybill meter --all\n");

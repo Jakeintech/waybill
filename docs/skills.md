@@ -33,6 +33,7 @@ keeps `verify` meaningful.
 | `report` | `/waybill:report` | action | One-page, receipt-linked outputs: `token-pitch`, `perf-review`, `sprint-recap`, `quarterly`, bootstrap | "build my token pitch", "sprint recap", "help me with my performance review" |
 | `forecast` | `/waybill:forecast` | action | Size the next token ask from committed work × your historical rates | "how many tokens should I ask for", "draft my token request" |
 | `spend` | `/waybill:spend` | action | Spend analytics ("what did PLAT-482 cost?"), budget pacing, and the attribution inbox | "where am I spending", "how's my burn", "resolve my attribution inbox" |
+| `standup` | `/waybill:standup` | action | "What did I do" digests from the ledger: shipped, in progress, opened, session/token totals, for any day or range | "what did I do yesterday", "prep my standup", "weekly digest" |
 
 ## Naming decisions (recorded)
 
@@ -42,6 +43,12 @@ keeps `verify` meaningful.
 - **`ledger` stays a noun.** It names the core data structure, which is a
   protected concept in [brand.md](brand.md); the skill documents that
   structure rather than performing an action.
+- **`standup`, not `yesterday` or `digest`.** It names the ritual the
+  output serves — the noun users already say ("prep my standup") — where
+  `yesterday` names only one of its windows and `digest` says nothing
+  about which one. The engine half is a `query` projection
+  (`query standup`), not a subcommand, so the name stays available for
+  the skill.
 - **Reserved words never used as skill names:** `waybill` (the plugin),
   every engine subcommand (`init`, `bootstrap`, `mine`, `meter`, `append`,
   `resolve`, `verify`, `query`, `pace`, `status`, `export`, `pricing`,

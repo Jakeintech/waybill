@@ -6,18 +6,22 @@ description: >
   "pull my Jira activity", "update the ledger from GitHub", "reconcile my
   ledger", "import my recent tickets", "bootstrap my ledger", "import my
   history", or after a period of unlogged work.
-  Works zero-config from local git history; the Atlassian and/or GitHub MCP
-  servers bundled with this plugin (or equivalents) upgrade it.
+  Works zero-config from local git history; the Atlassian CLI (acli), the
+  gh CLI, or the Atlassian/GitHub MCP servers bundled with this plugin
+  upgrade it. Jira fetches prefer acli — scoped fields, small payloads.
 metadata:
-  version: "1.1.1"
+  version: "1.5.0"
 ---
 
 # Sync
 
 Pull the objective backbone — issues and merged PRs — from the user's
 tracker and git host, and reconcile it with the ledger. The reconciliation
-itself is deterministic: MCP tools fetch raw JSON, the engine normalizes and
-diffs it, you present the plan, one confirmation applies it.
+itself is deterministic: a CLI or MCP tool fetches raw JSON, the engine
+normalizes and diffs it, you present the plan, one confirmation applies it.
+Prefer CLIs (acli, gh) over MCP tools for the fetch: the same facts arrive
+with scoped fields in a fraction of the payload, saved to files instead of
+flowing through context.
 
 Invoke the engine as `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" <command>`.
 
@@ -35,15 +39,43 @@ own data.
 1. Read `config.json` for `project_keys`, `repos`, `default_branch`, and
    `last_sync`, and `identity.json` for the identity map. If `last_sync` is
    null, default the window to the last 90 days and say so. If
-   `identity.json` lacks `jira_account_id` and Atlassian MCP is connected,
-   fetch the current user's accountId once and write it back — future
-   queries stay scoped to it.
-2. **Tracker (Atlassian MCP):** search issues assigned to the current user
-   in the configured projects, updated since `last_sync` — e.g. JQL
-   `assignee = currentUser() AND project IN (<keys>) AND updated >= "<date>"`.
-   Request fields: summary, status, resolutiondate, created, updated,
-   issuetype, parent, story points and sprint custom fields. Save the raw
-   JSON response verbatim to a temp file (e.g. `/tmp/waybill-items.json`).
+   `identity.json` lacks `jira_account_id` and the Atlassian MCP is
+   connected, fetch the current user's accountId once and write it back —
+   future queries stay scoped to it. (The acli path needs no accountId:
+   `currentUser()` in the JQL scopes the fetch at the source.)
+2. **Tracker — Jira.** Two fetch paths; prefer the CLI when it is
+   authenticated (`acli jira auth status` exits 0 — `waybill status` also
+   reports this):
+
+   **acli (Atlassian CLI) — preferred.** Two steps keep the payload
+   minimal: search returns only keys, then each item is fetched with
+   exactly the fields sync needs (search's flattened JSON cannot carry
+   custom fields; `view` is REST-shaped and can):
+
+   ```bash
+   acli jira workitem search --json --limit 200 --fields key \
+     --jql 'assignee = currentUser() AND project IN (<keys>) AND updated >= "<date>"' \
+     > /tmp/waybill-keys.json
+   jq -r '(.issues // .) | .[].key' /tmp/waybill-keys.json | while read -r KEY; do
+     acli jira workitem view "$KEY" --json --fields \
+       "summary,status,resolutiondate,created,updated,issuetype,parent,assignee,customfield_10016,customfield_10026,customfield_10002,customfield_10020,customfield_10010,customfield_10014,customfield_10011"
+   done | jq -s '.' > /tmp/waybill-items.json
+   ```
+
+   Each `view` output is a REST-shaped issue saved verbatim; `jq -s` only
+   composes them into an array (a shape the jira adapter accepts) — never
+   edit or annotate the objects themselves. The custom field ids are the
+   common story-points/sprint/epic candidates; if this site rejects one,
+   drop it from `--fields` and continue — points and sprint stay null
+   rather than guessed. `currentUser()` in the JQL scopes the fetch to the
+   user's own items at the source.
+
+   **Atlassian MCP — fallback (no acli):** search issues assigned to the
+   current user in the configured projects, updated since `last_sync` —
+   the same JQL. Request fields: summary, status, resolutiondate, created,
+   updated, issuetype, parent, story points and sprint custom fields. Save
+   the raw JSON response verbatim to `/tmp/waybill-items.json`.
+
    **GitHub Issues as the tracker** (`tracker.kind: "github-issues"`):
    fetch with the gh CLI instead —
 
@@ -107,11 +139,13 @@ started using Claude Code) and apply only its baseline.
 
 ## Failure handling
 
-If an MCP server is not connected or errors, say which one, do the half
-that works (the git-local floor always works), and never substitute guessed
+If a fetch path is unavailable or errors, say which one, do the half that
+works (the git-local floor always works), and never substitute guessed
 data for the missing half. Then help the user connect it — with commands,
 not links: for GitHub, `export GITHUB_MCP_PAT="$(gh auth token)"` when an
 authenticated gh CLI exists (check with `gh auth status`), else a
 fine-grained read-only PAT from github.com/settings/personal-access-tokens;
-for Atlassian, `/mcp` and its OAuth flow. `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" status` prints
+for Jira, either `acli jira auth login --web` (install:
+developer.atlassian.com/cloud/acli — the lighter path) or `/mcp` and the
+Atlassian OAuth flow. `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" status` prints
 the same remediation.

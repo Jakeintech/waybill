@@ -8,7 +8,7 @@ description: >
   another waybill skill (log, spend, sync, report, forecast) needs to read
   or write ledger data.
 metadata:
-  version: "1.1.1"
+  version: "1.5.0"
 ---
 
 # The Waybill Ledger
@@ -72,9 +72,11 @@ When the user asks to initialize or set up the ledger:
    costs appear from day one), checks whether `GITHUB_MCP_PAT` is set, and
    reports the transcript-retention setting.
 2. Relay the setup summary faithfully — init prints a "Configured" /
-   "Needs action" report. Pricing auto-imports only on a fresh install; it
-   never overwrites a rate set by hand. If `GITHUB_MCP_PAT` is missing,
-   relay the exact export/PAT instructions it prints.
+   "Needs action" report. Pricing auto-imports whenever the rate table is
+   empty (fresh install or an upgrade from a pre-rates version); it never
+   overwrites a rate set by hand. If init printed a re-price hint
+   (`waybill meter --all`) or `GITHUB_MCP_PAT` instructions, relay them
+   exactly.
 3. Relay the retention result: if `cleanupPeriodDays` is 0, warn that
    transcripts are deleted immediately and metering will only cover sessions
    mined before deletion; otherwise recommend raising it (e.g. 99999) so

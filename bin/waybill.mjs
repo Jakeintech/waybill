@@ -773,6 +773,34 @@ function resolveTurn(turn, ctx) {
   return { attribution: attribution("unattributed", "none", 1), ambiguity };
 }
 
+// src/core/pricing-resolve.ts
+function normalizeModelId(id) {
+  return id.replace(/-\d{8}$/, "");
+}
+function resolveRate(pricing, model) {
+  const exact = pricing.models[model];
+  if (exact) return { rate_model: model, rates: exact };
+  const wanted = normalizeModelId(model);
+  let best = null;
+  for (const key of Object.keys(pricing.models)) {
+    if (normalizeModelId(key) !== wanted) continue;
+    if (key === wanted) {
+      best = key;
+      break;
+    }
+    if (best === null || key > best) best = key;
+  }
+  return best === null ? null : { rate_model: best, rates: pricing.models[best] };
+}
+function unpricedModels(pricing, models) {
+  const missing = /* @__PURE__ */ new Set();
+  for (const m of models) {
+    if (m === "unknown") continue;
+    if (resolveRate(pricing, m) === null) missing.add(m);
+  }
+  return [...missing].sort();
+}
+
 // src/meter/transcript.ts
 var KNOWN_USAGE_FIELDS = /* @__PURE__ */ new Set([
   "input_tokens",
@@ -1037,9 +1065,10 @@ function parseTranscript(raw, options) {
 }
 
 // src/meter/meter.ts
+var METER_LOGIC_VERSION = "2";
 function priceTokens(config, model, tokens) {
   const version = config.pricing.version;
-  const rates = config.pricing.models[model];
+  const rates = resolveRate(config.pricing, model)?.rates;
   if (!version || !rates) return null;
   const cc5m = tokens.cache_creation_5m === 0 && tokens.cache_creation_1h === 0 ? tokens.cache_creation : tokens.cache_creation_5m;
   const e4 = (r) => Math.round(r * 1e4);
@@ -1287,6 +1316,9 @@ function loadState(home) {
       transcript_version: legacy.transcript_version ?? null,
       metered_through_ts: legacy.metered_through_ts ?? null,
       rules_version: legacy.rules_version ?? "",
+      // Absent on pre-1.5 checkpoints: stale, forcing one clean re-meter
+      // (which re-prices dated model ids under the resolution rules).
+      meter_version: legacy.meter_version ?? "",
       pricing_version: legacy.pricing_version ?? null,
       attribution_inputs: legacy.attribution_inputs ?? null
     };
@@ -1299,7 +1331,7 @@ function saveState(home, state) {
 function isCurrent(state, sessionId, fileBytes, pricingVersion, attributionInputs) {
   const cp = state.sessions[sessionId];
   if (cp === void 0) return false;
-  return cp.file_bytes === fileBytes && cp.rules_version === RULES_VERSION && cp.pricing_version === pricingVersion && cp.attribution_inputs === attributionInputs;
+  return cp.file_bytes === fileBytes && cp.rules_version === RULES_VERSION && cp.meter_version === METER_LOGIC_VERSION && cp.pricing_version === pricingVersion && cp.attribution_inputs === attributionInputs;
 }
 
 // src/meter/run.ts
@@ -1426,6 +1458,7 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
       transcript_version: out.transcript.version,
       metered_through_ts: out.transcript.lastTs,
       rules_version: RULES_VERSION,
+      meter_version: METER_LOGIC_VERSION,
       pricing_version: config.pricing.version,
       attribution_inputs: fingerprint
     };
@@ -1630,8 +1663,17 @@ function runPricing(home, args, json) {
     return runPricingImport(home, config, rest, json);
   }
   if (verb === "show" || verb === void 0) {
-    if (json) process.stdout.write(JSON.stringify({ data: config.pricing }, null, 2) + "\n");
-    else if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
+    const seenModels = [
+      ...new Set(
+        authoritative(readEvents(home, "usage")).filter((u) => u.kind === "usage").map((u) => u.model)
+      )
+    ];
+    const missing = unpricedModels(config.pricing, seenModels);
+    if (json) {
+      process.stdout.write(
+        JSON.stringify({ data: { ...config.pricing, unpriced_models: missing } }, null, 2) + "\n"
+      );
+    } else if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
       process.stdout.write(
         "No pricing configured \u2014 tokens stay the native unit (by design).\nFastest path: waybill pricing import  (bundled Anthropic list rates)\nTo label a different USD basis:\n  waybill pricing set <model-id> --version <YYYY-MM-DD> \\\n    --input <usd/mtok> --output <usd/mtok> --cache-read <usd/mtok> \\\n    --cache-5m <usd/mtok> --cache-1h <usd/mtok>\nRates come from your provider's price list; cite the date as the version.\n"
       );
@@ -1641,6 +1683,16 @@ function runPricing(home, args, json) {
       for (const [model2, r] of Object.entries(config.pricing.models).sort()) {
         process.stdout.write(
           `  ${model2}: in ${r.input_per_mtok} \xB7 out ${r.output_per_mtok} \xB7 cache-read ${r.cache_read_per_mtok} \xB7 5m ${r.cache_write_5m_per_mtok} \xB7 1h ${r.cache_write_1h_per_mtok}  (USD/mtok)
+`
+        );
+      }
+      process.stdout.write(
+        "Dated model ids (\u2026-YYYYMMDD) resolve to their family rate automatically.\n"
+      );
+      if (missing.length > 0) {
+        process.stdout.write(
+          `Metered but UNPRICED (no resolvable rate): ${missing.join(", ")}
+  Fix: waybill pricing set <model-id> ...  (or pricing import), then: waybill meter --all
 `
         );
       }
@@ -1867,7 +1919,7 @@ function runInit(home, args, json) {
   const config = freshConfig ? defaultConfig() : loadConfig(home);
   const cwdRepo = repoFromCwd(process.cwd());
   if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
-  const pricing = freshConfig ? applyBundledPricing(config) : null;
+  const pricing = Object.keys(config.pricing.models).length === 0 ? applyBundledPricing(config) : null;
   saveConfig(home, config);
   const identity = buildIdentity();
   saveIdentity(home, identity);
@@ -1894,6 +1946,8 @@ function runInit(home, args, json) {
     identity.git_emails.length === 0 ? "no git user.email found \u2014 set one so sessions attribute to you" : null,
     retention.warning,
     retention.recommendation,
+    // Never claim costs work when no rate can price anything.
+    config.pricing.version === null || Object.keys(config.pricing.models).length === 0 ? "no pricing configured \u2014 costs stay tokens-only; run: waybill pricing import" : null,
     !githubPatSet ? GITHUB_PAT_MESSAGE : null
   ].filter((line) => line !== null);
   const result = {
@@ -1929,6 +1983,11 @@ function runInit(home, args, json) {
         `Pricing: imported ${pricing.imported.length} bundled Anthropic model(s) (version ${pricing.version}). Override any rate with: waybill pricing set <model-id> ...
 `
       );
+      if (!freshConfig) {
+        process.stdout.write(
+          "Existing events re-price on the next meter run: waybill meter --all\n"
+        );
+      }
     }
     process.stdout.write("\nConfigured:\n");
     for (const line of configured) process.stdout.write(`  - ${line}
@@ -2506,9 +2565,13 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
   const weeks = /* @__PURE__ */ new Map();
   const accountSessions = /* @__PURE__ */ new Map();
   let total = 0;
+  let pricedTokens = 0;
+  const unpricedByModel = /* @__PURE__ */ new Set();
   for (const u of usage) {
     const t = totalTokens(u);
     total += t;
+    if (u.cost_usd) pricedTokens += t;
+    else unpricedByModel.add(u.model);
     const acc = accounts.get(u.attribution.account) ?? {
       account: u.attribution.account,
       tokens: 0,
@@ -2573,7 +2636,13 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
       attributed_pct_conf_060: total > 0 ? Math.round(attributed / total * 1e3) / 10 : 0,
       inbox_open: openAmbiguities
     },
-    pricing_version: config.pricing.version
+    pricing_version: config.pricing.version,
+    pricing_coverage: {
+      priced_tokens: pricedTokens,
+      unpriced_tokens: total - pricedTokens,
+      priced_pct: total > 0 ? Math.round(pricedTokens / total * 1e3) / 10 : 0,
+      unpriced_models: [...unpricedByModel].sort()
+    }
   };
 }
 function countOpenAmbiguities(exceptionEvents) {
@@ -3193,11 +3262,24 @@ function runStatus(home, args, json) {
   const lastMine = Object.values(state.sessions).map((s) => s.metered_through_ts ?? "").filter((t) => t !== "").sort().pop() ?? null;
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
   const findings = verifyHome(home);
+  const authUsage = authoritative(usage).filter((u) => u.kind === "usage");
+  const seenModels = [...new Set(authUsage.map((u) => u.model))];
+  const unpriced = unpricedModels(config.pricing, seenModels);
+  const unpricedEvents = authUsage.filter((u) => u.cost_usd === null).length;
+  const repriceable = authUsage.filter(
+    (u) => u.cost_usd === null && u.model !== "unknown" && resolveRate(config.pricing, u.model) !== null
+  ).length;
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
   let ghCliAvailable = false;
   try {
     execFileSync6("gh", ["auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5e3 });
     ghCliAvailable = true;
+  } catch {
+  }
+  let acliAuthenticated = false;
+  try {
+    execFileSync6("acli", ["jira", "auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5e3 });
+    acliAuthenticated = true;
   } catch {
   }
   const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
@@ -3218,7 +3300,15 @@ function runStatus(home, args, json) {
     retention,
     mcp: {
       github_pat_set: githubPatSet,
-      gh_cli_authenticated: ghCliAvailable
+      gh_cli_authenticated: ghCliAvailable,
+      acli_jira_authenticated: acliAuthenticated
+    },
+    pricing: {
+      version: config.pricing.version,
+      models_priced: Object.keys(config.pricing.models).length,
+      unpriced_models: unpriced,
+      unpriced_events: unpricedEvents,
+      repriceable_events: repriceable
     },
     metering: {
       enabled: config.metering.enabled,
@@ -3253,6 +3343,15 @@ function runStatus(home, args, json) {
   lines.push(
     `spend: ${fmtInt2(spend.total_tokens)} tokens, ${spend.unattributed_pct}% unattributed (${spend.attribution_health.attributed_pct_conf_060}% attributed at conf \u2265 0.6)` + (spend.attribution_health.inbox_open > 0 ? `; ${spend.attribution_health.inbox_open} in the attribution inbox \u2014 see: waybill query inbox` : "")
   );
+  if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
+    lines.push(
+      "pricing: NOT CONFIGURED \u2014 costs stay tokens-only. Fix: waybill pricing import"
+    );
+  } else {
+    lines.push(
+      `pricing: version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s)` + (unpriced.length > 0 ? `; NO RATE for metered model(s): ${unpriced.join(", ")} \u2014 costs shown tokens-only. Fix: waybill pricing set <model-id> ... (then: waybill meter --all)` : "") + (repriceable > 0 ? `; ${fmtInt2(repriceable)} event(s) metered before their rate existed \u2014 re-price: waybill meter --all` : "")
+    );
+  }
   lines.push(
     findings.length === 0 ? "verify: all checks pass" : `verify: ${findings.length} finding(s) \u2014 run: waybill verify`
   );
@@ -3265,9 +3364,166 @@ function runStatus(home, args, json) {
     );
     lines.push("  (Atlassian needs no token \u2014 run /mcp in Claude Code and complete its OAuth.)");
   }
+  if (config.tracker.kind === "jira") {
+    lines.push(
+      acliAuthenticated ? "tracker: acli (Atlassian CLI) authenticated \u2014 Jira syncs fetch through it (light payloads; the Atlassian MCP is not needed)." : "tracker: acli (Atlassian CLI) not detected \u2014 Jira syncs use the Atlassian MCP. Lighter: install acli (developer.atlassian.com/cloud/acli) and run: acli jira auth login --web"
+    );
+  }
   if (data.next.length > 0) lines.push(`next: ${data.next.join(" \xB7 ")}`);
   process.stdout.write(lines.join("\n") + "\n");
   return findings.length === 0 ? 0 : 1;
+}
+
+// src/projections/standup.ts
+function inWindow2(ts, w) {
+  if (w.from !== null && ts < w.from) return false;
+  if (w.to !== null && ts > w.to) return false;
+  return true;
+}
+function totalTokens2(t) {
+  return t.input + t.output + t.cache_read + t.cache_creation;
+}
+function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, config, window, label = null) {
+  const usage = authoritative(usageEvents).filter(
+    (u) => u.kind === "usage" && inWindow2(u.ts, window) && totalTokens2(u.tokens) > 0
+  );
+  const shippedViews = effectiveShipped(ledgerEvents).filter((s) => inWindow2(s.shipped_ts, window));
+  const shipped = shippedViews.map(({ entry: e, shipped_ts }) => ({
+    tracker_key: e.tracker_key,
+    title: e.title,
+    points: e.points,
+    prs: e.artifacts.prs,
+    deploy: e.artifacts.deploy,
+    ts: shipped_ts,
+    claude_role: e.claude_role,
+    escrowed: e.escrow !== null
+  })).sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
+  const shippedKeys = new Set(shipped.map((s) => s.tracker_key).filter((k) => k !== null));
+  const authEntries = authoritative(ledgerEvents).filter(
+    (e) => e.kind !== "pin"
+  );
+  const titleByKey = /* @__PURE__ */ new Map();
+  for (const e of authEntries) {
+    if (e.tracker_key !== null) titleByKey.set(e.tracker_key, e.title);
+  }
+  const byAccount = /* @__PURE__ */ new Map();
+  const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
+  let cost = null;
+  const unpriced = /* @__PURE__ */ new Map();
+  const waste = { retried_commands: 0, repeated_reads: 0 };
+  for (const u of usage) {
+    totals.input += u.tokens.input;
+    totals.output += u.tokens.output;
+    totals.cache_read += u.tokens.cache_read;
+    totals.cache_creation += u.tokens.cache_creation;
+    if (u.cost_usd) cost = Math.round(((cost ?? 0) + u.cost_usd.value) * 1e4) / 1e4;
+    else unpriced.set(u.model, (unpriced.get(u.model) ?? 0) + totalTokens2(u.tokens));
+    if (u.waste) {
+      waste.retried_commands += u.waste.retried_commands;
+      waste.repeated_reads += u.waste.repeated_reads;
+    }
+    const acc = byAccount.get(u.attribution.account) ?? {
+      tokens: 0,
+      sessions: /* @__PURE__ */ new Set(),
+      last_ts: u.ts
+    };
+    acc.tokens += totalTokens2(u.tokens);
+    acc.sessions.add(u.session_id);
+    if (u.ts > acc.last_ts) acc.last_ts = u.ts;
+    byAccount.set(u.attribution.account, acc);
+  }
+  const progressed = [...byAccount.entries()].filter(([account]) => {
+    if (account === "unattributed") return false;
+    const key = account.startsWith("story:") ? account.slice(6) : null;
+    return key === null || !shippedKeys.has(key);
+  }).map(([account, a]) => ({
+    account,
+    title: account.startsWith("story:") ? titleByKey.get(account.slice(6)) ?? null : null,
+    tokens: a.tokens,
+    sessions: a.sessions.size,
+    last_ts: a.last_ts
+  })).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
+  const opened = authoritative(ledgerEvents).filter((e) => e.kind === "opened" && inWindow2(e.ts, window)).map((e) => ({
+    tracker_key: e.tracker_key,
+    title: e.title,
+    ts: e.ts,
+    pre_registered: e.estimate_without_claude_hours?.pre_registered === true
+  })).sort((a, b) => a.ts < b.ts ? -1 : 1);
+  const receipts = authoritative(sessionEvents).filter((s) => {
+    if (s.kind !== "session") return false;
+    if (window.from !== null && s.last_ts < window.from) return false;
+    if (window.to !== null && s.first_ts > window.to) return false;
+    return true;
+  });
+  const repos = [];
+  const branches = [];
+  let turns = 0;
+  for (const s of receipts) {
+    if (s.repo !== null && !repos.includes(s.repo)) repos.push(s.repo);
+    for (const b of s.branches) if (!branches.includes(b)) branches.push(b);
+    turns += s.turns;
+  }
+  repos.sort();
+  branches.sort();
+  const total = totalTokens2(totals);
+  const unattributed = byAccount.get("unattributed")?.tokens ?? 0;
+  const unpricedTokens = [...unpriced.values()].reduce((n, t) => n + t, 0);
+  return {
+    window: { from: window.from ?? "", to: window.to ?? "", label },
+    shipped,
+    progressed,
+    opened,
+    sessions: { count: receipts.length, repos, branches, turns },
+    tokens: {
+      total,
+      totals,
+      cost_usd: cost,
+      pricing_version: config.pricing.version,
+      unpriced_models: [...unpriced.keys()].sort(),
+      unpriced_tokens: unpricedTokens
+    },
+    waste,
+    attention: {
+      inbox_open: countOpenAmbiguities(exceptionEvents),
+      unattributed_tokens: unattributed,
+      unattributed_pct: total > 0 ? Math.round(unattributed / total * 1e3) / 10 : 0
+    }
+  };
+}
+function localDayWindow(base, offsetDays) {
+  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays, 0, 0, 0, 0);
+  const end = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays + 1, 0, 0, 0, 0);
+  return {
+    from: start.toISOString(),
+    to: new Date(end.getTime() - 1).toISOString()
+  };
+}
+function resolveStandupWindow(args, now) {
+  if (args.from !== null || args.to !== null) {
+    return { window: normalizeWindow(args.from, args.to), label: null };
+  }
+  if (args.days !== null) {
+    if (!Number.isFinite(args.days) || args.days <= 0 || !Number.isInteger(args.days)) {
+      throw new Error("--days must be a positive integer");
+    }
+    const first = localDayWindow(now, -(args.days - 1));
+    const last = localDayWindow(now, 0);
+    return {
+      window: { from: first.from, to: last.to },
+      label: `last ${args.days} day(s)`
+    };
+  }
+  const date = args.date ?? "yesterday";
+  if (date === "yesterday" || date === "today") {
+    const w2 = localDayWindow(now, date === "yesterday" ? -1 : 0);
+    return { window: w2, label: date };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(`--date must be yesterday, today, or YYYY-MM-DD (got: ${date})`);
+  }
+  const [y, m, d] = date.split("-").map(Number);
+  const w = localDayWindow(new Date(y, m - 1, d), 0);
+  return { window: w, label: date };
 }
 
 // src/cli/cmd-query.ts
@@ -3277,6 +3533,9 @@ function runQuery(home, args) {
   const [what, ...rest] = args;
   let from = null;
   let to = null;
+  let date = null;
+  let days = null;
+  let now = null;
   let audience = null;
   let detail = null;
   const positional = [];
@@ -3284,6 +3543,9 @@ function runQuery(home, args) {
     const a = rest[i];
     if (a === "--from") from = rest[++i] ?? null;
     else if (a === "--to") to = rest[++i] ?? null;
+    else if (a === "--date") date = rest[++i] ?? null;
+    else if (a === "--days") days = rest[++i] ?? null;
+    else if (a === "--now") now = rest[++i] ?? null;
     else if (a === "--audience") {
       const v = rest[++i];
       if (!v || !AUDIENCES.includes(v)) {
@@ -3301,6 +3563,15 @@ function runQuery(home, args) {
       }
       detail = v;
     } else positional.push(a);
+  }
+  if (what !== "standup" && (date !== null || days !== null || now !== null)) {
+    process.stderr.write("waybill query: --date/--days/--now apply to `query standup` only\n");
+    return 2;
+  }
+  if (now !== null && Number.isNaN(Date.parse(now))) {
+    process.stderr.write(`waybill query: --now is not a date: ${now}
+`);
+    return 2;
   }
   const config = loadConfig(home);
   const aud = audience ?? config.audience_default;
@@ -3357,9 +3628,25 @@ function runQuery(home, args) {
       payload = exceptions.filter((e) => e.kind === "ambiguity" && !resolved.has(e.id));
       break;
     }
+    case "standup": {
+      let resolved;
+      try {
+        resolved = resolveStandupWindow(
+          { date, days: days !== null ? Number(days) : null, from, to },
+          now !== null ? new Date(now) : /* @__PURE__ */ new Date()
+        );
+      } catch (err) {
+        process.stderr.write(`waybill query standup: ${err.message}
+`);
+        return 2;
+      }
+      const sessions = readEvents(home, "sessions");
+      payload = standupData(ledger, usage, sessions, exceptions, config, resolved.window, resolved.label);
+      break;
+    }
     default:
       process.stderr.write(
-        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox\n"
+        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup\n"
       );
       return 2;
   }
@@ -4218,7 +4505,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "1.4.0" : "dev";
+var ENGINE_VERSION = true ? "1.5.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
@@ -4242,6 +4529,8 @@ Commands:
                 --git github|gitlab|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
+                | standup ("what did I do" digest \u2014 default window: yesterday;
+                --date yesterday|today|YYYY-MM-DD or --days <n>, local-calendar)
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
                 [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,

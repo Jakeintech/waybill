@@ -11,6 +11,7 @@ import type {
 } from "../core/events.ts";
 import { finalizeEvent, SCHEMA_VERSION } from "../core/events.ts";
 import type { Config } from "../core/config.ts";
+import { resolveRate } from "../core/pricing-resolve.ts";
 import { authoritative } from "../core/streams.ts";
 import { addTotals, totalsEqual, zeroTotals } from "../verify/verify.ts";
 import { resolveTurn, type ResolverContext } from "../attribution/resolver.ts";
@@ -37,13 +38,21 @@ export interface MeterOutput {
   newExceptions: ExceptionEvent[];
 }
 
+/** Bumped when metering/pricing derivation logic changes shape — stored per
+ * session checkpoint so an engine upgrade re-meters stale sessions once
+ * (content-addressed events make that a no-op where nothing changed). */
+export const METER_LOGIC_VERSION = "2";
+
 export function priceTokens(
   config: Config,
   model: string,
   tokens: UsageEvent["tokens"],
 ): UsageEvent["cost_usd"] {
   const version = config.pricing.version;
-  const rates = config.pricing.models[model];
+  // Date-stamp-tolerant lookup: transcripts carry dated API ids, the table
+  // may hold undated family ids (or vice versa). Never crosses families;
+  // no match still means tokens_only — a rate is never guessed.
+  const rates = resolveRate(config.pricing, model)?.rates;
   if (!version || !rates) return null;
   // Legacy sources without the 5m/1h split: price all cache writes at the 5m rate.
   const cc5m =

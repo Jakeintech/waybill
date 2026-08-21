@@ -61,6 +61,8 @@ export function makeUsage(overrides: {
   resolver?: UsageEvent["attribution"]["resolver"];
   confidence?: number;
   repo?: string | null;
+  cost?: UsageEvent["cost_usd"];
+  waste?: UsageEvent["waste"];
 } = {}): UsageEvent {
   const ts = overrides.ts ?? "2026-08-17T10:15:03Z";
   const t = overrides.tokens ?? {};
@@ -87,7 +89,7 @@ export function makeUsage(overrides: {
       cache_creation_5m: t.cache_creation_5m ?? 300,
       cache_creation_1h: t.cache_creation_1h ?? 0,
     },
-    cost_usd: null,
+    cost_usd: overrides.cost ?? null,
     attribution: {
       account,
       tracker_key: account.startsWith("story:") ? account.slice("story:".length) : null,
@@ -98,6 +100,8 @@ export function makeUsage(overrides: {
     source: "transcript" as const,
     transcript_version: "2.1.229",
     raw_extra: null,
+    // Conditional so pre-existing fixtures keep their event ids.
+    ...(overrides.waste !== undefined ? { waste: overrides.waste } : {}),
   };
   return finalizeEvent("usage", body) as UsageEvent;
 }

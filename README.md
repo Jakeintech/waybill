@@ -29,9 +29,11 @@ claude plugin install waybill@waybill
 Then in a Claude Code session, say **"initialize my waybill ledger"**. That's
 the whole setup: no accounts, no tokens, no OAuth. Waybill seeds your
 identity from `git config`, imports Anthropic list-price rates so costs
-appear from day one, checks your transcript-retention setting, and renders
-a **bootstrap receipt** from your local git history alone — your shipped
-work, itemized, in under a minute.
+appear from day one (dated model ids resolve to their family rate, and
+`waybill status` names any model it can't price rather than showing a
+quietly partial total), checks your transcript-retention setting, and
+renders a **bootstrap receipt** from your local git history alone — your
+shipped work, itemized, in under a minute.
 
 ### Updating
 
@@ -61,7 +63,12 @@ export GITHUB_MCP_PAT="$(gh auth token)"
 # https://github.com/settings/personal-access-tokens and export it instead.
 ```
 
-1. `/mcp` → complete the OAuth flow for `atlassian` (no token needed).
+1. For Jira, either of:
+   - **[acli](https://developer.atlassian.com/cloud/acli/) (preferred —
+     scoped fields, small payloads):** install it, then
+     `acli jira auth login --web`. Syncs fetch through it automatically.
+   - **Atlassian MCP:** `/mcp` → complete the OAuth flow for `atlassian`
+     (no token needed).
 2. Say **"sync my ledger and give me a bootstrap report."**
 
 Not sure what is or is not connected? `waybill status` says, and prints the
@@ -80,6 +87,7 @@ ledger unlocks the stronger claims (see tiers below).
 | You work | A `SessionEnd` hook queues the session and a detached, dependency-free miner meters real token usage from the transcript — no model calls, no network, never blocking |
 | Things merge | `sync` reconciles the ledger against your Jira issues and GitHub PRs (or Linear, GitLab, or plain local git) |
 | You wonder where it went | `spend` answers by story/epic/model/week, files the attribution inbox one tap at a time, and tracks budget pacing — one line at 80%/100%, never nagging |
+| It's 9:58 and standup is at 10 | `standup` turns the ledger into "what I did yesterday" bullets — shipped, in progress, started — every line traceable to a receipt; `--days 7` makes it a weekly digest |
 | You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own metered tokens-per-story-point |
 
 Every Claude Code token is metered deterministically from your local

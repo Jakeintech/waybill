@@ -14,7 +14,7 @@ description: >
   narrative report around those numbers.) Produces a one-page,
   receipt-backed report; never invents numbers.
 metadata:
-  version: "1.1.1"
+  version: "1.5.0"
 ---
 
 # Report
@@ -117,7 +117,9 @@ asked; `sprint-recap` drops the ask section entirely.
 - Tokens are the native unit (D6 — bundled Anthropic rates ship as defaults
   via `pricing import`; override with `pricing set`); dollars appear only
   when a pricing basis is configured, always labeled with the
-  `pricing_version`.
+  `pricing_version` — and when `spend_ledger.pricing_coverage.priced_pct`
+  is below 100, with what the dollars cover ("$412 covers 92% of tokens;
+  the rest unpriced"). A silently partial total is a broken receipt.
 - No peer comparisons, ever. Own-baseline and published team/industry
   benchmarks only.
 - Delivered value includes only merged/deployed work. In-flight items
