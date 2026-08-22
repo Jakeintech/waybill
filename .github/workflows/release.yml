@@ -1,101 +1,96 @@
 name: Release
 
-# Publish a release for an already-validated commit: create the tag ref
-# server-side and a GitHub release whose body is the CHANGELOG section.
-# Exists because some contribution environments can push branches but not
-# tags; the tag is created by the GitHub API instead of git push.
+# Declarative releases: .github/releases.txt lists `<tag> <sha>` lines,
+# and this workflow reconciles the repository's tags + GitHub releases to
+# that manifest whenever it changes on main (or on manual dispatch).
+# Releasing = append a line, push main. Exists because some contribution
+# environments can push branches but not tags and cannot dispatch
+# workflows — a main push is the one channel that always works.
 #
-# Self-verifying, like the release gate: it refuses a tag whose version
-# doesn't match package.json at the target commit, and refuses a version
-# with no CHANGELOG section. Idempotent: an existing tag is reused if it
-# points at the same sha (error if it doesn't); an existing release is
-# left untouched.
+# Self-verifying, like the release gate: each entry is refused unless the
+# tag's version matches package.json at that sha AND a CHANGELOG section
+# for it exists at that sha (the section becomes the release body).
+# Idempotent: existing tags are reused when they match (error when they
+# don't — published tags never move); existing releases are untouched.
+# The manifest's highest semver entry is marked "latest".
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag, e.g. v2.0.0"
-        required: true
-        type: string
-      sha:
-        description: "Commit sha the tag must point at (the validated release commit)"
-        required: true
-        type: string
-      latest:
-        description: "Mark this release as the repository's latest"
-        required: false
-        type: boolean
-        default: false
+  push:
+    branches: [main]
+    paths: ['.github/releases.txt']
+  workflow_dispatch: {}
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: Tag + release from CHANGELOG
+  reconcile:
+    name: Reconcile tags + releases to the manifest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.sha }}
-      - name: Validate tag against the commit's own claims
-        run: |
-          tag='${{ inputs.tag }}'
-          case "$tag" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::tag must look like vX.Y.Z, got: $tag"; exit 1 ;;
-          esac
-          version="${tag#v}"
-          pkg="$(node -p "require('./package.json').version")"
-          if [ "$pkg" != "$version" ]; then
-            echo "::error::package.json at ${{ inputs.sha }} says $pkg, not $version — wrong sha or wrong tag"
-            exit 1
-          fi
-          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no [$version] section"
-            exit 1
-          fi
-      - name: Extract the CHANGELOG section as the release body
-        run: |
-          version='${{ inputs.tag }}'; version="${version#v}"
-          awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { on=1; next }
-            on && /^## \[/ { exit }
-            on { print }
-          ' CHANGELOG.md > /tmp/release-body.md
-          printf '\n[CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md) · [VALIDATION](https://github.com/%s/blob/main/VALIDATION.md) · [DECISIONS](https://github.com/%s/blob/main/DECISIONS.md)\n' \
-            "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" >> /tmp/release-body.md
-      - name: Create the tag ref (server-side)
+          fetch-depth: 0
+      - name: Reconcile
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag='${{ inputs.tag }}'
-          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha 2>/dev/null || true)"
-          if [ -z "$existing" ]; then
-            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha='${{ inputs.sha }}'
-            echo "tag $tag created at ${{ inputs.sha }}"
-          elif [ "$existing" = '${{ inputs.sha }}' ]; then
-            echo "tag $tag already points at ${{ inputs.sha }} — reusing"
-          else
-            echo "::error::tag $tag already exists at $existing (asked for ${{ inputs.sha }}) — refusing to move a published tag"
-            exit 1
-          fi
-      - name: Create the release (skip if it exists)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag='${{ inputs.tag }}'
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release $tag already exists — leaving it untouched"
-            exit 0
-          fi
-          latest_flag='--latest=false'
-          if [ '${{ inputs.latest }}' = 'true' ]; then latest_flag='--latest'; fi
-          gh release create "$tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "waybill ${tag#v}" \
-            --notes-file /tmp/release-body.md \
-            --verify-tag \
-            "$latest_flag"
-          echo "release $tag published"
+          set -u
+          manifest='.github/releases.txt'
+          [ -f "$manifest" ] || { echo "no $manifest — nothing to reconcile"; exit 0; }
+          entries="$(grep -Ev '^\s*(#|$)' "$manifest" || true)"
+          [ -n "$entries" ] || { echo "manifest is empty — nothing to reconcile"; exit 0; }
+          maxtag="$(printf '%s\n' "$entries" | awk '{print $1}' | sort -V | tail -1)"
+          fails=0
+          while read -r tag sha _; do
+            echo "── $tag @ $sha"
+            case "$tag" in
+              v[0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "::error::$tag: tags must look like vX.Y.Z"; fails=$((fails+1)); continue ;;
+            esac
+            if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+              echo "::error::$tag: sha $sha is not a commit in this repository"; fails=$((fails+1)); continue
+            fi
+            version="${tag#v}"
+            git show "$sha:package.json" > /tmp/pkg.json
+            pkg="$(node -p "require('/tmp/pkg.json').version")"
+            if [ "$pkg" != "$version" ]; then
+              echo "::error::$tag: package.json at $sha says $pkg — wrong sha or wrong tag"; fails=$((fails+1)); continue
+            fi
+            git show "$sha:CHANGELOG.md" > /tmp/changelog.md
+            if ! grep -q "^## \[$version\]" /tmp/changelog.md; then
+              echo "::error::$tag: no CHANGELOG section for $version at $sha"; fails=$((fails+1)); continue
+            fi
+            existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha 2>/dev/null || true)"
+            if [ -z "$existing" ]; then
+              gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$sha" > /dev/null
+              echo "   tag created"
+            elif [ "$existing" = "$sha" ]; then
+              echo "   tag exists and matches"
+            else
+              echo "::error::$tag: already exists at $existing — published tags never move"; fails=$((fails+1)); continue
+            fi
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              echo "   release exists — untouched"
+              continue
+            fi
+            awk -v v="$version" '
+              $0 ~ "^## \\[" v "\\]" { on=1; next }
+              on && /^## \[/ { exit }
+              on { print }
+            ' /tmp/changelog.md > /tmp/body.md
+            printf '\n[CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md) · [VALIDATION](https://github.com/%s/blob/main/VALIDATION.md) · [DECISIONS](https://github.com/%s/blob/main/DECISIONS.md)\n' \
+              "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" >> /tmp/body.md
+            latest_flag='--latest=false'
+            [ "$tag" = "$maxtag" ] && latest_flag='--latest'
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "waybill $version" \
+              --notes-file /tmp/body.md \
+              --verify-tag \
+              "$latest_flag"
+            echo "   release published"
+          done <<EOF_ENTRIES
+          $entries
+          EOF_ENTRIES
+          exit "$fails"
