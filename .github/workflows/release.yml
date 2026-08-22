@@ -77,17 +77,19 @@ jobs:
             ' /tmp/changelog.md > /tmp/body.md
             printf '\n[CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md) · [VALIDATION](https://github.com/%s/blob/main/VALIDATION.md) · [DECISIONS](https://github.com/%s/blob/main/DECISIONS.md)\n' \
               "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" >> /tmp/body.md
-            latest_flag='--latest=false'
-            [ "$tag" = "$maxtag" ] && latest_flag='--latest'
             # One call creates the tag (at --target, when absent) AND the
-            # release; guarded so one refusal never aborts the other entries.
+            # release; guarded so one refusal never aborts the other
+            # entries. No --latest here: make_latest:"false" in the POST
+            # 403s for the Actions token (observed), so entries are
+            # created with server defaults and the manifest's max entry
+            # is pinned as latest once, after the loop.
             target_flag=""
             [ -z "$existing" ] && target_flag="--target=$sha"
             if out="$(gh release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
               --title "waybill $version" \
               --notes-file /tmp/body.md \
-              "$latest_flag" $target_flag 2>&1)"; then
+              $target_flag 2>&1)"; then
               echo "   release published: $out"
             else
               echo "::error::$tag: release creation failed — $out"
@@ -97,4 +99,12 @@ jobs:
           done <<EOF_ENTRIES
           $entries
           EOF_ENTRIES
+          if gh release view "$maxtag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            if out="$(gh release edit "$maxtag" --repo "$GITHUB_REPOSITORY" --latest 2>&1)"; then
+              echo "latest pinned to $maxtag"
+            else
+              echo "::error::could not pin $maxtag as latest — $out"
+              fails=$((fails+1))
+            fi
+          fi
           exit "$fails"
