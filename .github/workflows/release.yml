@@ -61,7 +61,8 @@ jobs:
             if ! grep -q "^## \[$version\]" /tmp/changelog.md; then
               echo "::error::$tag: no CHANGELOG section for $version at $sha"; fails=$((fails+1)); continue
             fi
-            existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha 2>/dev/null || true)"
+            # gh api prints the error body to stdout on 404 — capture only on success.
+            existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha 2>/dev/null)" || existing=""
             if [ -z "$existing" ]; then
               gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$sha" > /dev/null
               echo "   tag created"
