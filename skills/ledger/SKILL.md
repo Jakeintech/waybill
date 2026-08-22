@@ -8,7 +8,7 @@ description: >
   another waybill skill (log, spend, sync, report, forecast) needs to read
   or write ledger data.
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
 ---
 
 # The Waybill Ledger
@@ -83,7 +83,13 @@ When the user asks to initialize or set up the ledger:
    history stays meterable. Never change the user's Claude Code settings
    yourself; tell them the exact edit.
 4. Offer the zero-auth first value immediately: `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" bootstrap` renders
-   a receipt from local git history in under a minute.
+   a receipt from local git history in under a minute. Two one-time
+   upgrades worth offering in the same breath:
+   `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" conventions` prints a CLAUDE.md
+   block and commit-msg hook that make future commits receipt-friendly
+   (install only with the user's yes, in their repo), and
+   `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" dashboard` writes a local page
+   the miner keeps fresh — their numbers, zero tokens to read.
 5. Only then, optionally interview for the upgrade path (one question at a
    time, skip anything derivable): Jira project keys, GitHub repos, default
    branch, allocation history for utilization reporting. Update

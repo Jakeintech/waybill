@@ -461,3 +461,86 @@ are the engine's — `bootstrap`'s engine-rendered receipt is the recorded
 exception, not the pattern. A projection also gets the query envelope's
 `--audience` redaction for free, which a digest pasted into a team
 channel actually needs.
+
+## 2026-08-22 — Salvage: clusters are engine work, titles are proposals, receipts are the only source (1.6.0)
+
+**Question.** Untracked AI-assisted work (PRs shipped without tickets,
+unattributed sessions) piles up as surfaced-but-unlabeled spend. How does
+it become receipts without breaking "deterministic before intelligent" or
+the ungameable tier system?
+
+**Choice.** Three-role split. The ENGINE clusters deterministically
+(`query untracked`): unlogged story keys by key, unattributed sessions by
+the session's branch/repo identity, adhoc labels by label — each cluster
+carrying its receipts (sessions, branches, repo, window, tokens). CLAUDE
+proposes a title per cluster from those receipts only — branch names,
+commit subjects, keys; never inference about what the work "probably
+was". The USER confirms one cluster at a time; application flows through
+the existing write paths (pins for re-attribution, `append` for
+reconstructed entries marked "reconstructed from receipts (salvage)").
+Reconstructed entries carry `estimate_without_claude_hours: null` and no
+escrow — pre-registration is never backfilled.
+
+**Rationale.** The inbox pattern, promoted from turns to work items: the
+deterministic core stays pure, the model only labels, the human only
+taps. Facts tier stays facts; the one thing salvage must never do is
+manufacture tier-3 evidence, and the schema makes that structural.
+
+## 2026-08-22 — Conventions are printed, never installed (1.6.0)
+
+**Question.** Attribution quality is decided at commit time, so waybill
+should shape commits/branches/PRs. Does the engine write into the user's
+repo (CLAUDE.md, git hooks)?
+
+**Choice.** `waybill conventions` PRINTS the CLAUDE.md block and the
+`commit-msg` hook (derived from the configured key pattern); installing
+either is the user's — or Claude's, with the user's yes — explicit action
+in their repo. The engine never writes outside `$WAYBILL_HOME`.
+
+**Rationale.** The engine's no-side-effects boundary is worth more than
+the convenience; a printed artifact is auditable before it's installed,
+and skills already have file-editing hands when the user wants it done
+for them.
+
+## 2026-08-22 — The dashboard refines the export-pack boundary: templating a rollup is not rendering a document (1.6.0)
+
+**Question.** A zero-token dashboard needs the engine to produce HTML —
+which the export-pack boundary ("presentation stays out of the engine")
+exists to forbid.
+
+**Choice.** `waybill dashboard` injects a JSON snapshot into a static
+template shipped as a plugin reference file and writes
+`rollups/dashboard.html`. The boundary holds, refined: presentation
+LOGIC lives in the template (a checked-in artifact, reviewable like any
+file), the engine performs data injection only (JSON.stringify + one
+placeholder replace, `<` escaped so ledger strings cannot break out),
+and the output is a derived, deletable rollup — never a receipt, never
+verified, never the numbers' source of truth. The miner refreshes it
+best-effort only when it already exists. The page itself makes zero
+network requests (system fonts only) — the no-network promise applies to
+what the engine emits, too.
+
+**Rationale.** The boundary's purpose is keeping presentation code out
+of the deterministic, conservation-checked path — not banning the
+coverage-report pattern every good local tool uses. Reading your own
+numbers should cost nothing; routine "where did my tokens go" glances
+were the plugin's main steady-state token cost, and now they're free.
+
+## 2026-08-22 — Overhead is a metered fact, not a claim (1.6.0)
+
+**Question.** "Waybill is lightweight after the initial sync" was an
+assertion. The product's own rule is that claims need receipts.
+
+**Choice.** The meter tags turns whose tool commands invoke the waybill
+CLI (deterministic substring match on `bin/waybill` / `waybill.mjs`,
+exactly like evidence extraction) with `overhead: true` on their usage
+events — additive, present only when true so pre-1.6 events keep their
+content addresses. `spendData` rolls it up; the spend skill and the
+dashboard print it. METER_LOGIC_VERSION bumped to 3 so existing ledgers
+re-tag once, automatically. Known edge, accepted and documented: for
+someone developing waybill itself, dev commands count as overhead — the
+label means "ran the waybill CLI", nothing subtler.
+
+**Rationale.** An accountant that bills for its own hours, itemized on
+its own invoice, is the most on-brand feature the product can ship — and
+the honest way to keep the lightweight promise checkable forever.

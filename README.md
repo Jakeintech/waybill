@@ -88,6 +88,8 @@ ledger unlocks the stronger claims (see tiers below).
 | Things merge | `sync` reconciles the ledger against your Jira issues and GitHub PRs (or Linear, GitLab, or plain local git) |
 | You wonder where it went | `spend` answers by story/epic/model/week, files the attribution inbox one tap at a time, and tracks budget pacing — one line at 80%/100%, never nagging |
 | It's 9:58 and standup is at 10 | `standup` turns the ledger into "what I did yesterday" bullets — shipped, in progress, started — every line traceable to a receipt; `--days 7` makes it a weekly digest |
+| Work shipped without a ticket | `salvage` clusters the untracked spend with its receipts (sessions, branches, PRs), proposes what each group plainly was, and turns your one-tap confirmations into reconstructed entries — facts tier, never forged estimates |
+| You just want to *look* | `waybill dashboard` writes a self-contained local page (spend, pacing, open work, last 7 days) the miner keeps fresh — reading your own numbers costs **zero tokens** |
 | You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own metered tokens-per-story-point |
 
 Every Claude Code token is metered deterministically from your local

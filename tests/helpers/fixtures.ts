@@ -63,6 +63,7 @@ export function makeUsage(overrides: {
   repo?: string | null;
   cost?: UsageEvent["cost_usd"];
   waste?: UsageEvent["waste"];
+  overhead?: boolean;
 } = {}): UsageEvent {
   const ts = overrides.ts ?? "2026-08-17T10:15:03Z";
   const t = overrides.tokens ?? {};
@@ -102,6 +103,7 @@ export function makeUsage(overrides: {
     raw_extra: null,
     // Conditional so pre-existing fixtures keep their event ids.
     ...(overrides.waste !== undefined ? { waste: overrides.waste } : {}),
+    ...(overrides.overhead === true ? { overhead: true } : {}),
   };
   return finalizeEvent("usage", body) as UsageEvent;
 }

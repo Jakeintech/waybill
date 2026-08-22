@@ -7,6 +7,8 @@ export const ENGINE_VERSION: string =
   typeof __WAYBILL_VERSION__ === "string" ? __WAYBILL_VERSION__ : "dev";
 import { runAppend } from "./cmd-append.ts";
 import { runBootstrap } from "./cmd-bootstrap.ts";
+import { runConventions } from "./cmd-conventions.ts";
+import { runDashboard } from "./cmd-dashboard.ts";
 import { runInit } from "./cmd-init.ts";
 import { runMeter } from "./cmd-meter.ts";
 import { runMine } from "./cmd-mine.ts";
@@ -43,6 +45,8 @@ Commands:
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 | standup ("what did I do" digest — default window: yesterday;
                 --date yesterday|today|YYYY-MM-DD or --days <n>, local-calendar)
+                | untracked (salvage clustering: spend with no receipt behind it)
+                | manifest (open work, open spend, age; --now injectable)
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
                 [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
@@ -52,6 +56,10 @@ Commands:
   pricing     show | import [--model <id-or-alias>]... | set <model-id> --version <date>
                 --input/--output/--cache-read/--cache-5m/--cache-1h <usd per mtok>
                 (import loads bundled Anthropic rates; set overrides any model)
+  conventions Print the receipt-friendly CLAUDE.md block and commit-msg hook
+                (key-prefixed branches/commits raise attribution confidence)
+  dashboard   Write rollups/dashboard.html — the zero-token view of your ledger
+                [--now <iso>] (refreshed by mine when the file exists)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -123,6 +131,10 @@ export async function main(argv: string[]): Promise<number> {
       return runExport(cli.home, cli.args, cli.json);
     case "pricing":
       return runPricing(cli.home, cli.args, cli.json);
+    case "conventions":
+      return runConventions(cli.home, cli.args, cli.json);
+    case "dashboard":
+      return runDashboard(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

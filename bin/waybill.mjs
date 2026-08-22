@@ -90,6 +90,34 @@ function serializeEvent(event) {
   return JSON.stringify(event);
 }
 
+// src/core/time.ts
+var ISO_BOUND_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+function isIsoBound(v) {
+  return ISO_BOUND_RE.test(v) && !Number.isNaN(Date.parse(v));
+}
+function isIsoTimestamp(v) {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) && !Number.isNaN(Date.parse(v));
+}
+function compareInstants(a, b) {
+  const pa = Date.parse(a);
+  const pb = Date.parse(b);
+  if (!Number.isNaN(pa) && !Number.isNaN(pb) && pa !== pb) return pa - pb;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function inWindow(ts, from, to) {
+  const t = Date.parse(ts);
+  const f = from !== null ? Date.parse(from) : null;
+  const o = to !== null ? Date.parse(to) : null;
+  if (!Number.isNaN(t) && (f === null || !Number.isNaN(f)) && (o === null || !Number.isNaN(o))) {
+    if (f !== null && t < f) return false;
+    if (o !== null && t > o) return false;
+    return true;
+  }
+  if (from !== null && ts < from) return false;
+  if (to !== null && ts > to) return false;
+  return true;
+}
+
 // src/core/escrow.ts
 function escrowPayload(keyOrTitle, low, high, loggedAt) {
   return `estimate.v1|${keyOrTitle}|${low}|${high}|hours|${loggedAt}`;
@@ -178,9 +206,7 @@ function authoritative(events) {
 
 // src/verify/verify.ts
 var STREAMS = ["ledger", "usage", "sessions", "exceptions"];
-function isIsoUtc(ts) {
-  return typeof ts === "string" && /^\d{4}-\d{2}-\d{2}T/.test(ts) && !Number.isNaN(Date.parse(ts));
-}
+var isIsoUtc = isIsoTimestamp;
 function zeroTotals() {
   return { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
 }
@@ -542,7 +568,7 @@ function defaultConfig() {
       repo_defaults: {}
     },
     pricing: { version: null, unknown_model_policy: "tokens_only", models: {} },
-    budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14 },
+    budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14, demurrage_days: 14 },
     notices: { level: "normal" },
     audience_default: "self",
     detail_default: "standard",
@@ -956,6 +982,7 @@ function parseTranscript(raw, options) {
   const seenToolIds = /* @__PURE__ */ new Set();
   const commandTallies = /* @__PURE__ */ new Map();
   const readTallies = /* @__PURE__ */ new Map();
+  const overheadTurns = /* @__PURE__ */ new Set();
   const ensureTurn = () => {
     if (!currentTurn) {
       currentTurn = {
@@ -965,7 +992,8 @@ function parseTranscript(raw, options) {
         firstMessageId: null,
         lastMessageId: null,
         models: [],
-        waste: { retried_commands: 0, repeated_reads: 0 }
+        waste: { retried_commands: 0, repeated_reads: 0 },
+        overhead: false
       };
       turns.push(currentTurn);
     }
@@ -999,7 +1027,8 @@ function parseTranscript(raw, options) {
         firstMessageId: null,
         lastMessageId: null,
         models: [],
-        waste: { retried_commands: 0, repeated_reads: 0 }
+        waste: { retried_commands: 0, repeated_reads: 0 },
+        overhead: false
       };
       turns.push(currentTurn);
       continue;
@@ -1018,6 +1047,9 @@ function parseTranscript(raw, options) {
           const tally = commandTallies.get(tIdx) ?? /* @__PURE__ */ new Map();
           tally.set(block.command, (tally.get(block.command) ?? 0) + 1);
           commandTallies.set(tIdx, tally);
+          if (block.command.includes("bin/waybill") || block.command.includes("waybill.mjs")) {
+            overheadTurns.add(tIdx);
+          }
         }
         if (block.name === "Read" && block.file_path !== null) {
           const tally = readTallies.get(tIdx) ?? /* @__PURE__ */ new Map();
@@ -1092,6 +1124,7 @@ function parseTranscript(raw, options) {
     for (const n of readTallies.get(t.index)?.values() ?? []) {
       t.waste.repeated_reads += Math.max(0, n - 1);
     }
+    if (overheadTurns.has(t.index)) t.overhead = true;
   }
   const messageCount = byMessage.size;
   const nonEmptyTurns = turns.filter((t) => t.models.length > 0);
@@ -1111,7 +1144,7 @@ function parseTranscript(raw, options) {
 }
 
 // src/meter/meter.ts
-var METER_LOGIC_VERSION = "2";
+var METER_LOGIC_VERSION = "3";
 function priceTokens(config, model, tokens) {
   const version = config.pricing.version;
   const rates = resolveRate(config.pricing, model)?.rates;
@@ -1252,7 +1285,10 @@ function meterTranscript(input) {
         source: "transcript",
         transcript_version: transcript.version,
         raw_extra: extras,
-        waste
+        waste,
+        // Present only when true: non-overhead events keep their pre-1.6
+        // content addresses.
+        ...turn.overhead ? { overhead: true } : {}
       };
       if (prior) {
         const asPrior = finalizeEvent("usage", { ...body, supersedes: prior.supersedes });
@@ -1691,14 +1727,57 @@ function runBootstrap(home, args, json) {
   return 0;
 }
 
-// src/cli/cmd-init.ts
-import { execFileSync as execFileSync4 } from "node:child_process";
-import { existsSync as existsSync7, mkdirSync as mkdirSync2, readFileSync as readFileSync7, writeFileSync as writeFileSync3 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
+// src/cli/cmd-conventions.ts
+function runConventions(home, args, json) {
+  for (const a of args) {
+    process.stderr.write(`waybill conventions: unknown option ${a}
+`);
+    return 2;
+  }
+  const config = loadConfig(home);
+  const pattern = config.metering.branch_key_pattern;
+  const keys = config.tracker.project_keys;
+  const example = keys.length > 0 ? `${keys[0]}-123` : "PLAT-123";
+  const claudeMd = `## Commit & PR conventions (waybill receipts)
+
+Work in this repo is metered and attributed by the waybill plugin. Keep
+the receipts clean:
+
+- Branch names carry the story key: \`feat/${example}-short-slug\`.
+- Commit subjects lead with the key: \`${example}: what changed\`.
+- PR bodies carry a closing keyword where one applies: \`Fixes #12\`.
+- One story per session where practical; say "log it" when starting
+  sizeable work so the estimate is pre-registered, and "pin this session
+  to ${example}" when a session's account is ambiguous.
+`;
+  const hook = `#!/bin/sh
+# waybill commit-msg hook: prefix the story key from the branch when the
+# message doesn't already carry one. Install:
+#   save as .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+key=$(printf '%s' "$branch" | grep -oE '${pattern}' | head -n 1)
+[ -n "$key" ] || exit 0
+grep -qE '${pattern}' "$1" || {
+  tmp="$1.waybill" && printf '%s: ' "$key" | cat - "$1" > "$tmp" && mv "$tmp" "$1"
+}
+exit 0
+`;
+  if (json) {
+    process.stdout.write(JSON.stringify({ data: { claude_md: claudeMd, commit_msg_hook: hook } }, null, 2) + "\n");
+    return 0;
+  }
+  process.stdout.write(
+    "Receipt-friendly conventions \u2014 attribution improves because the inputs improve.\n\n\u2500\u2500\u2500 CLAUDE.md block (append to the repo's CLAUDE.md) " + "\u2500".repeat(10) + "\n\n" + claudeMd + "\n\u2500\u2500\u2500 commit-msg hook (optional; save as .git/hooks/commit-msg, chmod +x) \u2500\u2500\u2500\n\n" + hook + "\nEvery convention adopted raises resolver confidence and shrinks the inbox.\n"
+  );
+  return 0;
+}
+
+// src/cli/cmd-dashboard.ts
+import { existsSync as existsSync7, mkdirSync as mkdirSync2, readFileSync as readFileSync6, writeFileSync as writeFileSync3 } from "node:fs";
 import { join as join7 } from "node:path";
 
-// src/core/pricing-bundle.ts
-import { existsSync as existsSync6, readFileSync as readFileSync6 } from "node:fs";
+// src/core/references.ts
+import { existsSync as existsSync6 } from "node:fs";
 import { dirname, join as join6 } from "node:path";
 import { fileURLToPath } from "node:url";
 function findReferenceFile(filename) {
@@ -1717,11 +1796,588 @@ function findReferenceFile(filename) {
   }
   throw new Error(`bundled reference file not found: ${filename}`);
 }
+
+// src/projections/queries.ts
+function normalizeWindow(from, to) {
+  const check = (v, name) => {
+    if (v === null) return null;
+    if (!isIsoBound(v)) {
+      throw new Error(`--${name} must be an ISO date (YYYY-MM-DD or full ISO timestamp): ${v}`);
+    }
+    return v;
+  };
+  const f = check(from, "from");
+  let t = check(to, "to");
+  if (t !== null && /^\d{4}-\d{2}-\d{2}$/.test(t)) t = `${t}T23:59:59.999Z`;
+  return { from: f, to: t };
+}
+function inWindow2(ts, w) {
+  return inWindow(ts, w.from, w.to);
+}
+function totalTokens(u) {
+  return u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation;
+}
+function effectiveShipped(events) {
+  const byId = new Map(events.map((e) => [e.id, e]));
+  const out = [];
+  for (const e of authoritative(events)) {
+    if (e.kind !== "shipped" && e.kind !== "correction") continue;
+    let cur = e;
+    const seen = /* @__PURE__ */ new Set();
+    let shippedTs = null;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      if (cur.kind === "shipped") {
+        shippedTs = cur.ts;
+        break;
+      }
+      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : void 0;
+    }
+    if (shippedTs !== null) out.push({ entry: e, shipped_ts: shippedTs });
+  }
+  return out;
+}
+function isoWeek(ts) {
+  const d = new Date(Date.parse(ts));
+  const day = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - day + 3);
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const ftDay = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - ftDay + 3);
+  const week = 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 864e5));
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
+  const usage = authoritative(usageEvents).filter(
+    (u) => u.kind === "usage" && inWindow2(u.ts, window) && totalTokens(u) > 0
+  );
+  const accounts = /* @__PURE__ */ new Map();
+  const models = /* @__PURE__ */ new Map();
+  const weeks = /* @__PURE__ */ new Map();
+  const accountSessions = /* @__PURE__ */ new Map();
+  let total = 0;
+  let pricedTokens = 0;
+  let overheadTokens = 0;
+  const unpricedByModel = /* @__PURE__ */ new Set();
+  for (const u of usage) {
+    const t = totalTokens(u);
+    total += t;
+    if (u.overhead === true) overheadTokens += t;
+    if (u.cost_usd) pricedTokens += t;
+    else if (u.model !== "unknown") unpricedByModel.add(u.model);
+    const acc = accounts.get(u.attribution.account) ?? {
+      account: u.attribution.account,
+      tokens: 0,
+      input: 0,
+      output: 0,
+      cache_read: 0,
+      cache_creation: 0,
+      cost_usd: null,
+      min_confidence: 1,
+      resolvers: [],
+      sessions: 0,
+      waste: { retried_commands: 0, repeated_reads: 0 }
+    };
+    acc.tokens += t;
+    acc.input += u.tokens.input;
+    acc.output += u.tokens.output;
+    acc.cache_read += u.tokens.cache_read;
+    acc.cache_creation += u.tokens.cache_creation;
+    if (u.cost_usd) acc.cost_usd = Math.round(((acc.cost_usd ?? 0) + u.cost_usd.value) * 1e4) / 1e4;
+    if (u.attribution.confidence < acc.min_confidence) acc.min_confidence = u.attribution.confidence;
+    if (!acc.resolvers.includes(u.attribution.resolver)) acc.resolvers.push(u.attribution.resolver);
+    if (u.waste) {
+      acc.waste.retried_commands += u.waste.retried_commands;
+      acc.waste.repeated_reads += u.waste.repeated_reads;
+    }
+    accounts.set(u.attribution.account, acc);
+    const sess = accountSessions.get(u.attribution.account) ?? /* @__PURE__ */ new Set();
+    sess.add(u.session_id);
+    accountSessions.set(u.attribution.account, sess);
+    const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false, unpriced: 0 };
+    m.tokens += t;
+    if (u.cost_usd) {
+      m.cost = Math.round((m.cost + u.cost_usd.value) * 1e4) / 1e4;
+      m.priced = true;
+    } else {
+      m.unpriced += t;
+    }
+    models.set(u.model, m);
+    weeks.set(isoWeek(u.ts), (weeks.get(isoWeek(u.ts)) ?? 0) + t);
+  }
+  for (const [account, acc] of accounts) {
+    acc.sessions = accountSessions.get(account)?.size ?? 0;
+    acc.resolvers.sort();
+  }
+  const shippedKeys = new Set(
+    effectiveShipped(ledgerEvents).map((s) => s.entry.tracker_key).filter((k) => k !== null)
+  );
+  const openSpend = [...accounts.values()].filter((a) => a.account.startsWith("story:") && !shippedKeys.has(a.account.slice(6))).map((a) => ({ account: a.account, tokens: a.tokens })).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
+  const attributed = [...accounts.values()].filter((a) => a.account !== "unattributed" && a.min_confidence >= 0.6).reduce((n, a) => n + a.tokens, 0);
+  const openAmbiguities = countOpenAmbiguities(exceptionEvents);
+  const unattributed = accounts.get("unattributed")?.tokens ?? 0;
+  return {
+    window,
+    accounts: [...accounts.values()].sort(
+      (a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1)
+    ),
+    by_model: [...models.entries()].map(([model, m]) => ({ model, tokens: m.tokens, cost_usd: m.priced ? m.cost : null, unpriced_tokens: m.unpriced })).sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
+    by_week: [...weeks.entries()].map(([week, tokens]) => ({ week, tokens })).sort((a, b) => a.week < b.week ? -1 : 1),
+    total_tokens: total,
+    unattributed_tokens: unattributed,
+    unattributed_pct: total > 0 ? Math.round(unattributed / total * 1e3) / 10 : 0,
+    open_spend: openSpend,
+    attribution_health: {
+      attributed_pct_conf_060: total > 0 ? Math.round(attributed / total * 1e3) / 10 : 0,
+      inbox_open: openAmbiguities
+    },
+    pricing_version: config.pricing.version,
+    pricing_coverage: {
+      priced_tokens: pricedTokens,
+      unpriced_tokens: total - pricedTokens,
+      priced_pct: total > 0 ? Math.round(pricedTokens / total * 1e3) / 10 : 0,
+      unpriced_event_models: [...unpricedByModel].sort()
+    },
+    overhead: {
+      tokens: overheadTokens,
+      pct: total > 0 ? Math.round(overheadTokens / total * 1e3) / 10 : 0
+    }
+  };
+}
+function countOpenAmbiguities(exceptionEvents) {
+  const resolved = new Set(
+    exceptionEvents.filter((e) => e.kind === "resolution").map((e) => e.resolves)
+  );
+  return exceptionEvents.filter(
+    (e) => e.kind === "ambiguity" && !resolved.has(e.id)
+  ).length;
+}
+function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) {
+  const views = effectiveShipped(ledgerEvents).filter((s) => inWindow2(s.shipped_ts, window));
+  const spend = spendData(usageEvents, exceptionEvents, ledgerEvents, config, window);
+  const tokensByKey = /* @__PURE__ */ new Map();
+  for (const a of spend.accounts) {
+    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
+  }
+  const shipped = views.map(({ entry: e, shipped_ts }) => ({
+    id: e.id,
+    tracker_key: e.tracker_key,
+    title: e.title,
+    epic_key: e.epic_key,
+    epic_name: e.epic_name,
+    points: e.points,
+    prs: e.artifacts.prs,
+    deploy: e.artifacts.deploy,
+    ts: shipped_ts,
+    claude_role: e.claude_role,
+    metered_tokens: e.tracker_key !== null ? tokensByKey.get(e.tracker_key) ?? null : null,
+    escrowed: e.escrow !== null
+  })).sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
+  const entries = views.map((v) => v.entry);
+  const points2 = shipped.reduce((n, s) => n + (s.points ?? 0), 0);
+  const mergedPrs = shipped.reduce((n, s) => n + s.prs.length, 0);
+  const deploys = shipped.filter((s) => s.deploy !== null).length;
+  const meteredTokens = shipped.reduce((n, s) => n + (s.metered_tokens ?? 0), 0);
+  const saved = { pre: { low: 0, high: 0, n: 0 }, judgment: { low: 0, high: 0, n: 0 } };
+  for (const e of entries) {
+    const t = e.time_saved_hours;
+    if (!t) continue;
+    const bucket = t.basis === "judgment" ? saved.judgment : saved.pre;
+    bucket.low += t.low;
+    bucket.high += t.high;
+    bucket.n += 1;
+  }
+  const allocation = config.allocations[config.allocations.length - 1] ?? null;
+  return {
+    window,
+    shipped,
+    totals: { points: points2, merged_prs: mergedPrs, deploys, shipped_metered_tokens: meteredTokens },
+    efficiency: {
+      tokens_per_point: points2 > 0 && meteredTokens > 0 ? Math.round(meteredTokens / points2) : null,
+      tokens_per_pr: mergedPrs > 0 && meteredTokens > 0 ? Math.round(meteredTokens / mergedPrs) : null
+    },
+    time_saved: {
+      pre_registered_or_baseline: { low: saved.pre.low, high: saved.pre.high, entries: saved.pre.n },
+      judgment: { low: saved.judgment.low, high: saved.judgment.high, entries: saved.judgment.n }
+    },
+    costs: {
+      window_tokens: spend.total_tokens,
+      granted_tokens: allocation?.tokens_granted ?? null,
+      utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null,
+      unattributed_pct: spend.unattributed_pct,
+      reopened_count: views.filter((v) => v.entry.reopened === true).length,
+      waste: spend.accounts.reduce(
+        (w, a) => ({
+          retried_commands: w.retried_commands + a.waste.retried_commands,
+          repeated_reads: w.repeated_reads + a.waste.repeated_reads
+        }),
+        { retried_commands: 0, repeated_reads: 0 }
+      )
+    },
+    spend_ledger: spend,
+    baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null ? config.baseline : null
+  };
+}
+function forecastData(ledgerEvents, usageEvents, config) {
+  const spend = spendData(usageEvents, [], ledgerEvents, config, { from: null, to: null });
+  const tokensByKey = /* @__PURE__ */ new Map();
+  for (const a of spend.accounts) {
+    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
+  }
+  const shipped = effectiveShipped(ledgerEvents).filter(
+    (s) => s.entry.points !== null && s.entry.points > 0 && s.entry.tracker_key !== null && tokensByKey.has(s.entry.tracker_key)
+  ).sort((a, b) => a.shipped_ts < b.shipped_ts ? -1 : 1).map((s) => s.entry);
+  const recent = shipped.slice(-Math.max(5, Math.min(shipped.length, 10)));
+  const rates = recent.map((e) => tokensByKey.get(e.tracker_key) / e.points).sort((a, b) => a - b);
+  const mid = Math.floor(rates.length / 2);
+  const tokensPerPoint = rates.length === 0 ? null : Math.round(rates.length % 2 === 1 ? rates[mid] : (rates[mid - 1] + rates[mid]) / 2);
+  let savedLow = 0;
+  let savedHigh = 0;
+  let savedPoints = 0;
+  for (const e of recent) {
+    const t = e.time_saved_hours;
+    if (t && (t.basis === "pre_registered" || t.basis === "baseline") && e.points) {
+      savedLow += t.low;
+      savedHigh += t.high;
+      savedPoints += e.points;
+    }
+  }
+  const allocation = config.allocations[config.allocations.length - 1] ?? null;
+  return {
+    tokens_per_point: tokensPerPoint,
+    basis_entries: recent.length,
+    low_confidence: recent.length < 5,
+    window: {
+      first_ts: recent[0]?.ts ?? null,
+      last_ts: recent[recent.length - 1]?.ts ?? null
+    },
+    hours_saved_per_point: savedPoints > 0 ? {
+      low: Math.round(savedLow / savedPoints * 100) / 100,
+      high: Math.round(savedHigh / savedPoints * 100) / 100
+    } : null,
+    utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null
+  };
+}
+
+// src/projections/manifest.ts
+function totalTokens2(t) {
+  return t.input + t.output + t.cache_read + t.cache_creation;
+}
+function wholeDays(fromTs, toTs) {
+  const d = (Date.parse(toTs) - Date.parse(fromTs)) / 864e5;
+  return Number.isFinite(d) ? Math.max(0, Math.floor(d)) : 0;
+}
+function manifestData(ledgerEvents, usageEvents, config, nowIso2) {
+  const shipChained = new Set(effectiveShipped(ledgerEvents).map((v) => v.entry.id));
+  const byId = new Map(ledgerEvents.map((e) => [e.id, e]));
+  const spendByKey = /* @__PURE__ */ new Map();
+  for (const u of authoritative(usageEvents)) {
+    if (u.kind !== "usage") continue;
+    const account = u.attribution.account;
+    if (!account.startsWith("story:")) continue;
+    const key = account.slice(6);
+    const cur = spendByKey.get(key) ?? { tokens: 0, last: u.ts };
+    cur.tokens += totalTokens2(u.tokens);
+    if (u.ts > cur.last) cur.last = u.ts;
+    spendByKey.set(key, cur);
+  }
+  const demurrageDays = config.budgets.demurrage_days;
+  const openItems = [];
+  for (const head of authoritative(ledgerEvents)) {
+    if (head.kind === "pin" || shipChained.has(head.id)) continue;
+    const entry = head;
+    let cur = entry;
+    const seen = /* @__PURE__ */ new Set();
+    let openedTs = entry.ts;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      openedTs = cur.ts;
+      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : void 0;
+    }
+    const spend = entry.tracker_key !== null ? spendByKey.get(entry.tracker_key) : void 0;
+    const lastActivity = spend?.last ?? null;
+    const idleDays = lastActivity !== null ? wholeDays(lastActivity, nowIso2) : null;
+    openItems.push({
+      tracker_key: entry.tracker_key,
+      title: entry.title,
+      work_type: entry.work_type,
+      opened_ts: openedTs,
+      age_days: wholeDays(openedTs, nowIso2),
+      tokens: spend?.tokens ?? 0,
+      last_activity: lastActivity,
+      idle_days: idleDays,
+      sitting: (spend?.tokens ?? 0) > 0 && idleDays !== null && idleDays >= demurrageDays
+    });
+  }
+  openItems.sort((a, b) => b.tokens - a.tokens || (a.opened_ts < b.opened_ts ? -1 : 1));
+  return {
+    now: nowIso2,
+    demurrage_days: demurrageDays,
+    open_items: openItems,
+    open_tokens: openItems.reduce((n, i) => n + i.tokens, 0),
+    sitting: openItems.filter((i) => i.sitting).length
+  };
+}
+
+// src/projections/standup.ts
+function inWindow3(ts, w) {
+  return inWindow(ts, w.from, w.to);
+}
+function totalTokens3(t) {
+  return t.input + t.output + t.cache_read + t.cache_creation;
+}
+function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, config, window, label = null) {
+  const usage = authoritative(usageEvents).filter(
+    (u) => u.kind === "usage" && inWindow3(u.ts, window) && totalTokens3(u.tokens) > 0
+  );
+  const shippedViews = effectiveShipped(ledgerEvents).filter((s) => inWindow3(s.shipped_ts, window));
+  const shipped = shippedViews.map(({ entry: e, shipped_ts }) => ({
+    tracker_key: e.tracker_key,
+    title: e.title,
+    points: e.points,
+    prs: e.artifacts.prs,
+    deploy: e.artifacts.deploy,
+    ts: shipped_ts,
+    claude_role: e.claude_role,
+    escrowed: e.escrow !== null
+  })).sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
+  const shippedKeys = new Set(shipped.map((s) => s.tracker_key).filter((k) => k !== null));
+  const authEntries = authoritative(ledgerEvents).filter(
+    (e) => e.kind !== "pin"
+  );
+  const titleByKey = /* @__PURE__ */ new Map();
+  for (const e of authEntries) {
+    if (e.tracker_key !== null) titleByKey.set(e.tracker_key, e.title);
+  }
+  const byAccount = /* @__PURE__ */ new Map();
+  const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
+  let cost = null;
+  const unpriced = /* @__PURE__ */ new Map();
+  const waste = { retried_commands: 0, repeated_reads: 0 };
+  for (const u of usage) {
+    totals.input += u.tokens.input;
+    totals.output += u.tokens.output;
+    totals.cache_read += u.tokens.cache_read;
+    totals.cache_creation += u.tokens.cache_creation;
+    if (u.cost_usd) cost = Math.round(((cost ?? 0) + u.cost_usd.value) * 1e4) / 1e4;
+    else unpriced.set(u.model, (unpriced.get(u.model) ?? 0) + totalTokens3(u.tokens));
+    if (u.waste) {
+      waste.retried_commands += u.waste.retried_commands;
+      waste.repeated_reads += u.waste.repeated_reads;
+    }
+    const acc = byAccount.get(u.attribution.account) ?? {
+      tokens: 0,
+      sessions: /* @__PURE__ */ new Set(),
+      last_ts: u.ts
+    };
+    acc.tokens += totalTokens3(u.tokens);
+    acc.sessions.add(u.session_id);
+    if (u.ts > acc.last_ts) acc.last_ts = u.ts;
+    byAccount.set(u.attribution.account, acc);
+  }
+  const allShippedKeys = new Set(
+    effectiveShipped(ledgerEvents).map((s) => s.entry.tracker_key).filter((k) => k !== null)
+  );
+  const progressed = [...byAccount.entries()].filter(([account]) => {
+    if (account === "unattributed") return false;
+    const key = account.startsWith("story:") ? account.slice(6) : null;
+    return key === null || !shippedKeys.has(key);
+  }).map(([account, a]) => {
+    const key = account.startsWith("story:") ? account.slice(6) : null;
+    return {
+      account,
+      title: key !== null ? titleByKey.get(key) ?? null : null,
+      tokens: a.tokens,
+      sessions: a.sessions.size,
+      last_ts: a.last_ts,
+      shipped_earlier: key !== null && allShippedKeys.has(key)
+    };
+  }).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
+  const byId = new Map(ledgerEvents.map((e) => [e.id, e]));
+  const opened = authoritative(ledgerEvents).filter((e) => e.kind !== "pin").map((head) => {
+    let cur = head;
+    const seen = /* @__PURE__ */ new Set();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      if (cur.kind === "opened") return { head, opened_ts: cur.ts };
+      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : void 0;
+    }
+    return null;
+  }).filter((v) => v !== null && inWindow3(v.opened_ts, window)).map(({ head, opened_ts }) => ({
+    tracker_key: head.tracker_key,
+    title: head.title,
+    ts: opened_ts,
+    pre_registered: head.estimate_without_claude_hours?.pre_registered === true
+  })).sort((a, b) => a.ts < b.ts ? -1 : 1);
+  const receipts = authoritative(sessionEvents).filter((s) => {
+    if (s.kind !== "session") return false;
+    return (window.from === null || inWindow3(s.last_ts, { from: window.from, to: null })) && (window.to === null || inWindow3(s.first_ts, { from: null, to: window.to }));
+  });
+  const repos = [];
+  const branches = [];
+  let turns = 0;
+  for (const s of receipts) {
+    if (s.repo !== null && !repos.includes(s.repo)) repos.push(s.repo);
+    for (const b of s.branches) if (!branches.includes(b)) branches.push(b);
+    turns += s.turns;
+  }
+  repos.sort();
+  branches.sort();
+  const total = totalTokens3(totals);
+  const unattributed = byAccount.get("unattributed")?.tokens ?? 0;
+  const unpricedTokens = [...unpriced.values()].reduce((n, t) => n + t, 0);
+  return {
+    window: { from: window.from ?? "", to: window.to ?? "", label },
+    shipped,
+    progressed,
+    opened,
+    session_summary: { count: receipts.length, repos, branches, turns },
+    tokens: {
+      total,
+      totals,
+      cost_usd: cost,
+      pricing_version: config.pricing.version,
+      unpriced_models: [...unpriced.keys()].filter((m) => m !== "unknown").sort(),
+      unpriced_tokens: unpricedTokens
+    },
+    waste,
+    attention: {
+      inbox_open: countOpenAmbiguities(exceptionEvents),
+      unattributed_tokens: unattributed,
+      unattributed_pct: total > 0 ? Math.round(unattributed / total * 1e3) / 10 : 0
+    }
+  };
+}
+function localDayWindow(base, offsetDays) {
+  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays, 0, 0, 0, 0);
+  const end = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays + 1, 0, 0, 0, 0);
+  return {
+    from: start.toISOString(),
+    to: new Date(end.getTime() - 1).toISOString()
+  };
+}
+function resolveStandupWindow(args, now) {
+  if (args.from !== null || args.to !== null) {
+    return { window: normalizeWindow(args.from, args.to), label: null };
+  }
+  if (args.days !== null) {
+    if (!Number.isFinite(args.days) || args.days <= 0 || !Number.isInteger(args.days)) {
+      throw new Error("--days must be a positive integer");
+    }
+    const first = localDayWindow(now, -(args.days - 1));
+    const last = localDayWindow(now, 0);
+    return {
+      window: { from: first.from, to: last.to },
+      label: `last ${args.days} day(s)`
+    };
+  }
+  const date = args.date ?? "yesterday";
+  if (date === "yesterday" || date === "today") {
+    const w2 = localDayWindow(now, date === "yesterday" ? -1 : 0);
+    return { window: w2, label: date };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(`--date must be yesterday, today, or YYYY-MM-DD (got: ${date})`);
+  }
+  const [y, m, d] = date.split("-").map(Number);
+  const base = new Date(y, m - 1, d);
+  if (base.getFullYear() !== y || base.getMonth() !== m - 1 || base.getDate() !== d) {
+    throw new Error(`--date is not a real calendar date: ${date}`);
+  }
+  const w = localDayWindow(base, 0);
+  return { window: w, label: date };
+}
+
+// src/cli/cmd-dashboard.ts
+function generateDashboard(home, nowIso2) {
+  const config = loadConfig(home);
+  const ledger = readEvents(home, "ledger");
+  const usage = readEvents(home, "usage");
+  const sessions = readEvents(home, "sessions");
+  const exceptions = readEvents(home, "exceptions");
+  const now = new Date(nowIso2);
+  const iso = (d) => d.toISOString();
+  const daysAgo = (n) => iso(new Date(now.getTime() - n * 864e5));
+  const spend30 = spendData(usage, exceptions, ledger, config, { from: daysAgo(30), to: nowIso2 });
+  const spend12w = spendData(usage, exceptions, ledger, config, { from: daysAgo(84), to: nowIso2 });
+  const week = { from: localDayWindow(now, -6).from, to: localDayWindow(now, 0).to };
+  const standup = standupData(ledger, usage, sessions, exceptions, config, week, "last 7 day(s)");
+  const manifest = manifestData(ledger, usage, config, nowIso2);
+  const data = {
+    generated_at: nowIso2,
+    engine: ENGINE_VERSION,
+    spend30,
+    weeks: spend12w.by_week.slice(-12),
+    standup,
+    manifest
+  };
+  const template = readFileSync6(findReferenceFile("dashboard-template.html"), "utf8");
+  const payload = JSON.stringify(data).replace(/</g, "\\u003c");
+  const html = template.replace("__WAYBILL_DATA__", payload);
+  const dir = join7(home, "rollups");
+  mkdirSync2(dir, { recursive: true });
+  const out = join7(dir, "dashboard.html");
+  writeFileSync3(out, html, "utf8");
+  return out;
+}
+function refreshDashboardIfPresent(home) {
+  try {
+    if (existsSync7(join7(home, "rollups", "dashboard.html"))) {
+      generateDashboard(home, (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"));
+    }
+  } catch {
+  }
+}
+function runDashboard(home, args, json) {
+  let nowIso2 = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--now") {
+      const v = args[++i];
+      if (!v || Number.isNaN(Date.parse(v))) {
+        process.stderr.write("waybill dashboard: --now needs an ISO timestamp\n");
+        return 2;
+      }
+      nowIso2 = v;
+    } else {
+      process.stderr.write(`waybill dashboard: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  let out;
+  try {
+    out = generateDashboard(home, nowIso2);
+  } catch (err) {
+    process.stderr.write(`waybill dashboard: ${err.message}
+`);
+    return 1;
+  }
+  if (json) {
+    process.stdout.write(JSON.stringify({ data: { path: out, generated_at: nowIso2 } }) + "\n");
+  } else {
+    process.stdout.write(
+      `wrote ${out}
+Open it in a browser \u2014 reading your numbers costs zero tokens. The miner refreshes it after each session; regenerate any time with: waybill dashboard
+`
+    );
+  }
+  return 0;
+}
+
+// src/cli/cmd-init.ts
+import { execFileSync as execFileSync4 } from "node:child_process";
+import { existsSync as existsSync8, mkdirSync as mkdirSync3, readFileSync as readFileSync8, writeFileSync as writeFileSync4 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { join as join8 } from "node:path";
+
+// src/core/pricing-bundle.ts
+import { readFileSync as readFileSync7 } from "node:fs";
 var cached = null;
 function loadPricingBundle() {
   if (cached) return cached;
   const path = findReferenceFile("anthropic-pricing.json");
-  cached = JSON.parse(readFileSync6(path, "utf8"));
+  cached = JSON.parse(readFileSync7(path, "utf8"));
   return cached;
 }
 function resolveBundledModel(bundle, nameOrAlias) {
@@ -1931,9 +2587,9 @@ function tryExec(cmd, args) {
 function checkRetention(claudeSettingsPath) {
   let days = null;
   const readDays = (path) => {
-    if (!existsSync7(path)) return null;
+    if (!existsSync8(path)) return null;
     try {
-      const settings = JSON.parse(readFileSync7(path, "utf8"));
+      const settings = JSON.parse(readFileSync8(path, "utf8"));
       return typeof settings["cleanupPeriodDays"] === "number" ? settings["cleanupPeriodDays"] : null;
     } catch {
       return null;
@@ -1986,7 +2642,7 @@ function buildIdentity() {
   };
 }
 function runInit(home, args, json) {
-  let claudeSettings = join7(homedir3(), ".claude", "settings.json");
+  let claudeSettings = join8(homedir3(), ".claude", "settings.json");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
@@ -1996,9 +2652,9 @@ function runInit(home, args, json) {
       return 2;
     }
   }
-  mkdirSync2(join7(home, "pending-sessions"), { recursive: true });
-  mkdirSync2(join7(home, "rollups"), { recursive: true });
-  const freshConfig = !existsSync7(join7(home, "config.json"));
+  mkdirSync3(join8(home, "pending-sessions"), { recursive: true });
+  mkdirSync3(join8(home, "rollups"), { recursive: true });
+  const freshConfig = !existsSync8(join8(home, "config.json"));
   const config = freshConfig ? defaultConfig() : loadConfig(home);
   const cwdRepo = repoFromCwd(process.cwd());
   if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
@@ -2012,10 +2668,10 @@ function runInit(home, args, json) {
   saveConfig(home, config);
   const identity = buildIdentity();
   saveIdentity(home, identity);
-  if (!existsSync7(join7(home, ".git"))) {
+  if (!existsSync8(join8(home, ".git"))) {
     git(home, ["init", "-b", "main"]);
   }
-  writeFileSync3(join7(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
+  writeFileSync4(join8(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);
@@ -2096,24 +2752,24 @@ function runInit(home, args, json) {
 }
 
 // src/cli/cmd-meter.ts
-import { readFileSync as readFileSync9 } from "node:fs";
+import { readFileSync as readFileSync10 } from "node:fs";
 
 // src/meter/lock.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync8, renameSync as renameSync2, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { join as join8 } from "node:path";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync9, renameSync as renameSync2, rmSync, unlinkSync, writeFileSync as writeFileSync5 } from "node:fs";
+import { join as join9 } from "node:path";
 function lockPath(home) {
-  return join8(home, "pending-sessions", ".miner.lock");
+  return join9(home, "pending-sessions", ".miner.lock");
 }
 function acquireLock(home) {
-  mkdirSync3(join8(home, "pending-sessions"), { recursive: true });
+  mkdirSync4(join9(home, "pending-sessions"), { recursive: true });
   const p = lockPath(home);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      writeFileSync4(p, String(process.pid), { flag: "wx" });
+      writeFileSync5(p, String(process.pid), { flag: "wx" });
       return true;
     } catch {
       try {
-        const pid = Number(readFileSync8(p, "utf8").trim());
+        const pid = Number(readFileSync9(p, "utf8").trim());
         if (Number.isInteger(pid) && pid > 0) {
           process.kill(pid, 0);
           return false;
@@ -2275,6 +2931,7 @@ function meterOtel(input) {
         firstMessageId: null,
         lastMessageId: null,
         models: [],
+        overhead: false,
         waste: { retried_commands: 0, repeated_reads: 0 }
       };
       const { attribution: attribution2 } = resolveTurn(syntheticTurn, ctx);
@@ -2392,7 +3049,7 @@ async function runMeter(home, args, json) {
     }
     try {
       const out = meterOtel({
-        raw: readFileSync9(otel, "utf8"),
+        raw: readFileSync10(otel, "utf8"),
         config: loadConfig(home),
         ledgerEvents: readEvents(home, "ledger"),
         existingUsage: readEvents(home, "usage"),
@@ -2459,8 +3116,8 @@ async function runMeter(home, args, json) {
 
 // src/cli/cmd-mine.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync8, mkdirSync as mkdirSync4, readFileSync as readFileSync10, readdirSync as readdirSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { join as join9 } from "node:path";
+import { existsSync as existsSync9, mkdirSync as mkdirSync5, readFileSync as readFileSync11, readdirSync as readdirSync3, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join10 } from "node:path";
 function commitLedger(home) {
   try {
     execFileSync5("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
@@ -2516,8 +3173,8 @@ function runMine(home, args, json) {
     );
     return 0;
   }
-  const queueDir = join9(home, "pending-sessions");
-  mkdirSync4(queueDir, { recursive: true });
+  const queueDir = join10(home, "pending-sessions");
+  mkdirSync5(queueDir, { recursive: true });
   if (!acquireLock(home)) {
     process.stdout.write(
       json ? JSON.stringify({ locked: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n" : "mined: 0 new (another metering process is running \u2014 queue intact)\n"
@@ -2531,22 +3188,22 @@ function runMine(home, args, json) {
   try {
     const files = readdirSync3(queueDir).filter((f) => f.endsWith(".json")).sort();
     for (const f of files) {
-      const path = join9(queueDir, f);
+      const path = join10(queueDir, f);
       let capture;
       try {
-        capture = JSON.parse(readFileSync10(path, "utf8"));
+        capture = JSON.parse(readFileSync11(path, "utf8"));
       } catch {
         continue;
       }
       if (capture.mined === true || typeof capture.mined === "string") continue;
       const transcript = capture.transcript_path;
-      if (typeof transcript !== "string" || !existsSync8(transcript)) {
+      if (typeof transcript !== "string" || !existsSync9(transcript)) {
         if (typeof capture.session_id === "string") {
           recordGap(home, capture.session_id, gapTs(capture), "transcript_pruned");
         }
         gaps += 1;
         capture.mined = "gap";
-        writeFileSync5(path, JSON.stringify(capture) + "\n", "utf8");
+        writeFileSync6(path, JSON.stringify(capture) + "\n", "utf8");
         continue;
       }
       try {
@@ -2554,7 +3211,7 @@ function runMine(home, args, json) {
         capture.mined = true;
         capture["mined_session_id"] = result.session_id;
         capture["mined_usage_events"] = result.usage;
-        writeFileSync5(path, JSON.stringify(capture) + "\n", "utf8");
+        writeFileSync6(path, JSON.stringify(capture) + "\n", "utf8");
         if (result.skipped) alreadyCurrent += 1;
         else if (result.remetered) remetered += 1;
         else minedNew += 1;
@@ -2579,7 +3236,10 @@ function runMine(home, args, json) {
   } finally {
     releaseLock(home);
   }
-  if (minedNew + remetered > 0) commitLedger(home);
+  if (minedNew + remetered > 0) {
+    commitLedger(home);
+    refreshDashboardIfPresent(home);
+  }
   if (json) {
     process.stdout.write(
       JSON.stringify({
@@ -2596,273 +3256,6 @@ function runMine(home, args, json) {
 `
   );
   return 0;
-}
-
-// src/projections/queries.ts
-var ISO_BOUND_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
-function normalizeWindow(from, to) {
-  const check = (v, name) => {
-    if (v === null) return null;
-    if (!ISO_BOUND_RE.test(v) || Number.isNaN(Date.parse(v))) {
-      throw new Error(`--${name} must be an ISO date (YYYY-MM-DD or full ISO timestamp): ${v}`);
-    }
-    return v;
-  };
-  const f = check(from, "from");
-  let t = check(to, "to");
-  if (t !== null && /^\d{4}-\d{2}-\d{2}$/.test(t)) t = `${t}T23:59:59.999Z`;
-  return { from: f, to: t };
-}
-function inWindow(ts, w) {
-  const t = Date.parse(ts);
-  const from = w.from !== null ? Date.parse(w.from) : null;
-  const to = w.to !== null ? Date.parse(w.to) : null;
-  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
-    if (from !== null && t < from) return false;
-    if (to !== null && t > to) return false;
-    return true;
-  }
-  if (w.from !== null && ts < w.from) return false;
-  if (w.to !== null && ts > w.to) return false;
-  return true;
-}
-function totalTokens(u) {
-  return u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation;
-}
-function effectiveShipped(events) {
-  const byId = new Map(events.map((e) => [e.id, e]));
-  const out = [];
-  for (const e of authoritative(events)) {
-    if (e.kind !== "shipped" && e.kind !== "correction") continue;
-    let cur = e;
-    const seen = /* @__PURE__ */ new Set();
-    let shippedTs = null;
-    while (cur && !seen.has(cur.id)) {
-      seen.add(cur.id);
-      if (cur.kind === "shipped") {
-        shippedTs = cur.ts;
-        break;
-      }
-      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : void 0;
-    }
-    if (shippedTs !== null) out.push({ entry: e, shipped_ts: shippedTs });
-  }
-  return out;
-}
-function isoWeek(ts) {
-  const d = new Date(Date.parse(ts));
-  const day = (d.getUTCDay() + 6) % 7;
-  d.setUTCDate(d.getUTCDate() - day + 3);
-  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-  const ftDay = (firstThursday.getUTCDay() + 6) % 7;
-  firstThursday.setUTCDate(firstThursday.getUTCDate() - ftDay + 3);
-  const week = 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 864e5));
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
-  const usage = authoritative(usageEvents).filter(
-    (u) => u.kind === "usage" && inWindow(u.ts, window) && totalTokens(u) > 0
-  );
-  const accounts = /* @__PURE__ */ new Map();
-  const models = /* @__PURE__ */ new Map();
-  const weeks = /* @__PURE__ */ new Map();
-  const accountSessions = /* @__PURE__ */ new Map();
-  let total = 0;
-  let pricedTokens = 0;
-  const unpricedByModel = /* @__PURE__ */ new Set();
-  for (const u of usage) {
-    const t = totalTokens(u);
-    total += t;
-    if (u.cost_usd) pricedTokens += t;
-    else if (u.model !== "unknown") unpricedByModel.add(u.model);
-    const acc = accounts.get(u.attribution.account) ?? {
-      account: u.attribution.account,
-      tokens: 0,
-      input: 0,
-      output: 0,
-      cache_read: 0,
-      cache_creation: 0,
-      cost_usd: null,
-      min_confidence: 1,
-      resolvers: [],
-      sessions: 0,
-      waste: { retried_commands: 0, repeated_reads: 0 }
-    };
-    acc.tokens += t;
-    acc.input += u.tokens.input;
-    acc.output += u.tokens.output;
-    acc.cache_read += u.tokens.cache_read;
-    acc.cache_creation += u.tokens.cache_creation;
-    if (u.cost_usd) acc.cost_usd = Math.round(((acc.cost_usd ?? 0) + u.cost_usd.value) * 1e4) / 1e4;
-    if (u.attribution.confidence < acc.min_confidence) acc.min_confidence = u.attribution.confidence;
-    if (!acc.resolvers.includes(u.attribution.resolver)) acc.resolvers.push(u.attribution.resolver);
-    if (u.waste) {
-      acc.waste.retried_commands += u.waste.retried_commands;
-      acc.waste.repeated_reads += u.waste.repeated_reads;
-    }
-    accounts.set(u.attribution.account, acc);
-    const sess = accountSessions.get(u.attribution.account) ?? /* @__PURE__ */ new Set();
-    sess.add(u.session_id);
-    accountSessions.set(u.attribution.account, sess);
-    const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false, unpriced: 0 };
-    m.tokens += t;
-    if (u.cost_usd) {
-      m.cost = Math.round((m.cost + u.cost_usd.value) * 1e4) / 1e4;
-      m.priced = true;
-    } else {
-      m.unpriced += t;
-    }
-    models.set(u.model, m);
-    weeks.set(isoWeek(u.ts), (weeks.get(isoWeek(u.ts)) ?? 0) + t);
-  }
-  for (const [account, acc] of accounts) {
-    acc.sessions = accountSessions.get(account)?.size ?? 0;
-    acc.resolvers.sort();
-  }
-  const shippedKeys = new Set(
-    effectiveShipped(ledgerEvents).map((s) => s.entry.tracker_key).filter((k) => k !== null)
-  );
-  const openSpend = [...accounts.values()].filter((a) => a.account.startsWith("story:") && !shippedKeys.has(a.account.slice(6))).map((a) => ({ account: a.account, tokens: a.tokens })).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
-  const attributed = [...accounts.values()].filter((a) => a.account !== "unattributed" && a.min_confidence >= 0.6).reduce((n, a) => n + a.tokens, 0);
-  const openAmbiguities = countOpenAmbiguities(exceptionEvents);
-  const unattributed = accounts.get("unattributed")?.tokens ?? 0;
-  return {
-    window,
-    accounts: [...accounts.values()].sort(
-      (a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1)
-    ),
-    by_model: [...models.entries()].map(([model, m]) => ({ model, tokens: m.tokens, cost_usd: m.priced ? m.cost : null, unpriced_tokens: m.unpriced })).sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
-    by_week: [...weeks.entries()].map(([week, tokens]) => ({ week, tokens })).sort((a, b) => a.week < b.week ? -1 : 1),
-    total_tokens: total,
-    unattributed_tokens: unattributed,
-    unattributed_pct: total > 0 ? Math.round(unattributed / total * 1e3) / 10 : 0,
-    open_spend: openSpend,
-    attribution_health: {
-      attributed_pct_conf_060: total > 0 ? Math.round(attributed / total * 1e3) / 10 : 0,
-      inbox_open: openAmbiguities
-    },
-    pricing_version: config.pricing.version,
-    pricing_coverage: {
-      priced_tokens: pricedTokens,
-      unpriced_tokens: total - pricedTokens,
-      priced_pct: total > 0 ? Math.round(pricedTokens / total * 1e3) / 10 : 0,
-      unpriced_event_models: [...unpricedByModel].sort()
-    }
-  };
-}
-function countOpenAmbiguities(exceptionEvents) {
-  const resolved = new Set(
-    exceptionEvents.filter((e) => e.kind === "resolution").map((e) => e.resolves)
-  );
-  return exceptionEvents.filter(
-    (e) => e.kind === "ambiguity" && !resolved.has(e.id)
-  ).length;
-}
-function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) {
-  const views = effectiveShipped(ledgerEvents).filter((s) => inWindow(s.shipped_ts, window));
-  const spend = spendData(usageEvents, exceptionEvents, ledgerEvents, config, window);
-  const tokensByKey = /* @__PURE__ */ new Map();
-  for (const a of spend.accounts) {
-    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
-  }
-  const shipped = views.map(({ entry: e, shipped_ts }) => ({
-    id: e.id,
-    tracker_key: e.tracker_key,
-    title: e.title,
-    epic_key: e.epic_key,
-    epic_name: e.epic_name,
-    points: e.points,
-    prs: e.artifacts.prs,
-    deploy: e.artifacts.deploy,
-    ts: shipped_ts,
-    claude_role: e.claude_role,
-    metered_tokens: e.tracker_key !== null ? tokensByKey.get(e.tracker_key) ?? null : null,
-    escrowed: e.escrow !== null
-  })).sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
-  const entries = views.map((v) => v.entry);
-  const points2 = shipped.reduce((n, s) => n + (s.points ?? 0), 0);
-  const mergedPrs = shipped.reduce((n, s) => n + s.prs.length, 0);
-  const deploys = shipped.filter((s) => s.deploy !== null).length;
-  const meteredTokens = shipped.reduce((n, s) => n + (s.metered_tokens ?? 0), 0);
-  const saved = { pre: { low: 0, high: 0, n: 0 }, judgment: { low: 0, high: 0, n: 0 } };
-  for (const e of entries) {
-    const t = e.time_saved_hours;
-    if (!t) continue;
-    const bucket = t.basis === "judgment" ? saved.judgment : saved.pre;
-    bucket.low += t.low;
-    bucket.high += t.high;
-    bucket.n += 1;
-  }
-  const allocation = config.allocations[config.allocations.length - 1] ?? null;
-  return {
-    window,
-    shipped,
-    totals: { points: points2, merged_prs: mergedPrs, deploys, shipped_metered_tokens: meteredTokens },
-    efficiency: {
-      tokens_per_point: points2 > 0 && meteredTokens > 0 ? Math.round(meteredTokens / points2) : null,
-      tokens_per_pr: mergedPrs > 0 && meteredTokens > 0 ? Math.round(meteredTokens / mergedPrs) : null
-    },
-    time_saved: {
-      pre_registered_or_baseline: { low: saved.pre.low, high: saved.pre.high, entries: saved.pre.n },
-      judgment: { low: saved.judgment.low, high: saved.judgment.high, entries: saved.judgment.n }
-    },
-    costs: {
-      window_tokens: spend.total_tokens,
-      granted_tokens: allocation?.tokens_granted ?? null,
-      utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null,
-      unattributed_pct: spend.unattributed_pct,
-      reopened_count: views.filter((v) => v.entry.reopened === true).length,
-      waste: spend.accounts.reduce(
-        (w, a) => ({
-          retried_commands: w.retried_commands + a.waste.retried_commands,
-          repeated_reads: w.repeated_reads + a.waste.repeated_reads
-        }),
-        { retried_commands: 0, repeated_reads: 0 }
-      )
-    },
-    spend_ledger: spend,
-    baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null ? config.baseline : null
-  };
-}
-function forecastData(ledgerEvents, usageEvents, config) {
-  const spend = spendData(usageEvents, [], ledgerEvents, config, { from: null, to: null });
-  const tokensByKey = /* @__PURE__ */ new Map();
-  for (const a of spend.accounts) {
-    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
-  }
-  const shipped = effectiveShipped(ledgerEvents).filter(
-    (s) => s.entry.points !== null && s.entry.points > 0 && s.entry.tracker_key !== null && tokensByKey.has(s.entry.tracker_key)
-  ).sort((a, b) => a.shipped_ts < b.shipped_ts ? -1 : 1).map((s) => s.entry);
-  const recent = shipped.slice(-Math.max(5, Math.min(shipped.length, 10)));
-  const rates = recent.map((e) => tokensByKey.get(e.tracker_key) / e.points).sort((a, b) => a - b);
-  const mid = Math.floor(rates.length / 2);
-  const tokensPerPoint = rates.length === 0 ? null : Math.round(rates.length % 2 === 1 ? rates[mid] : (rates[mid - 1] + rates[mid]) / 2);
-  let savedLow = 0;
-  let savedHigh = 0;
-  let savedPoints = 0;
-  for (const e of recent) {
-    const t = e.time_saved_hours;
-    if (t && (t.basis === "pre_registered" || t.basis === "baseline") && e.points) {
-      savedLow += t.low;
-      savedHigh += t.high;
-      savedPoints += e.points;
-    }
-  }
-  const allocation = config.allocations[config.allocations.length - 1] ?? null;
-  return {
-    tokens_per_point: tokensPerPoint,
-    basis_entries: recent.length,
-    low_confidence: recent.length < 5,
-    window: {
-      first_ts: recent[0]?.ts ?? null,
-      last_ts: recent[recent.length - 1]?.ts ?? null
-    },
-    hours_saved_per_point: savedPoints > 0 ? {
-      low: Math.round(savedLow / savedPoints * 100) / 100,
-      high: Math.round(savedHigh / savedPoints * 100) / 100
-    } : null,
-    utilization_pct: allocation && allocation.tokens_granted > 0 ? Math.round(spend.total_tokens / allocation.tokens_granted * 1e3) / 10 : null
-  };
 }
 
 // src/report/redaction.ts
@@ -3080,8 +3473,8 @@ function runExport(home, args, json) {
 }
 
 // src/cli/cmd-pace.ts
-import { existsSync as existsSync9, mkdirSync as mkdirSync5, readFileSync as readFileSync11, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join10 } from "node:path";
+import { existsSync as existsSync10, mkdirSync as mkdirSync6, readFileSync as readFileSync12, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join11 } from "node:path";
 
 // src/projections/pace.ts
 function periodWindow(period, grantedAt) {
@@ -3221,32 +3614,32 @@ function renderPace(p) {
 
 // src/cli/cmd-pace.ts
 function stateFile(home) {
-  return join10(home, "rollups", "pace-state.json");
+  return join11(home, "rollups", "pace-state.json");
 }
 function loadPaceState(home) {
   const p = stateFile(home);
-  if (!existsSync9(p)) return null;
+  if (!existsSync10(p)) return null;
   try {
-    return JSON.parse(readFileSync11(p, "utf8"));
+    return JSON.parse(readFileSync12(p, "utf8"));
   } catch {
     return null;
   }
 }
 function firstRunFile(home) {
-  return join10(home, "rollups", "first-run.json");
+  return join11(home, "rollups", "first-run.json");
 }
 function loadFirstRun(home) {
   const p = firstRunFile(home);
-  if (!existsSync9(p)) return {};
+  if (!existsSync10(p)) return {};
   try {
-    return JSON.parse(readFileSync11(p, "utf8"));
+    return JSON.parse(readFileSync12(p, "utf8"));
   } catch {
     return {};
   }
 }
 function saveFirstRun(home, state) {
-  mkdirSync5(join10(home, "rollups"), { recursive: true });
-  writeFileSync6(firstRunFile(home), JSON.stringify(state) + "\n", "utf8");
+  mkdirSync6(join11(home, "rollups"), { recursive: true });
+  writeFileSync7(firstRunFile(home), JSON.stringify(state) + "\n", "utf8");
 }
 function runPace(home, args, json) {
   let notice = false;
@@ -3295,8 +3688,8 @@ function runPace(home, args, json) {
       }
       if (lines.length > 0) {
         process.stdout.write(lines.join("\n") + "\n");
-        mkdirSync5(join10(home, "rollups"), { recursive: true });
-        writeFileSync6(
+        mkdirSync6(join11(home, "rollups"), { recursive: true });
+        writeFileSync7(
           stateFile(home),
           JSON.stringify({
             period: pace.allocation.period,
@@ -3310,7 +3703,7 @@ function runPace(home, args, json) {
     }
     if (level !== "normal") return 0;
     const firstRun = loadFirstRun(home);
-    if (!existsSync9(configPath(home))) {
+    if (!existsSync10(configPath(home))) {
       if (firstRun.uninitialized_announced !== true) {
         process.stdout.write(
           'waybill: not initialized. Say "initialize my waybill ledger" \u2014 60s, no auth.\n'
@@ -3339,15 +3732,15 @@ function runPace(home, args, json) {
 }
 
 // src/cli/cmd-status.ts
-import { existsSync as existsSync10, readFileSync as readFileSync12, readdirSync as readdirSync4 } from "node:fs";
+import { existsSync as existsSync11, readFileSync as readFileSync13, readdirSync as readdirSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 import { execFileSync as execFileSync6 } from "node:child_process";
 function fmtInt2(n) {
   return n.toLocaleString("en-US");
 }
 function runStatus(home, args, json) {
-  let claudeSettings = join11(homedir4(), ".claude", "settings.json");
+  let claudeSettings = join12(homedir4(), ".claude", "settings.json");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
@@ -3357,16 +3750,16 @@ function runStatus(home, args, json) {
       return 2;
     }
   }
-  const initialized = existsSync10(join11(home, "config.json"));
+  const initialized = existsSync11(join12(home, "config.json"));
   const config = loadConfig(home);
   const retention = checkRetention(claudeSettings);
   let pendingUnmined = 0;
-  const queueDir = join11(home, "pending-sessions");
-  if (existsSync10(queueDir)) {
+  const queueDir = join12(home, "pending-sessions");
+  if (existsSync11(queueDir)) {
     for (const f of readdirSync4(queueDir)) {
       if (!f.endsWith(".json")) continue;
       try {
-        const capture = JSON.parse(readFileSync12(join11(queueDir, f), "utf8"));
+        const capture = JSON.parse(readFileSync13(join12(queueDir, f), "utf8"));
         if (capture.mined !== true && typeof capture.mined !== "string") pendingUnmined += 1;
       } catch {
         pendingUnmined += 1;
@@ -3377,6 +3770,7 @@ function runStatus(home, args, json) {
   const usage = readEvents(home, "usage");
   const exceptions = readEvents(home, "exceptions");
   const spend = spendData(usage, exceptions, ledger, config, { from: null, to: null });
+  const manifest = manifestData(ledger, usage, config, (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"));
   const state = loadState(home);
   const lastMine = Object.values(state.sessions).map((s) => s.metered_through_ts ?? "").filter((t) => t !== "").sort().pop() ?? null;
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
@@ -3448,6 +3842,12 @@ function runStatus(home, args, json) {
       attributed_pct_conf_060: spend.attribution_health.attributed_pct_conf_060,
       inbox_open: spend.attribution_health.inbox_open
     },
+    manifest: {
+      open_items: manifest.open_items.length,
+      open_tokens: manifest.open_tokens,
+      sitting: manifest.sitting,
+      demurrage_days: manifest.demurrage_days
+    },
     verify: { findings: findings.length, ok: findings.length === 0 },
     next: next.slice(0, 2)
   };
@@ -3468,6 +3868,11 @@ function runStatus(home, args, json) {
   lines.push(
     `spend: ${fmtInt2(spend.total_tokens)} tokens, ${spend.unattributed_pct}% unattributed (${spend.attribution_health.attributed_pct_conf_060}% attributed at conf \u2265 0.6)` + (spend.attribution_health.inbox_open > 0 ? `; ${spend.attribution_health.inbox_open} in the attribution inbox \u2014 see: waybill query inbox` : "")
   );
+  if (manifest.sitting > 0) {
+    lines.push(
+      `manifest: ${manifest.open_items.length} open item(s), ${fmtInt2(manifest.open_tokens)} tokens open; ${manifest.sitting} sitting idle \u2265 ${manifest.demurrage_days}d \u2014 see: waybill query manifest`
+    );
+  }
   if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
     lines.push(
       "pricing: NOT CONFIGURED \u2014 costs stay tokens-only. Fix: waybill pricing import"
@@ -3499,183 +3904,104 @@ function runStatus(home, args, json) {
   return findings.length === 0 ? 0 : 1;
 }
 
-// src/projections/standup.ts
-function inWindow2(ts, w) {
-  const t = Date.parse(ts);
-  const from = w.from !== null ? Date.parse(w.from) : null;
-  const to = w.to !== null ? Date.parse(w.to) : null;
-  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
-    if (from !== null && t < from) return false;
-    if (to !== null && t > to) return false;
-    return true;
-  }
-  if (w.from !== null && ts < w.from) return false;
-  if (w.to !== null && ts > w.to) return false;
-  return true;
-}
-function totalTokens2(t) {
+// src/projections/untracked.ts
+function totalTokens4(t) {
   return t.input + t.output + t.cache_read + t.cache_creation;
 }
-function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, config, window, label = null) {
-  const usage = authoritative(usageEvents).filter(
-    (u) => u.kind === "usage" && inWindow2(u.ts, window) && totalTokens2(u.tokens) > 0
+function untrackedData(ledgerEvents, usageEvents, sessionEvents, config, window) {
+  const ledgerKeys = new Set(
+    authoritative(ledgerEvents).filter((e) => e.kind !== "pin").map((e) => e.tracker_key).filter((k) => k !== null)
   );
-  const shippedViews = effectiveShipped(ledgerEvents).filter((s) => inWindow2(s.shipped_ts, window));
-  const shipped = shippedViews.map(({ entry: e, shipped_ts }) => ({
-    tracker_key: e.tracker_key,
-    title: e.title,
-    points: e.points,
-    prs: e.artifacts.prs,
-    deploy: e.artifacts.deploy,
-    ts: shipped_ts,
-    claude_role: e.claude_role,
-    escrowed: e.escrow !== null
-  })).sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
-  const shippedKeys = new Set(shipped.map((s) => s.tracker_key).filter((k) => k !== null));
-  const authEntries = authoritative(ledgerEvents).filter(
-    (e) => e.kind !== "pin"
-  );
-  const titleByKey = /* @__PURE__ */ new Map();
-  for (const e of authEntries) {
-    if (e.tracker_key !== null) titleByKey.set(e.tracker_key, e.title);
+  const receiptBySession = /* @__PURE__ */ new Map();
+  for (const s of authoritative(sessionEvents)) {
+    if (s.kind === "session") receiptBySession.set(s.session_id, s);
   }
-  const byAccount = /* @__PURE__ */ new Map();
-  const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
-  let cost = null;
-  const unpriced = /* @__PURE__ */ new Map();
-  const waste = { retried_commands: 0, repeated_reads: 0 };
-  for (const u of usage) {
-    totals.input += u.tokens.input;
-    totals.output += u.tokens.output;
-    totals.cache_read += u.tokens.cache_read;
-    totals.cache_creation += u.tokens.cache_creation;
-    if (u.cost_usd) cost = Math.round(((cost ?? 0) + u.cost_usd.value) * 1e4) / 1e4;
-    else unpriced.set(u.model, (unpriced.get(u.model) ?? 0) + totalTokens2(u.tokens));
-    if (u.waste) {
-      waste.retried_commands += u.waste.retried_commands;
-      waste.repeated_reads += u.waste.repeated_reads;
-    }
-    const acc = byAccount.get(u.attribution.account) ?? {
+  const usage = authoritative(usageEvents).filter(
+    (u) => u.kind === "usage" && inWindow(u.ts, window.from, window.to) && totalTokens4(u.tokens) > 0
+  );
+  const keyRe = new RegExp(config.metering.branch_key_pattern, "g");
+  const clusters = /* @__PURE__ */ new Map();
+  let windowTokens = 0;
+  let untrackedTokens = 0;
+  const add = (kind, label, repo, u, receipt) => {
+    const id = `${kind}:${label}${repo !== null ? `@${repo}` : ""}`;
+    const cluster = clusters.get(id) ?? {
+      id,
+      kind,
+      label,
+      repo,
+      branches: [],
+      keys_seen: [],
+      sessions: [],
       tokens: 0,
-      sessions: /* @__PURE__ */ new Set(),
+      totals: { input: 0, output: 0, cache_read: 0, cache_creation: 0 },
+      first_ts: u.ts,
       last_ts: u.ts
     };
-    acc.tokens += totalTokens2(u.tokens);
-    acc.sessions.add(u.session_id);
-    if (u.ts > acc.last_ts) acc.last_ts = u.ts;
-    byAccount.set(u.attribution.account, acc);
-  }
-  const allShippedKeys = new Set(
-    effectiveShipped(ledgerEvents).map((s) => s.entry.tracker_key).filter((k) => k !== null)
-  );
-  const progressed = [...byAccount.entries()].filter(([account]) => {
-    if (account === "unattributed") return false;
-    const key = account.startsWith("story:") ? account.slice(6) : null;
-    return key === null || !shippedKeys.has(key);
-  }).map(([account, a]) => {
-    const key = account.startsWith("story:") ? account.slice(6) : null;
-    return {
-      account,
-      title: key !== null ? titleByKey.get(key) ?? null : null,
-      tokens: a.tokens,
-      sessions: a.sessions.size,
-      last_ts: a.last_ts,
-      shipped_earlier: key !== null && allShippedKeys.has(key)
-    };
-  }).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
-  const byId = new Map(ledgerEvents.map((e) => [e.id, e]));
-  const opened = authoritative(ledgerEvents).filter((e) => e.kind !== "pin").map((head) => {
-    let cur = head;
-    const seen = /* @__PURE__ */ new Set();
-    while (cur && !seen.has(cur.id)) {
-      seen.add(cur.id);
-      if (cur.kind === "opened") return { head, opened_ts: cur.ts };
-      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : void 0;
+    cluster.tokens += totalTokens4(u.tokens);
+    cluster.totals.input += u.tokens.input;
+    cluster.totals.output += u.tokens.output;
+    cluster.totals.cache_read += u.tokens.cache_read;
+    cluster.totals.cache_creation += u.tokens.cache_creation;
+    if (u.ts < cluster.first_ts) cluster.first_ts = u.ts;
+    if (u.ts > cluster.last_ts) cluster.last_ts = u.ts;
+    if (receipt) {
+      if (!cluster.sessions.some((s) => s.session_id === receipt.session_id)) {
+        cluster.sessions.push({
+          session_id: receipt.session_id,
+          first_ts: receipt.first_ts,
+          last_ts: receipt.last_ts,
+          turns: receipt.turns
+        });
+      }
+      for (const b of receipt.branches) {
+        if (!cluster.branches.includes(b)) cluster.branches.push(b);
+        for (const k of b.match(keyRe) ?? []) {
+          if (isPlausibleTrackerKey(k, config.tracker.project_keys) && !cluster.keys_seen.includes(k)) {
+            cluster.keys_seen.push(k);
+          }
+        }
+      }
+    } else if (!cluster.sessions.some((s) => s.session_id === u.session_id)) {
+      cluster.sessions.push({ session_id: u.session_id, first_ts: u.ts, last_ts: u.ts, turns: 0 });
     }
-    return null;
-  }).filter((v) => v !== null && inWindow2(v.opened_ts, window)).map(({ head, opened_ts }) => ({
-    tracker_key: head.tracker_key,
-    title: head.title,
-    ts: opened_ts,
-    pre_registered: head.estimate_without_claude_hours?.pre_registered === true
-  })).sort((a, b) => a.ts < b.ts ? -1 : 1);
-  const receipts = authoritative(sessionEvents).filter((s) => {
-    if (s.kind !== "session") return false;
-    return (window.from === null || inWindow2(s.last_ts, { from: window.from, to: null })) && (window.to === null || inWindow2(s.first_ts, { from: null, to: window.to }));
-  });
-  const repos = [];
-  const branches = [];
-  let turns = 0;
-  for (const s of receipts) {
-    if (s.repo !== null && !repos.includes(s.repo)) repos.push(s.repo);
-    for (const b of s.branches) if (!branches.includes(b)) branches.push(b);
-    turns += s.turns;
-  }
-  repos.sort();
-  branches.sort();
-  const total = totalTokens2(totals);
-  const unattributed = byAccount.get("unattributed")?.tokens ?? 0;
-  const unpricedTokens = [...unpriced.values()].reduce((n, t) => n + t, 0);
-  return {
-    window: { from: window.from ?? "", to: window.to ?? "", label },
-    shipped,
-    progressed,
-    opened,
-    session_summary: { count: receipts.length, repos, branches, turns },
-    tokens: {
-      total,
-      totals,
-      cost_usd: cost,
-      pricing_version: config.pricing.version,
-      unpriced_models: [...unpriced.keys()].filter((m) => m !== "unknown").sort(),
-      unpriced_tokens: unpricedTokens
-    },
-    waste,
-    attention: {
-      inbox_open: countOpenAmbiguities(exceptionEvents),
-      unattributed_tokens: unattributed,
-      unattributed_pct: total > 0 ? Math.round(unattributed / total * 1e3) / 10 : 0
-    }
+    clusters.set(id, cluster);
   };
-}
-function localDayWindow(base, offsetDays) {
-  const start = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays, 0, 0, 0, 0);
-  const end = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays + 1, 0, 0, 0, 0);
-  return {
-    from: start.toISOString(),
-    to: new Date(end.getTime() - 1).toISOString()
-  };
-}
-function resolveStandupWindow(args, now) {
-  if (args.from !== null || args.to !== null) {
-    return { window: normalizeWindow(args.from, args.to), label: null };
-  }
-  if (args.days !== null) {
-    if (!Number.isFinite(args.days) || args.days <= 0 || !Number.isInteger(args.days)) {
-      throw new Error("--days must be a positive integer");
+  for (const u of usage) {
+    windowTokens += totalTokens4(u.tokens);
+    const receipt = receiptBySession.get(u.session_id);
+    const account = u.attribution.account;
+    if (account.startsWith("story:")) {
+      const key = account.slice(6);
+      if (ledgerKeys.has(key)) continue;
+      untrackedTokens += totalTokens4(u.tokens);
+      add("story_key", key, u.repo ?? receipt?.repo ?? null, u, receipt);
+      continue;
     }
-    const first = localDayWindow(now, -(args.days - 1));
-    const last = localDayWindow(now, 0);
-    return {
-      window: { from: first.from, to: last.to },
-      label: `last ${args.days} day(s)`
-    };
+    if (account.startsWith("adhoc:")) {
+      untrackedTokens += totalTokens4(u.tokens);
+      add("adhoc", account.slice(6), u.repo ?? receipt?.repo ?? null, u, receipt);
+      continue;
+    }
+    untrackedTokens += totalTokens4(u.tokens);
+    const repo = u.repo ?? receipt?.repo ?? null;
+    const branch = receipt?.branches[0] ?? null;
+    if (branch !== null) add("branch", branch, repo, u, receipt);
+    else add("unattributed", repo ?? "(no repo)", repo, u, receipt);
   }
-  const date = args.date ?? "yesterday";
-  if (date === "yesterday" || date === "today") {
-    const w2 = localDayWindow(now, date === "yesterday" ? -1 : 0);
-    return { window: w2, label: date };
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new Error(`--date must be yesterday, today, or YYYY-MM-DD (got: ${date})`);
-  }
-  const [y, m, d] = date.split("-").map(Number);
-  const base = new Date(y, m - 1, d);
-  if (base.getFullYear() !== y || base.getMonth() !== m - 1 || base.getDate() !== d) {
-    throw new Error(`--date is not a real calendar date: ${date}`);
-  }
-  const w = localDayWindow(base, 0);
-  return { window: w, label: date };
+  const sorted = [...clusters.values()].map((c) => ({
+    ...c,
+    branches: [...c.branches].sort(),
+    keys_seen: [...c.keys_seen].sort(),
+    sessions: [...c.sessions].sort((a, b) => a.first_ts < b.first_ts ? -1 : 1)
+  })).sort((a, b) => b.tokens - a.tokens || (a.id < b.id ? -1 : 1));
+  return {
+    window,
+    clusters: sorted,
+    untracked_tokens: untrackedTokens,
+    window_tokens: windowTokens,
+    untracked_pct: windowTokens > 0 ? Math.round(untrackedTokens / windowTokens * 1e3) / 10 : 0
+  };
 }
 
 // src/cli/cmd-query.ts
@@ -3734,8 +4060,12 @@ function runQuery(home, args) {
       return 2;
     } else positional.push(a);
   }
-  if (what !== "standup" && (date !== null || days !== null || now !== null)) {
-    process.stderr.write("waybill query: --date/--days/--now apply to `query standup` only\n");
+  if (what !== "standup" && (date !== null || days !== null)) {
+    process.stderr.write("waybill query: --date/--days apply to `query standup` only\n");
+    return 2;
+  }
+  if (now !== null && what !== "standup" && what !== "manifest") {
+    process.stderr.write("waybill query: --now applies to `query standup` and `query manifest`\n");
     return 2;
   }
   if (now !== null && Number.isNaN(Date.parse(now))) {
@@ -3798,6 +4128,16 @@ function runQuery(home, args) {
       payload = exceptions.filter((e) => e.kind === "ambiguity" && !resolved.has(e.id));
       break;
     }
+    case "manifest": {
+      const nowIso2 = now ?? (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+      payload = manifestData(ledger, usage, config, nowIso2);
+      break;
+    }
+    case "untracked": {
+      const sessions = readEvents(home, "sessions");
+      payload = untrackedData(ledger, usage, sessions, config, window);
+      break;
+    }
     case "standup": {
       let resolved;
       try {
@@ -3816,7 +4156,7 @@ function runQuery(home, args) {
     }
     default:
       process.stderr.write(
-        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup\n"
+        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup | untracked | manifest\n"
       );
       return 2;
   }
@@ -3828,7 +4168,7 @@ function runQuery(home, args) {
 
 // src/cli/cmd-resolve.ts
 import { execFileSync as execFileSync7 } from "node:child_process";
-import { existsSync as existsSync11 } from "node:fs";
+import { existsSync as existsSync12 } from "node:fs";
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -3947,7 +4287,7 @@ function runResolve(home, args, json) {
   }
   const checkpoint = loadState(home).sessions[ambiguity.session_id];
   const transcriptPath = checkpoint?.transcript_path ?? authoritative(readEvents(home, "sessions")).find((s) => s.kind === "session" && s.session_id === ambiguity.session_id)?.transcript_path ?? null;
-  if (transcriptPath && existsSync11(transcriptPath)) {
+  if (transcriptPath && existsSync12(transcriptPath)) {
     if (acquireLock(home)) {
       try {
         const result = meterFile(home, transcriptPath, null, true);
@@ -3984,7 +4324,7 @@ function runResolve(home, args, json) {
 
 // src/cli/cmd-sync-plan.ts
 import { execFileSync as execFileSync8 } from "node:child_process";
-import { readFileSync as readFileSync13 } from "node:fs";
+import { readFileSync as readFileSync14 } from "node:fs";
 
 // src/adapters/contract.ts
 function defaultContext(partial = {}) {
@@ -4400,12 +4740,7 @@ function shippedBody(entry, item, changes, now) {
   const prUrls = changes.map((c) => c.url).filter((u) => u !== null).sort();
   const commitShas = changes.filter((c) => c.url === null).map((c) => /\(([0-9a-f]{7,40})\)$/.exec(c.title)?.[1]).filter((s) => s !== void 0).sort();
   const tsCandidates = [item.resolved_at ?? "", ...changes.map((c) => c.merged_at)].filter((t) => t !== "");
-  const ts = tsCandidates.length > 0 ? tsCandidates.sort((a, b) => {
-    const pa = Date.parse(a);
-    const pb = Date.parse(b);
-    if (!Number.isNaN(pa) && !Number.isNaN(pb) && pa !== pb) return pa - pb;
-    return a < b ? -1 : a > b ? 1 : 0;
-  })[tsCandidates.length - 1] : now;
+  const ts = tsCandidates.length > 0 ? tsCandidates.sort(compareInstants)[tsCandidates.length - 1] : now;
   return {
     ts,
     kind: "shipped",
@@ -4620,7 +4955,7 @@ function runSyncPlan(home, args) {
   }
   const config = loadConfig(home);
   if (applyPath) {
-    const plan2 = JSON.parse(readFileSync13(applyPath, "utf8"));
+    const plan2 = JSON.parse(readFileSync14(applyPath, "utf8"));
     const bodies = [
       ...plan2.shipped,
       ...plan2.corrections.map((c) => c.body),
@@ -4673,7 +5008,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync13(itemsPath, "utf8")), ctx);
+    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync14(itemsPath, "utf8")), ctx);
   }
   let changes = [];
   if (changesPath) {
@@ -4682,7 +5017,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync13(changesPath, "utf8")), ctx);
+    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync14(changesPath, "utf8")), ctx);
   }
   if (localRepos.length > 0) {
     const sinceIso = since ?? config.last_sync ?? new Date(Date.parse(now) - 90 * 864e5).toISOString().slice(0, 19) + "Z";
@@ -4714,7 +5049,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "1.5.0" : "dev";
+var ENGINE_VERSION = true ? "1.6.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
@@ -4740,6 +5075,8 @@ Commands:
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 | standup ("what did I do" digest \u2014 default window: yesterday;
                 --date yesterday|today|YYYY-MM-DD or --days <n>, local-calendar)
+                | untracked (salvage clustering: spend with no receipt behind it)
+                | manifest (open work, open spend, age; --now injectable)
                 [--from <date|iso>] [--to <date|iso>] [--audience self|internal|external]
                 [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
@@ -4749,6 +5086,10 @@ Commands:
   pricing     show | import [--model <id-or-alias>]... | set <model-id> --version <date>
                 --input/--output/--cache-read/--cache-5m/--cache-1h <usd per mtok>
                 (import loads bundled Anthropic rates; set overrides any model)
+  conventions Print the receipt-friendly CLAUDE.md block and commit-msg hook
+                (key-prefixed branches/commits raise attribution confidence)
+  dashboard   Write rollups/dashboard.html \u2014 the zero-token view of your ledger
+                [--now <iso>] (refreshed by mine when the file exists)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:
@@ -4814,6 +5155,10 @@ Update: claude plugin update waybill@waybill  (then restart Claude Code)
       return runExport(cli.home, cli.args, cli.json);
     case "pricing":
       return runPricing(cli.home, cli.args, cli.json);
+    case "conventions":
+      return runConventions(cli.home, cli.args, cli.json);
+    case "dashboard":
+      return runDashboard(cli.home, cli.args, cli.json);
     case "verify": {
       const findings = verifyHome(cli.home);
       if (cli.json) {

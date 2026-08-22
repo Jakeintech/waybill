@@ -40,8 +40,9 @@ export interface MeterOutput {
 
 /** Bumped when metering/pricing derivation logic changes shape — stored per
  * session checkpoint so an engine upgrade re-meters stale sessions once
- * (content-addressed events make that a no-op where nothing changed). */
-export const METER_LOGIC_VERSION = "2";
+ * (content-addressed events make that a no-op where nothing changed).
+ * 3: overhead tagging (v1.6). */
+export const METER_LOGIC_VERSION = "3";
 
 export function priceTokens(
   config: Config,
@@ -223,6 +224,9 @@ export function meterTranscript(input: MeterInput): MeterOutput {
         transcript_version: transcript.version,
         raw_extra: extras,
         waste,
+        // Present only when true: non-overhead events keep their pre-1.6
+        // content addresses.
+        ...(turn.overhead ? { overhead: true } : {}),
       };
       // Unchanged means "same content modulo the supersedes link" — an event
       // that already supersedes an older one must not be re-superseded by an

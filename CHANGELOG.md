@@ -5,6 +5,57 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [1.6.0] - 2026-08-22
+
+"Salvage": untracked AI work becomes first-class, and routine reads become
+free — the first release of the committed path to complete
+([ROADMAP](ROADMAP.md)).
+
+### Added
+- **Salvage** — untracked work becomes receipts: `waybill query untracked`
+  deterministically clusters spend with no ledger entry behind it
+  (unlogged story keys by key, unattributed sessions by branch/repo
+  identity, adhoc labels), each cluster carrying its receipts — sessions,
+  branches, repo, time window, tokens, keys seen. The new `salvage` skill
+  proposes a title per cluster from the receipts only (branch names,
+  commit subjects — never inference), takes one confirmation per cluster,
+  and applies through the existing write paths: pins re-attribute the
+  sessions, reconstructed `opened`/`shipped` entries are marked
+  "reconstructed from receipts (salvage)". Pre-registration is never
+  backfilled — salvage produces facts, not forged tier-3 estimates.
+  Trigger eval included.
+- **Conventions** — `waybill conventions` prints a receipt-friendly
+  CLAUDE.md block (key-prefixed branches and commit subjects, closing
+  keywords in PR bodies, the "log it" habit) and a `commit-msg` hook that
+  prefixes the story key from the branch (works on a repo's very first
+  commit too). Derived from the configured key pattern; the engine prints,
+  never installs — nothing is written outside `$WAYBILL_HOME`. Salvage
+  fixes the past; conventions prevent the future.
+- **The zero-token dashboard** — `waybill dashboard` writes
+  `rollups/dashboard.html`: a self-contained local page (30-day tokens,
+  cost with coverage, the overhead line, tokens by week, top accounts,
+  the open-work manifest with sitting flags, the last-7-days standup)
+  rendered from a JSON snapshot injected into a bundled static template.
+  No network requests, system fonts only; the miner refreshes it after
+  each mined session once it exists. Reading your own numbers costs zero
+  tokens. Presentation stays out of the verified path — the output is a
+  derived, deletable rollup, never a receipt (see DECISIONS).
+- **Manifest & demurrage** — `waybill query manifest`: open items with
+  open spend, age since chain-origin, and last metered activity; an item
+  with spend but no activity for `budgets.demurrage_days` (new config,
+  default 14) is "sitting" and earns exactly one factual line in
+  `waybill status`.
+- **Overhead tagging — waybill bills itself** — the meter tags turns that
+  ran the waybill CLI (`overhead: true` on their usage events, additive,
+  present only when true); `query spend` rolls up `overhead.tokens/pct`
+  and the spend skill prints the line. The "lightweight after the initial
+  sync" claim now ships with its own receipt. METER_LOGIC_VERSION → 3, so
+  upgraded engines re-tag existing ledgers once, automatically.
+- **One timestamp module** — the architecture review's top
+  recommendation: `src/core/time.ts` (strict ISO bounds, instant
+  comparison, one `inWindow`) now backs queries, standup, verify, and
+  reconcile, retiring the duplicate-window-logic class.
+
 ## [1.5.0] - 2026-08-22
 
 The tested-feedback batch: the standup digest, honest pricing end to end,
@@ -498,7 +549,8 @@ metering/attribution path.
   `forecast`, SessionEnd capture hook, bundled `.mcp.json`, marketplace
   manifest.
 
-[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Jakeintech/waybill/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/Jakeintech/waybill/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/Jakeintech/waybill/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/Jakeintech/waybill/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Jakeintech/waybill/compare/v1.2.0...v1.3.0

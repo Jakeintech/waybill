@@ -6,6 +6,7 @@ import { finalizeEvent, SCHEMA_VERSION, type ExceptionEvent, type MeterGapEvent 
 import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLock, releaseLock } from "../meter/lock.ts";
 import { defaultProjectsDir, listTranscripts, meterFile } from "../meter/run.ts";
+import { refreshDashboardIfPresent } from "./cmd-dashboard.ts";
 
 interface Capture {
   session_id?: string;
@@ -152,7 +153,12 @@ export function runMine(home: string, args: string[], json: boolean): number {
     releaseLock(home);
   }
 
-  if (minedNew + remetered > 0) commitLedger(home);
+  if (minedNew + remetered > 0) {
+    commitLedger(home);
+    // Keep the zero-token dashboard current — best-effort, opted into by
+    // its first generation, never able to disturb metering.
+    refreshDashboardIfPresent(home);
+  }
   if (json) {
     process.stdout.write(
       JSON.stringify({

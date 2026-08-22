@@ -31,6 +31,7 @@ function turn(index: number, overrides: Partial<Turn> = {}): Turn {
       },
     ],
     waste: { retried_commands: 0, repeated_reads: 0 },
+    overhead: false,
     ...overrides,
   };
 }

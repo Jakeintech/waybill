@@ -132,6 +132,7 @@ activity within a turn rolls up to that turn's account. Never split a turn.
 | `transcript_version` | string \| null | Claude Code version that wrote the transcript lines (null for OTel events). |
 | `raw_extra` | object \| null | Unknown source usage fields, preserved, never dropped. |
 | `waste` | object \| null | Turn-level waste diagnostics, carried once per turn on its first model event: `{ "retried_commands": n, "repeated_reads": n }` — counts only, never commands or paths. Absent on pre-1.0 events (additive; see `docs/migration.md`). |
+| `overhead` | boolean | The turn ran the waybill CLI itself — the plugin's own keep, itemized by spend reports. Present (`true`) only on overhead turns; absent elsewhere and on pre-1.6 events (additive). |
 
 ```json
 {"id":"01J5T0A1B2C3D4E5F6G7H8J9K0","ts":"2026-08-17T10:15:03Z","kind":"usage","schema_version":2,"supersedes":null,"session_id":"9f4c1e2a-77aa-4b02-9d31-5c2f8ab9d001","turn":{"index":3,"first_message_id":"msg_01AAA","last_message_id":"msg_01AAC","prompt_id":"prompt_7"},"repo":"acme/platform","model":"claude-opus-4-6","tokens":{"input":41200,"output":6300,"cache_read":181000,"cache_creation":22000,"cache_creation_5m":22000,"cache_creation_1h":0},"cost_usd":null,"attribution":{"account":"story:PLAT-482","tracker_key":"PLAT-482","resolver":"active_entry","confidence":0.9,"rules_version":"1"},"source":"transcript","transcript_version":"2.1.229","raw_extra":null}
@@ -220,7 +221,7 @@ work, never anyone else's:
     "unknown_model_policy": "tokens_only",
     "models": {}
   },
-  "budgets": { "allocation": "inherit", "epics": {}, "renewal_reminder_days": 14 },
+  "budgets": { "allocation": "inherit", "epics": {}, "renewal_reminder_days": 14, "demurrage_days": 14 },
   "notices": { "level": "normal" },
   "audience_default": "self",
   "detail_default": "standard",
@@ -241,7 +242,9 @@ work, never anyone else's:
   exactly for pacing windows; anything else falls back to
   `granted_at` + 90 days.
 - `budgets`: optional per-epic token envelopes plus
-  `renewal_reminder_days` — how many days before the allocation period ends
+  `demurrage_days` — days of metered inactivity before an open item with
+  spend counts as "sitting" in `query manifest` (one factual status line,
+  never a nag); `renewal_reminder_days` — how many days before the allocation period ends
   `waybill pace --notice` nudges (once) to draft the pitch.
 - `audience_default`: `self` | `internal` | `external` — the redaction level
   reports use when none is requested (see `docs/skills.md` and the report
@@ -272,7 +275,7 @@ work, never anyone else's:
       "transcript_version": "2.1.229",
       "metered_through_ts": "2026-08-17T10:15:03Z",
       "rules_version": "1",
-      "meter_version": "2",
+      "meter_version": "3",
       "pricing_digest": "3b1c88…",
       "pricing_version": "2026-08-01",
       "attribution_inputs": "9d24f5…"

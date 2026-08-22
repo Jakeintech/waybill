@@ -56,6 +56,10 @@ export interface Config {
     /** Days before the allocation period ends to surface the renewal
      * reminder (draft-the-pitch nudge). */
     renewal_reminder_days: number;
+    /** Days of metered inactivity before an open item with spend counts
+     * as "sitting" in the manifest (demurrage — one factual status line,
+     * never a nag). */
+    demurrage_days: number;
   };
   notices: { level: NoticesLevel };
   audience_default: Audience;
@@ -81,7 +85,7 @@ export function defaultConfig(): Config {
       repo_defaults: {},
     },
     pricing: { version: null, unknown_model_policy: "tokens_only", models: {} },
-    budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14 },
+    budgets: { allocation: "inherit", epics: {}, renewal_reminder_days: 14, demurrage_days: 14 },
     notices: { level: "normal" },
     audience_default: "self",
     detail_default: "standard",

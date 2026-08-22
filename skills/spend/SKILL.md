@@ -9,7 +9,7 @@ description: >
   or asks about token usage by model, week, epic, or story. Answers come
   from the local metered ledger — deterministic numbers, never estimates.
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
 ---
 
 # Spend
@@ -37,6 +37,8 @@ shown, never hidden).
 | What's my open spend? | `query spend` → `.data.open_spend` |
 | Attribution health? | `query spend` → `.data.attribution_health` |
 | Overall ledger health? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" status` |
+| What's still in flight / sitting? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query manifest` |
+| What never got tracked? | `query untracked` — then hand off to the salvage skill |
 | Share the ledger as a file? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" export --format csv` (respects --audience) |
 | What's in my inbox? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query inbox` |
 
@@ -65,6 +67,9 @@ expand only when asked. Numbers first, prose second, nothing twice:
   say what it covers ("$41.20 covers 92% of tokens; the rest is unpriced —
   models: <list>") — a dollar figure that silently omits events is not a
   receipt. `waybill status` prints the fix for any unpriced model.
+  When `.data.overhead.tokens` > 0, one line itemizes the plugin's own
+  keep ("waybill overhead: 41,000 tokens, 0.4% — itemized") — the
+  accountant bills for its own hours.
 - **Story cost**: one line — total tokens, cache-read share, and
   tokens-per-point if shipped ("PLAT-482: 2.9M tokens, 61% cache reads,
   shipped at 5 pts → 0.58M/pt"). USD only if priced, labeled.

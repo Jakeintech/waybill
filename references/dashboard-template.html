@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waybill Dashboard</title>
+<!-- The zero-token dashboard: a static rollup written by `waybill dashboard`
+     and refreshed by the miner. Self-contained by promise — no fonts, no
+     scripts, no requests of any kind. Data is injected by the engine into
+     the JSON block below; presentation lives here, outside the verified
+     path (rollups are derived and deletable, never receipts). -->
+<style>
+  :root {
+    --paper: #FDFCF8; --card: #F4F2EA; --ink: #232B33; --ink-soft: #5A6470;
+    --data: #4553B8; --data-soft: #E4E6F5; --rule: #DDD9CC;
+    --warn-ink: #7A4E00; --warn-bg: #F6E8CB;
+    --mono: ui-monospace, "SF Mono", Consolas, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #14181E; --card: #1B2129; --ink: #E6E3D8; --ink-soft: #9BA3AD;
+      --data: #7B89E4; --data-soft: #262E4A; --rule: #303844;
+      --warn-ink: #E8B45C; --warn-bg: #3A2F17;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1.6rem 1.2rem 3rem; background: var(--paper); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .5rem;
+    border-bottom: 2px solid var(--ink); padding-bottom: .6rem; margin-bottom: 1.4rem; }
+  h1 { font-size: 1.25rem; margin: 0; letter-spacing: .05em; }
+  h1 small { font-weight: 400; color: var(--ink-soft); letter-spacing: 0; }
+  .meta { font-family: var(--mono); font-size: .72rem; color: var(--ink-soft); }
+  h2 { font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft);
+    margin: 1.8rem 0 .6rem; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .7rem; }
+  .tile { background: var(--card); border: 1px solid var(--rule); padding: .8rem .95rem .7rem; }
+  .tile .label { font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+  .tile .value { font-family: var(--mono); font-size: 1.45rem; font-weight: 600; margin-top: .15rem; font-variant-numeric: tabular-nums; }
+  .tile .sub { font-size: .75rem; color: var(--ink-soft); margin-top: .1rem; }
+
+  .chart { background: var(--card); border: 1px solid var(--rule); padding: 1rem 1rem .6rem; }
+  .bars { display: flex; align-items: flex-end; gap: 2px; height: 130px; border-bottom: 1px solid var(--rule); }
+  .bar { flex: 1; background: var(--data); border-radius: 4px 4px 0 0; min-height: 2px; position: relative; }
+  .bar:hover { filter: brightness(1.15); }
+  .bar .peak { position: absolute; top: -1.25rem; left: 50%; transform: translateX(-50%);
+    font-family: var(--mono); font-size: .68rem; color: var(--ink); white-space: nowrap; }
+  .xlabels { display: flex; gap: 2px; margin-top: .3rem; }
+  .xlabels span { flex: 1; text-align: center; font-family: var(--mono); font-size: .62rem; color: var(--ink-soft);
+    overflow: hidden; text-overflow: clip; white-space: nowrap; }
+
+  .rows { display: flex; flex-direction: column; gap: .45rem; }
+  .row { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr 6.5rem; gap: .7rem; align-items: center; }
+  .row .name { font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .track { background: var(--data-soft); height: 12px; border-radius: 4px; }
+  .row .fill { background: var(--data); height: 100%; border-radius: 4px; min-width: 2px; }
+  .row .val { font-family: var(--mono); font-size: .78rem; text-align: right; font-variant-numeric: tabular-nums; }
+
+  table { border-collapse: collapse; width: 100%; background: var(--card); border: 1px solid var(--rule); }
+  th { font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft);
+    text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--rule); }
+  td { padding: .45rem .7rem; border-bottom: 1px solid var(--rule); font-size: .85rem; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: color-mix(in oklab, var(--data) 6%, var(--card)); }
+  td.num { text-align: right; }
+  .chip { display: inline-block; font-family: var(--mono); font-size: .62rem; letter-spacing: .08em;
+    padding: .1rem .4rem; border-radius: 3px; background: var(--warn-bg); color: var(--warn-ink); }
+  .empty { color: var(--ink-soft); font-size: .85rem; padding: .6rem .2rem; }
+  .table-wrap { overflow-x: auto; }
+  ul.plain { margin: .2rem 0 0; padding-left: 1.1rem; }
+  ul.plain li { font-size: .85rem; margin-bottom: .25rem; }
+  footer { margin-top: 2.2rem; border-top: 1px solid var(--rule); padding-top: .6rem;
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .06em; color: var(--ink-soft);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: .4rem; }
+</style>
+</head>
+<body>
+<script id="waybill-data" type="application/json">__WAYBILL_DATA__</script>
+<div class="wrap">
+  <header>
+    <h1>WAYBILL <small>· dashboard — your ledger, zero tokens to read</small></h1>
+    <div class="meta" id="meta"></div>
+  </header>
+  <div id="root"><p class="empty">No data block found — regenerate with <code>waybill dashboard</code>.</p></div>
+  <footer>
+    <span>EVIDENCE TIER: FACTS · LEDGER &amp; METERED TRANSCRIPTS</span>
+    <span>REGENERATE: waybill dashboard · AUTO-REFRESHED BY THE MINER</span>
+  </footer>
+</div>
+<script>
+(function () {
+  "use strict";
+  var el = document.getElementById("waybill-data");
+  var root = document.getElementById("root");
+  var data;
+  try { data = JSON.parse(el.textContent); } catch (e) { return; }
+  if (!data || !data.spend30) return;
+
+  function h(tag, attrs, children) {
+    var n = document.createElement(tag);
+    for (var k in attrs || {}) {
+      if (k === "text") n.textContent = attrs[k];
+      else if (k === "html") n.innerHTML = attrs[k];
+      else n.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(function (c) { n.appendChild(c); });
+    return n;
+  }
+  function fmt(n) { return (n || 0).toLocaleString("en-US"); }
+  function compact(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return String(n);
+  }
+
+  document.getElementById("meta").textContent =
+    "generated " + data.generated_at + " · engine " + data.engine;
+
+  root.textContent = "";
+  var s30 = data.spend30;
+
+  // ── Tiles ──────────────────────────────────────────
+  var tiles = h("div", { class: "tiles" });
+  function tile(label, value, sub) {
+    tiles.appendChild(h("div", { class: "tile" }, [
+      h("div", { class: "label", text: label }),
+      h("div", { class: "value", text: value }),
+      h("div", { class: "sub", text: sub || "" }),
+    ]));
+  }
+  var cost = null;
+  s30.accounts.forEach(function (a) { if (a.cost_usd !== null) cost = (cost || 0) + a.cost_usd; });
+  tile("Tokens · 30 days", compact(s30.total_tokens), fmt(s30.total_tokens) + " exact");
+  tile("Cost · 30 days", cost !== null ? "$" + cost.toFixed(2) : "tokens only",
+    s30.pricing_coverage.priced_pct < 100 && s30.total_tokens > 0
+      ? "covers " + s30.pricing_coverage.priced_pct + "% of tokens" : "full coverage");
+  tile("Waybill overhead", s30.overhead.pct + "%", fmt(s30.overhead.tokens) + " tokens — itemized");
+  tile("Open work", fmt(data.manifest.open_items.length) + " item(s)",
+    compact(data.manifest.open_tokens) + " tokens open" +
+    (data.manifest.sitting > 0 ? " · " + data.manifest.sitting + " sitting" : ""));
+  root.appendChild(tiles);
+
+  // ── Weekly tokens (single-series magnitude) ────────
+  root.appendChild(h("h2", { text: "Tokens by week" }));
+  var chart = h("div", { class: "chart" });
+  var weeks = data.weeks || [];
+  if (weeks.length === 0) {
+    chart.appendChild(h("p", { class: "empty", text: "No metered weeks yet. The ledger doesn't pad." }));
+  } else {
+    var max = 0, maxI = 0;
+    weeks.forEach(function (w, i) { if (w.tokens > max) { max = w.tokens; maxI = i; } });
+    var bars = h("div", { class: "bars" });
+    var labels = h("div", { class: "xlabels" });
+    weeks.forEach(function (w, i) {
+      var bar = h("div", {
+        class: "bar",
+        style: "height:" + Math.max(2, Math.round((w.tokens / max) * 108)) + "px",
+        title: w.week + ": " + fmt(w.tokens) + " tokens",
+      });
+      if (i === maxI) bar.appendChild(h("span", { class: "peak", text: compact(w.tokens) }));
+      bars.appendChild(bar);
+      labels.appendChild(h("span", { text: w.week.slice(5) }));
+    });
+    chart.appendChild(bars);
+    chart.appendChild(labels);
+  }
+  root.appendChild(chart);
+
+  // ── Top accounts (30d) ─────────────────────────────
+  root.appendChild(h("h2", { text: "Where it went · 30 days" }));
+  var rows = h("div", { class: "chart rows" });
+  var accounts = s30.accounts.slice(0, 8);
+  if (accounts.length === 0) {
+    rows.appendChild(h("p", { class: "empty", text: "No metered spend in the window." }));
+  } else {
+    var amax = accounts[0].tokens || 1;
+    accounts.forEach(function (a) {
+      rows.appendChild(h("div", { class: "row", title: a.account + ": " + fmt(a.tokens) + " tokens" }, [
+        h("div", { class: "name", text: a.account }),
+        h("div", { class: "track" }, [
+          h("div", { class: "fill", style: "width:" + Math.max(1, Math.round((a.tokens / amax) * 100)) + "%" }),
+        ]),
+        h("div", { class: "val", text: fmt(a.tokens) }),
+      ]));
+    });
+  }
+  root.appendChild(rows);
+
+  // ── Manifest ───────────────────────────────────────
+  root.appendChild(h("h2", { text: "Manifest · still on the truck" }));
+  if (data.manifest.open_items.length === 0) {
+    root.appendChild(h("p", { class: "empty", text: "Nothing open. The truck is empty." }));
+  } else {
+    var tbl = h("table", {}, [
+      h("tr", {}, [
+        h("th", { text: "Key" }), h("th", { text: "Title" }), h("th", { text: "Age" }),
+        h("th", { text: "Idle" }), h("th", { text: "Tokens" }), h("th", { text: "" }),
+      ]),
+    ]);
+    data.manifest.open_items.slice(0, 12).forEach(function (i) {
+      tbl.appendChild(h("tr", {}, [
+        h("td", { class: "num", text: i.tracker_key || "—" }),
+        h("td", { text: i.title }),
+        h("td", { class: "num", text: i.age_days + "d" }),
+        h("td", { class: "num", text: i.idle_days === null ? "—" : i.idle_days + "d" }),
+        h("td", { class: "num", text: fmt(i.tokens) }),
+        h("td", {}, i.sitting ? [h("span", { class: "chip", text: "⚠ SITTING" })] : []),
+      ]));
+    });
+    var wrap = h("div", { class: "table-wrap" }, [tbl]);
+    root.appendChild(wrap);
+  }
+
+  // ── Standup · last 7 days ──────────────────────────
+  root.appendChild(h("h2", { text: "Last 7 days" }));
+  var su = data.standup;
+  var box = h("div", { class: "chart" });
+  var any = false;
+  if (su.shipped.length > 0) {
+    any = true;
+    box.appendChild(h("div", { class: "label", text: "" }));
+    var ulS = h("ul", { class: "plain" });
+    su.shipped.forEach(function (s) {
+      ulS.appendChild(h("li", { text: "Shipped " + (s.tracker_key || "(no key)") + " — " + s.title }));
+    });
+    box.appendChild(ulS);
+  }
+  if (su.progressed.length > 0) {
+    any = true;
+    var ulP = h("ul", { class: "plain" });
+    su.progressed.slice(0, 6).forEach(function (p) {
+      ulP.appendChild(h("li", {
+        text: (p.shipped_earlier ? "Follow-up on " : "In progress: ") + p.account +
+          (p.title ? " — " + p.title : "") + " (" + fmt(p.tokens) + " tokens)",
+      }));
+    });
+    box.appendChild(ulP);
+  }
+  if (!any) box.appendChild(h("p", { class: "empty", text: "No recorded activity in the last 7 days." }));
+  root.appendChild(box);
+})();
+</script>
+</body>
+</html>

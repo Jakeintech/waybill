@@ -7,7 +7,8 @@ frontmatter *description* carries the trigger phrases and does the discovery.
 The deterministic engine is intentionally **not** a skill — it is a single
 dependency-free executable, `bin/waybill.mjs` (subcommands: `init`,
 `bootstrap`, `mine`, `meter`, `append`, `resolve`, `verify`, `query`,
-`pace`, `status`, `export`, `pricing`, `sync-plan`), invoked by hooks and
+`pace`, `status`, `export`, `pricing`, `sync-plan`, `conventions`,
+`dashboard`), invoked by hooks and
 skills, so the automatic path never depends on a model call (see the
 [product spec](product-spec.md), §5.7). Skills invoke it through the
 `bin/waybill` launcher (`"${CLAUDE_PLUGIN_ROOT}/bin/waybill" <command>`) —
@@ -34,6 +35,7 @@ keeps `verify` meaningful.
 | `forecast` | `/waybill:forecast` | action | Size the next token ask from committed work × your historical rates | "how many tokens should I ask for", "draft my token request" |
 | `spend` | `/waybill:spend` | action | Spend analytics ("what did PLAT-482 cost?"), budget pacing, and the attribution inbox | "where am I spending", "how's my burn", "resolve my attribution inbox" |
 | `standup` | `/waybill:standup` | action | "What did I do" digests from the ledger: shipped, in progress, opened, session/token totals, for any day or range | "what did I do yesterday", "prep my standup", "weekly digest" |
+| `salvage` | `/waybill:salvage` | action | Turn untracked work into receipts: cluster unattributed/unlogged spend, propose titles from the receipts, one tap per cluster | "group my untracked work", "clean up my unattributed spend", "what did I forget to log" |
 
 ## Naming decisions (recorded)
 
@@ -49,10 +51,14 @@ keeps `verify` meaningful.
   about which one. The engine half is a `query` projection
   (`query standup`), not a subcommand, so the name stays available for
   the skill.
+- **`salvage`, not `untracked` or `cleanup`.** A verb (it acts), and the
+  shipping term for recovering unmanifested cargo — which is literally
+  what it does. The engine half is a `query` projection
+  (`query untracked`), so the noun stays available as the data's name.
 - **Reserved words never used as skill names:** `waybill` (the plugin),
   every engine subcommand (`init`, `bootstrap`, `mine`, `meter`, `append`,
   `resolve`, `verify`, `query`, `pace`, `status`, `export`, `pricing`,
-  `sync-plan`), `inbox` (a surface
+  `sync-plan`, `conventions`, `dashboard`), `inbox` (a surface
   inside `spend`, not a skill), and the brand concept names
   (`evidence tiers`, `open spend`, `pre-registration`).
 

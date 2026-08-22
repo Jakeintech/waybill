@@ -30,6 +30,11 @@ export interface Turn {
   lastMessageId: string | null;
   models: ModelAggregate[];
   waste: TurnWaste;
+  /** The turn ran the waybill CLI itself — the plugin's own keep, tagged
+   * so spend can itemize its overhead. Deterministic substring match on
+   * tool commands, nothing subtler (a waybill developer's own dev
+   * commands count too). */
+  overhead: boolean;
 }
 
 export interface ParsedTranscript {
@@ -213,6 +218,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
   const seenToolIds = new Set<string>();
   const commandTallies = new Map<number, Map<string, number>>();
   const readTallies = new Map<number, Map<string, number>>();
+  const overheadTurns = new Set<number>();
 
   const ensureTurn = (): Turn => {
     if (!currentTurn) {
@@ -224,6 +230,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         lastMessageId: null,
         models: [],
         waste: { retried_commands: 0, repeated_reads: 0 },
+        overhead: false,
       };
       turns.push(currentTurn);
     }
@@ -260,6 +267,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         lastMessageId: null,
         models: [],
         waste: { retried_commands: 0, repeated_reads: 0 },
+        overhead: false,
       };
       turns.push(currentTurn);
       continue;
@@ -280,6 +288,12 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
           const tally = commandTallies.get(tIdx) ?? new Map<string, number>();
           tally.set(block.command, (tally.get(block.command) ?? 0) + 1);
           commandTallies.set(tIdx, tally);
+          // The plugin's own keep: turns that ran the waybill CLI (the
+          // "${CLAUDE_PLUGIN_ROOT}/bin/waybill" launcher or the built
+          // waybill.mjs) are tagged so spend can itemize the overhead.
+          if (block.command.includes("bin/waybill") || block.command.includes("waybill.mjs")) {
+            overheadTurns.add(tIdx);
+          }
         }
         if (block.name === "Read" && block.file_path !== null) {
           const tally = readTallies.get(tIdx) ?? new Map<string, number>();
@@ -364,6 +378,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
     for (const n of readTallies.get(t.index)?.values() ?? []) {
       t.waste.repeated_reads += Math.max(0, n - 1);
     }
+    if (overheadTurns.has(t.index)) t.overhead = true;
   }
 
   const messageCount = byMessage.size;

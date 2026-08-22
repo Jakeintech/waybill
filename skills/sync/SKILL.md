@@ -10,7 +10,7 @@ description: >
   gh CLI, or the Atlassian/GitHub MCP servers bundled with this plugin
   upgrade it. Jira fetches prefer acli — scoped fields, small payloads.
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
 ---
 
 # Sync

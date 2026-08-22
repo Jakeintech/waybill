@@ -9,7 +9,9 @@ import {
   spendData,
   type Window,
 } from "../projections/queries.ts";
+import { manifestData } from "../projections/manifest.ts";
 import { resolveStandupWindow, standupData } from "../projections/standup.ts";
+import { untrackedData } from "../projections/untracked.ts";
 import { redact } from "../report/redaction.ts";
 
 const AUDIENCES: Audience[] = ["self", "internal", "external"];
@@ -67,8 +69,12 @@ export function runQuery(home: string, args: string[]): number {
     } else positional.push(a);
   }
 
-  if (what !== "standup" && (date !== null || days !== null || now !== null)) {
-    process.stderr.write("waybill query: --date/--days/--now apply to `query standup` only\n");
+  if (what !== "standup" && (date !== null || days !== null)) {
+    process.stderr.write("waybill query: --date/--days apply to `query standup` only\n");
+    return 2;
+  }
+  if (now !== null && what !== "standup" && what !== "manifest") {
+    process.stderr.write("waybill query: --now applies to `query standup` and `query manifest`\n");
     return 2;
   }
   if (now !== null && Number.isNaN(Date.parse(now))) {
@@ -145,6 +151,20 @@ export function runQuery(home: string, args: string[]): number {
       payload = exceptions.filter((e) => e.kind === "ambiguity" && !resolved.has(e.id));
       break;
     }
+    case "manifest": {
+      // What's still on the truck: open items, open spend, age, and the
+      // demurrage flag. Age needs a clock — injectable, CLI-edge only.
+      const nowIso = now ?? new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+      payload = manifestData(ledger, usage, config, nowIso);
+      break;
+    }
+    case "untracked": {
+      // The salvage clustering: spend with no ledger receipt behind it,
+      // grouped into candidate work items with their receipts attached.
+      const sessions = readEvents<SessionEvent>(home, "sessions");
+      payload = untrackedData(ledger, usage, sessions, config, window);
+      break;
+    }
     case "standup": {
       // The one projection with a relative default window (yesterday): day
       // math happens here at the CLI edge, injectable via --now; the
@@ -165,7 +185,7 @@ export function runQuery(home: string, args: string[]): number {
     }
     default:
       process.stderr.write(
-        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup\n",
+        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup | untracked | manifest\n",
       );
       return 2;
   }

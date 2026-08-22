@@ -129,6 +129,11 @@ export interface UsageEvent extends Envelope {
   /** Turn-level waste diagnostics (counts only, D11); carried on the
    * turn's first model event, null elsewhere. Absent on pre-1.0 events. */
   waste?: { retried_commands: number; repeated_reads: number } | null;
+  /** The turn ran the waybill CLI itself — the plugin's own keep,
+   * itemized so spend can prove the near-zero-overhead claim. Present
+   * (true) only on overhead turns; absent elsewhere and on pre-1.6
+   * events. */
+  overhead?: boolean;
 }
 
 export interface SessionEvent extends Envelope {

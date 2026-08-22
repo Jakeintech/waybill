@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Implemented — M0–M3 shipped in releases 0.3.0 → 1.0.0 (see [CHANGELOG](../CHANGELOG.md)); normative for future work |
 | **Owner** | Jakeintech |
-| **Last updated** | 2026-08-16 |
+| **Last updated** | 2026-08-22 |
 | **Scope of this document** | The full product, with normative detail on the spend-attribution engine (new in 0.3) |
 
 ## 1. Summary
@@ -147,6 +147,11 @@ analytics.
 - **FR-M6 — Aggregation grain.** One usage event per (turn, model,
   attribution account). A turn is the span from one user prompt to the next;
   subagent activity within a turn rolls up to that turn's account.
+- **FR-M7 — Overhead tagging (v1.6).** Turns whose tool commands invoke
+  the waybill CLI itself (deterministic substring match on the launcher /
+  built-engine names) mark their usage events `overhead: true` (additive;
+  present only when true). Spend reports itemize the plugin's own keep —
+  the near-zero-overhead claim ships with its own receipt.
 
 ### 5.2 Attribution (FR-A)
 
@@ -254,6 +259,10 @@ manual `tokens` field remains as an override but metered totals (joined via
   burn?"); and as a one-line notice at the start of the next interactive
   session after a threshold (80%, 100%) is crossed. Hooks never interrupt or
   block work to nag.
+- FR-B4. **Manifest & demurrage (v1.6)**: `query manifest` lists open work
+  with its open spend, age, and last metered activity; an item with spend
+  but no activity for `budgets.demurrage_days` (default 14) is "sitting"
+  and earns exactly one factual line in `status` — never a nag.
 
 ### 5.5 Spend analytics — canonical questions (FR-Q)
 
@@ -271,6 +280,12 @@ Each must be answerable in one interaction from local projections:
    ratio per account.
 6. Attribution health: % attributed by confidence band; attribution inbox
    size.
+7. **Untracked work (v1.6)**: `query untracked` clusters spend with no
+   ledger receipt behind it — unlogged story keys, unattributed sessions
+   grouped by branch, adhoc labels — each cluster carrying its receipts
+   (sessions, branches, repo, window, tokens) so the salvage skill can
+   propose items a human confirms one tap at a time. Titles come from
+   receipts only; pre-registration is never backfilled.
 
 ### 5.6 Reports & forecast integration (FR-R)
 
@@ -292,6 +307,14 @@ Each must be answerable in one interaction from local projections:
   `--from`/`--to`; day math is local-calendar, injectable via `--now`).
   The engine emits data; the `standup` skill renders the bullets. Facts
   only — an empty window says so rather than padding.
+- FR-R5. **The zero-token dashboard (v1.6)**: `waybill dashboard` injects
+  a JSON snapshot (30-day spend and coverage, weekly tokens, top
+  accounts, the manifest, the 7-day standup, the overhead line) into a
+  bundled static template and writes `rollups/dashboard.html` — a
+  self-contained local page making no network requests, refreshed
+  best-effort by the miner after each mined session. Presentation stays
+  out of the verified path: the template is a static plugin file, the
+  output a derived, deletable rollup, never a receipt.
 
 ### 5.7 Skill surface (FR-S)
 

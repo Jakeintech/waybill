@@ -1,4 +1,32 @@
-# Validation — FINALPASS gate (v1.5.0; earlier release evidence retained below)
+# Validation — FINALPASS gate (v1.6.0; earlier release evidence retained below)
+
+## Gate results (2026-08-22, Linux/Node 22 dev container; CI mirrors on Ubuntu/Node 24)
+
+| Check | Result |
+|---|---|
+| `tsc --noEmit` (strict) | clean |
+| `node --test` full suite | **175 / 175 pass** (v1.6 batch: overhead, untracked clustering, manifest/demurrage, conventions incl. the hook run against a real repo, dashboard incl. breakout-escape) |
+| Reproducible build + zero bin diff | pass |
+| `scripts/validate-plugin.sh` (incl. version agreement, `salvage` naming, reserved words `conventions`/`dashboard`) | pass |
+| Hook suite | 7 / 7 pass |
+| Dashboard headless render (Chromium: tiles, empty states, meta line) | pass |
+
+## 1.6.0 DoD — "Salvage"
+
+- Salvage clustering exercised end-to-end (`query untracked` through the
+  CLI envelope) with tracked work excluded and receipts attached; the
+  skill's never-backfill rule is structural (reconstructed entries carry
+  no estimate and no escrow).
+- The conventions `commit-msg` hook is executed in a real git repo by the
+  test suite (prefixes a keyless message on a keyed branch, first commit
+  included; leaves keyed messages untouched).
+- The dashboard's injection is breakout-safe (`<` escaped; regression
+  test with a hostile ledger title) and renders headless with correct
+  empty states.
+- Overhead tagging is conservation-neutral (full suite green incl.
+  meter goldens) and additive (absent on non-overhead events, so
+  pre-1.6 content addresses are unchanged); METER_LOGIC_VERSION 3
+  re-tags existing ledgers exactly once.
 
 ## Gate results (2026-08-22, Linux/Node 22 dev container; CI mirrors on Ubuntu/Node 24)
 

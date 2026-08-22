@@ -107,7 +107,7 @@ fi
 
 # Keep in lockstep with docs/skills.md: the plugin name, every engine
 # subcommand, and surfaces that are not skills.
-RESERVED_SKILL_NAMES="waybill init bootstrap mine meter append resolve verify query pace status export pricing sync-plan inbox"
+RESERVED_SKILL_NAMES="waybill init bootstrap mine meter append resolve verify query pace status export pricing sync-plan conventions dashboard inbox"
 for dir in skills/*/; do
   [ -d "$dir" ] || continue
   skill_name="$(basename "$dir")"

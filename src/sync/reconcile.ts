@@ -1,4 +1,5 @@
 import type { LedgerEntry, PinEntry } from "../core/events.ts";
+import { compareInstants } from "../core/time.ts";
 import { authoritative } from "../core/streams.ts";
 import { effectiveShipped } from "../projections/queries.ts";
 import type { MergedChange, WorkItem } from "../adapters/contract.ts";
@@ -69,19 +70,13 @@ function shippedBody(
     .map((c) => /\(([0-9a-f]{7,40})\)$/.exec(c.title)?.[1])
     .filter((s): s is string => s !== undefined)
     .sort();
-  // Chronological max, not lexicographic: Jira resolutiondates carry
-  // "+HHMM" offsets while merge timestamps are Z-suffixed — mixed formats
-  // don't sort as strings. Ties (or unparseable values) fall back
-  // deterministically to string order.
+  // Chronological max, not lexicographic (core/time): Jira resolutiondates
+  // carry "+HHMM" offsets while merge timestamps are Z-suffixed — mixed
+  // formats don't sort as strings.
   const tsCandidates = [item.resolved_at ?? "", ...changes.map((c) => c.merged_at)].filter((t) => t !== "");
   const ts =
     tsCandidates.length > 0
-      ? tsCandidates.sort((a, b) => {
-          const pa = Date.parse(a);
-          const pb = Date.parse(b);
-          if (!Number.isNaN(pa) && !Number.isNaN(pb) && pa !== pb) return pa - pb;
-          return a < b ? -1 : a > b ? 1 : 0;
-        })[tsCandidates.length - 1]!
+      ? tsCandidates.sort(compareInstants)[tsCandidates.length - 1]!
       : now;
   return {
     ts,

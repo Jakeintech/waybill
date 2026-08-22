@@ -7,6 +7,7 @@ import type {
   ResolutionEvent,
   UsageEvent,
 } from "../core/events.ts";
+import { inWindow as isInWindow, isIsoBound } from "../core/time.ts";
 import { authoritative } from "../core/streams.ts";
 
 export interface Window {
@@ -18,17 +19,13 @@ export interface Window {
  * Normalize user-supplied bounds: a bare date means the whole day (a
  * date-only `to` is inclusive of that day, not a midnight cutoff), and
  * bad bounds are an error rather than a silently empty window. Bounds must
- * be ISO-shaped: window filtering compares timestamps lexicographically,
- * so a merely Date.parse-able format ("8/20/2026") would be accepted and
- * then silently match nothing.
+ * be ISO-shaped (core/time): a merely Date.parse-able format ("8/20/2026")
+ * would be accepted and then silently match nothing.
  */
-const ISO_BOUND_RE =
-  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
-
 export function normalizeWindow(from: string | null, to: string | null): Window {
   const check = (v: string | null, name: string): string | null => {
     if (v === null) return null;
-    if (!ISO_BOUND_RE.test(v) || Number.isNaN(Date.parse(v))) {
+    if (!isIsoBound(v)) {
       throw new Error(`--${name} must be an ISO date (YYYY-MM-DD or full ISO timestamp): ${v}`);
     }
     return v;
@@ -40,20 +37,7 @@ export function normalizeWindow(from: string | null, to: string | null): Window 
 }
 
 function inWindow(ts: string, w: Window): boolean {
-  // Instants, not strings: a second-precision "…59Z" sorts after the
-  // day-end bound "…59.999Z" lexicographically and would fall out of the
-  // day it belongs to. Unparseable values fall back to string order.
-  const t = Date.parse(ts);
-  const from = w.from !== null ? Date.parse(w.from) : null;
-  const to = w.to !== null ? Date.parse(w.to) : null;
-  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
-    if (from !== null && t < from) return false;
-    if (to !== null && t > to) return false;
-    return true;
-  }
-  if (w.from !== null && ts < w.from) return false;
-  if (w.to !== null && ts > w.to) return false;
-  return true;
+  return isInWindow(ts, w.from, w.to);
 }
 
 function totalTokens(u: UsageEvent): number {
@@ -136,6 +120,9 @@ export interface SpendData {
     priced_pct: number;
     unpriced_event_models: string[];
   };
+  /** The plugin's own keep — tokens from turns that ran the waybill CLI
+   * (v1.6, meter-tagged). The accountant bills for its own hours. */
+  overhead: { tokens: number; pct: number };
 }
 
 function isoWeek(ts: string): string {
@@ -165,11 +152,13 @@ export function spendData(
   const accountSessions = new Map<string, Set<string>>();
   let total = 0;
   let pricedTokens = 0;
+  let overheadTokens = 0;
   const unpricedByModel = new Set<string>();
 
   for (const u of usage) {
     const t = totalTokens(u);
     total += t;
+    if (u.overhead === true) overheadTokens += t;
     if (u.cost_usd) pricedTokens += t;
     // "unknown" (no model id in the source) counts as unpriced tokens but
     // stays out of the named list — no rate could ever fix it, and status
@@ -257,6 +246,10 @@ export function spendData(
       unpriced_tokens: total - pricedTokens,
       priced_pct: total > 0 ? Math.round((pricedTokens / total) * 1000) / 10 : 0,
       unpriced_event_models: [...unpricedByModel].sort(),
+    },
+    overhead: {
+      tokens: overheadTokens,
+      pct: total > 0 ? Math.round((overheadTokens / total) * 1000) / 10 : 0,
     },
   };
 }

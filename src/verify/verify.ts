@@ -7,6 +7,7 @@ import type {
   UsageEvent,
 } from "../core/events.ts";
 import { STREAM_KINDS } from "../core/events.ts";
+import { isIsoTimestamp } from "../core/time.ts";
 import { canonicalJson } from "../core/canonical.ts";
 import { checkEscrow } from "../core/escrow.ts";
 import { authoritative, readStream, shardFor } from "../core/streams.ts";
@@ -30,16 +31,10 @@ export interface Finding {
 
 const STREAMS: StreamName[] = ["ledger", "usage", "sessions", "exceptions"];
 
-function isIsoUtc(ts: unknown): boolean {
-  // ISO shape required, not just parseability: shardFor and window
-  // filtering depend on the YYYY-MM prefix, so a merely parseable ts
-  // ("8/20/2026") is corruption to report, not a value to crash on.
-  return (
-    typeof ts === "string" &&
-    /^\d{4}-\d{2}-\d{2}T/.test(ts) &&
-    !Number.isNaN(Date.parse(ts))
-  );
-}
+// ISO shape required, not just parseability (core/time): shardFor and
+// window filtering depend on the YYYY-MM prefix, so a merely parseable ts
+// ("8/20/2026") is corruption to report, not a value to crash on.
+const isIsoUtc = isIsoTimestamp;
 
 export function zeroTotals(): TokenCounts {
   return { input: 0, output: 0, cache_read: 0, cache_creation: 0 };

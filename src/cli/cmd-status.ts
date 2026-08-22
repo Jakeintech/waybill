@@ -5,6 +5,7 @@ import { loadConfig } from "../core/config.ts";
 import type { ExceptionEvent, LedgerEntry, PinEntry, UsageEvent } from "../core/events.ts";
 import { resolveRate, unpricedModels } from "../core/pricing-resolve.ts";
 import { authoritative, readEvents } from "../core/streams.ts";
+import { manifestData } from "../projections/manifest.ts";
 import { countOpenAmbiguities, spendData } from "../projections/queries.ts";
 import { loadState } from "../meter/state.ts";
 import { verifyHome } from "../verify/verify.ts";
@@ -53,6 +54,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   const usage = readEvents<UsageEvent>(home, "usage");
   const exceptions = readEvents<ExceptionEvent>(home, "exceptions");
   const spend = spendData(usage, exceptions, ledger, config, { from: null, to: null });
+  const manifest = manifestData(ledger, usage, config, new Date().toISOString().replace(/\.\d{3}Z$/, "Z"));
   const state = loadState(home);
   const lastMine = Object.values(state.sessions)
     .map((s) => s.metered_through_ts ?? "")
@@ -152,6 +154,12 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       attributed_pct_conf_060: spend.attribution_health.attributed_pct_conf_060,
       inbox_open: spend.attribution_health.inbox_open,
     },
+    manifest: {
+      open_items: manifest.open_items.length,
+      open_tokens: manifest.open_tokens,
+      sitting: manifest.sitting,
+      demurrage_days: manifest.demurrage_days,
+    },
     verify: { findings: findings.length, ok: findings.length === 0 },
     next: next.slice(0, 2),
   };
@@ -185,6 +193,12 @@ export function runStatus(home: string, args: string[], json: boolean): number {
         ? `; ${spend.attribution_health.inbox_open} in the attribution inbox — see: waybill query inbox`
         : ""),
   );
+  if (manifest.sitting > 0) {
+    lines.push(
+      `manifest: ${manifest.open_items.length} open item(s), ${fmtInt(manifest.open_tokens)} tokens open; ` +
+        `${manifest.sitting} sitting idle ≥ ${manifest.demurrage_days}d — see: waybill query manifest`,
+    );
+  }
   if (config.pricing.version === null || Object.keys(config.pricing.models).length === 0) {
     lines.push(
       "pricing: NOT CONFIGURED — costs stay tokens-only. Fix: waybill pricing import",

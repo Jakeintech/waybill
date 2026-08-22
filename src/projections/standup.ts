@@ -8,6 +8,7 @@ import type {
   TokenCounts,
   UsageEvent,
 } from "../core/events.ts";
+import { inWindow as isInWindow } from "../core/time.ts";
 import { authoritative } from "../core/streams.ts";
 import { countOpenAmbiguities, effectiveShipped, normalizeWindow, type Window } from "./queries.ts";
 
@@ -74,20 +75,7 @@ export interface StandupData {
 }
 
 function inWindow(ts: string, w: Window): boolean {
-  // Instants, not strings: a second-precision "…59Z" sorts after the
-  // day-end bound "…59.999Z" lexicographically and would fall out of the
-  // day it belongs to. Unparseable values fall back to string order.
-  const t = Date.parse(ts);
-  const from = w.from !== null ? Date.parse(w.from) : null;
-  const to = w.to !== null ? Date.parse(w.to) : null;
-  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
-    if (from !== null && t < from) return false;
-    if (to !== null && t > to) return false;
-    return true;
-  }
-  if (w.from !== null && ts < w.from) return false;
-  if (w.to !== null && ts > w.to) return false;
-  return true;
+  return isInWindow(ts, w.from, w.to);
 }
 
 function totalTokens(t: TokenCounts): number {

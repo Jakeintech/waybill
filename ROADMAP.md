@@ -20,7 +20,7 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.5.0 (2026-08)
+## Shipped — 1.6.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
@@ -46,7 +46,11 @@ rate resolution, empty-table auto-import for upgraders, unpriced models
 named by `status`/`pricing show`, `pricing_coverage` on every spend
 payload), **CLI-first Jira syncs** via Atlassian's acli (scoped fields,
 small payloads; MCP fallback kept), and a recorded architecture review
-([docs/architecture.md](docs/architecture.md)).
+([docs/architecture.md](docs/architecture.md)). 1.6.0 shipped the
+first leg of the committed path below: **salvage** (untracked work →
+receipts), **conventions**, the **zero-token dashboard**,
+**manifest/demurrage**, **overhead tagging** (waybill bills itself), and
+the unified timestamp module.
 
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.
@@ -59,7 +63,7 @@ real waybill serves everyone who touches the shipment — the performance
 review is *one* reader of the receipts, not the product. The scope test
 above is unchanged; every item below passes it.
 
-### v1.6 "Salvage" — untracked AI work becomes first-class
+### v1.6 "Salvage" — untracked AI work becomes first-class ✅ shipped 2026-08-22
 
 - **Salvage**: `waybill query untracked` deterministically clusters
   unattributed sessions, branch-only spend, and adhoc accounts (repo +
