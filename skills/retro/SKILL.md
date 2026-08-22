@@ -13,7 +13,7 @@ description: >
   is the periodic look in the mirror.) Facts only — the unflattering
   numbers are the point.
 metadata:
-  version: "1.7.0"
+  version: "1.8.0"
 ---
 
 # Retro

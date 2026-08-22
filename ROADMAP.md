@@ -20,7 +20,7 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.7.0 (2026-08)
+## Shipped — 1.8.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
@@ -56,7 +56,11 @@ integrity checks themselves), **estimate calibration** and **model mix**
 on `query report`, **cache economics** on every spend payload, the
 **retro** skill, the **multi-machine ledger** (union-merge attributes +
 the local-refs-only remote line in `status`), and the conformance kit's
-**own-data scoping check**.
+**own-data scoping check**. 1.8.0 shipped the third leg — the same
+receipts, new audiences, at the cost of three additive report fields:
+the **invoice** and **disclose** skills, the **grant-report** and
+**incident** report presets, and the documented **portable career
+ledger**.
 
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.
@@ -113,7 +117,7 @@ above is unchanged; every item below passes it.
   a test running the sync skill's exact documented fetch shapes through
   the adapters.
 
-### v1.8 "Many readers" — the same receipts, new audiences
+### v1.8 "Many readers" — the same receipts, new audiences ✅ shipped 2026-08-22
 
 Rendering presets over data the engine already holds: **invoice pack**
 (freelancers/agencies: shipped items + hour ranges + AI costs as

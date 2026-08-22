@@ -314,7 +314,16 @@ export interface ReportData {
     deploy: string | null;
     ts: string;
     claude_role: string;
+    /** v1.8 reader presets (disclosure register, incident recipe): the
+     * entry's work_type travels onto the row. */
+    work_type: string;
     metered_tokens: number | null;
+    /** Distinct metered sessions attributed to this story in the window —
+     * a count (numbers survive every redaction level). */
+    sessions: number;
+    /** This story's metered USD in the window (spend-account cost), null
+     * when unpriced — per-item cost for invoice/disclosure rows. */
+    metered_cost_usd: number | null;
     escrowed: boolean;
   }>;
   totals: {
@@ -391,8 +400,28 @@ export function reportData(
   const views = effectiveShipped(ledgerEvents).filter((s) => inWindow(s.shipped_ts, window));
   const spend = spendData(usageEvents, exceptionEvents, ledgerEvents, config, window);
   const tokensByKey = new Map<string, number>();
+  const costByKey = new Map<string, number | null>();
   for (const a of spend.accounts) {
-    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
+    if (a.account.startsWith("story:")) {
+      tokensByKey.set(a.account.slice(6), a.tokens);
+      costByKey.set(a.account.slice(6), a.cost_usd);
+    }
+  }
+
+  // Per-story usage detail for the shipped rows and the model mix: the same
+  // authoritative in-window usage spendData counted, so projections agree.
+  const storyModelTokens = new Map<string, Map<string, number>>();
+  const sessionsByKey = new Map<string, Set<string>>();
+  for (const u of authoritative(usageEvents)) {
+    if (u.kind !== "usage" || !inWindow(u.ts, window) || totalTokens(u) === 0) continue;
+    if (!u.attribution.account.startsWith("story:")) continue;
+    const key = u.attribution.account.slice(6);
+    const split = storyModelTokens.get(key) ?? new Map<string, number>();
+    split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
+    storyModelTokens.set(key, split);
+    const sess = sessionsByKey.get(key) ?? new Set<string>();
+    sess.add(u.session_id);
+    sessionsByKey.set(key, sess);
   }
 
   const shipped = views
@@ -407,7 +436,10 @@ export function reportData(
       deploy: e.artifacts.deploy,
       ts: shipped_ts,
       claude_role: e.claude_role,
+      work_type: e.work_type,
       metered_tokens: e.tracker_key !== null ? (tokensByKey.get(e.tracker_key) ?? null) : null,
+      sessions: e.tracker_key !== null ? (sessionsByKey.get(e.tracker_key)?.size ?? 0) : 0,
+      metered_cost_usd: e.tracker_key !== null ? (costByKey.get(e.tracker_key) ?? null) : null,
       escrowed: e.escrow !== null,
     }))
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
@@ -430,17 +462,7 @@ export function reportData(
 
   const allocation = config.allocations[config.allocations.length - 1] ?? null;
 
-  // Model mix: per-story per-model token splits from the same authoritative
-  // in-window usage spendData counted, so the two projections agree.
-  const storyModelTokens = new Map<string, Map<string, number>>();
-  for (const u of authoritative(usageEvents)) {
-    if (u.kind !== "usage" || !inWindow(u.ts, window) || totalTokens(u) === 0) continue;
-    if (!u.attribution.account.startsWith("story:")) continue;
-    const key = u.attribution.account.slice(6);
-    const split = storyModelTokens.get(key) ?? new Map<string, number>();
-    split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
-    storyModelTokens.set(key, split);
-  }
+  // Model mix over the per-story splits computed above.
   const byModel = new Map<string, { stories: number; points: number; tokens: number }>();
   const mixed = { stories: 0, points: 0, tokens: 0 };
   for (const s of shipped) {

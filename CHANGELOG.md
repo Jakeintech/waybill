@@ -5,6 +5,48 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [1.8.0] - 2026-08-22
+
+"Many readers": the same receipts, new audiences — the third release of
+the committed path to complete ([ROADMAP](ROADMAP.md)). Engine-side cost
+held to three additive fields; everything else is rendering, which is the
+completion thesis working as designed.
+
+### Added
+- **The `invoice` skill** (+ trigger eval) — billing paperwork from the
+  receipts, two modes: the **client invoice pack** (shipped entries as
+  line items with recorded `actual_hours`, artifacts, and per-item
+  disclosed AI cost — counterfactual hours are never presented as
+  billable time, and pricing stays the user's business) and the
+  **personal expense receipt** (a period's metered costs with
+  `pricing_coverage` honesty plus the CSV export for finance, labeled
+  list-price equivalent — the provider bill says what was paid; this
+  says what it was *for*).
+- **The `disclose` skill** (+ trigger eval) — "was AI used here?"
+  answered from the meter instead of memory: per item, the recorded
+  `claude_role` (labeled as the user's declaration), metered sessions
+  and tokens (labeled as assistance volume, never an authorship
+  percentage), the ship receipt, and the verification basis. Single-item
+  statements or a window's **AI-disclosure register** — including
+  role-`none` rows, because a register that can't prove a negative isn't
+  one. IC-owned, handed over per item; no standing feeds, no colleague
+  data, ever.
+- **Report presets `grant-report` and `incident`** — the maintainer
+  grant report (what the sponsorship shipped, funder verification via
+  `export --pack`) and the incident receipts pack (tight window,
+  `work_type: "incident"` rows, timeline facts, no efficiency math —
+  nobody prices a fire by the token).
+- **The portable career ledger** — documented exit path in the ledger
+  skill: `export --format json --audience external` over all history
+  gives a pseudonymized, numbers-intact record that follows the user
+  between jobs; the home repo clone remains the raw, lock-in-free copy.
+- **Engine: three additive fields on report shipped rows** —
+  `work_type`, `sessions` (distinct metered sessions for the story in
+  the window; a count, so it survives every redaction level), and
+  `metered_cost_usd` (the story's windowed spend-account cost, null when
+  unpriced — never $0). These power the presets above; no new commands,
+  no storage change.
+
 ## [1.7.0] - 2026-08-22
 
 "Bill of lading": arm the recipient — the second release of the committed

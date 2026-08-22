@@ -8,7 +8,7 @@ description: >
   another waybill skill (log, spend, sync, report, forecast) needs to read
   or write ledger data.
 metadata:
-  version: "1.7.0"
+  version: "1.8.0"
 ---
 
 # The Waybill Ledger
@@ -121,6 +121,25 @@ Use `jq` over `streams/*/*.jsonl` for ad-hoc reads. Rules:
    appends to the right shard, and commits.
 3. Never edit or delete an existing line. Corrections are new events with
    `kind: "correction"` and `supersedes` set to the old event's `id`.
+
+## The ledger follows the user (career ledger & exit)
+
+The ledger is the user's professional record, not the employer's or the
+plugin's. When they change jobs, want a copy, or want out:
+
+- **Portable career ledger** — the externally-redacted full export:
+  `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" export --format json --audience external`
+  (no `--from`/`--to` = all history). Keys, titles, and repos are
+  deterministically pseudonymized; every number, date, evidence tier, and
+  confidence survives — a career's worth of "shipped, with receipts" that
+  can leave an employer without leaking one identifier. The internal
+  mapping stays behind; note it exists.
+- **The raw copy** — `$WAYBILL_HOME` is a plain git repo: `git clone` it
+  anywhere (see `docs/multi-machine.md` for keeping several machines on
+  one ledger). No export step, no lock-in.
+- **Full exit** — the same clone IS the exit: plain JSONL + JSON readable
+  with `jq`, schema documented in `references/schema.md`, engine optional
+  ever after. Nothing is held hostage; say so plainly when asked.
 
 ## Integrity invariants (enforce these everywhere)
 

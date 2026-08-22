@@ -16,7 +16,7 @@ description: >
   numbers.) Produces a one-page, receipt-backed report; never invents
   numbers.
 metadata:
-  version: "1.7.0"
+  version: "1.8.0"
 ---
 
 # Report
@@ -61,7 +61,10 @@ adjust a number the query returned.
     available.
   - exploring their own data → `self` (the default).
 - **Presets**: `token-pitch` (default when the goal is more tokens),
-  `perf-review`, `sprint-recap`, `quarterly`.
+  `perf-review`, `sprint-recap`, `quarterly`, `grant-report` (maintainers:
+  what the sponsorship shipped), `incident` (a windowed receipts pack
+  over an incident timeframe). (Billing paperwork belongs to the
+  `invoice` skill; per-item AI-involvement statements to `disclose`.)
 
 ## Cold start: the bootstrap report
 
@@ -117,7 +120,19 @@ claims to fill the gap.
 Preset adjustments: `perf-review` leads with epic-level outcomes across all
 `work_type`s (including review, incident, and docs work), frames the
 headline for the user's manager, and omits token-efficiency metrics unless
-asked; `sprint-recap` drops the ask section entirely.
+asked; `sprint-recap` drops the ask section entirely. `grant-report`
+("what did the sponsorship fund") windows on the grant period, leads with
+shipped items and closed issues (GitHub-issues keys render naturally),
+includes the AI-cost line as spend transparency, drops the ask unless the
+user is renewing, and defaults to `--audience internal` since maintainer
+work is public anyway — offer `export --pack` as the funder's
+verification. `incident` windows tightly on the incident timeframe the
+user names, filters shipped rows to `work_type: "incident"` (plus
+anything the user tags in; in-flight incident work under a labeled "In
+flight" line only if asked), leads with the timeline facts (sessions,
+turns, tokens over the window — when work started, how long it ran), and
+skips efficiency metrics entirely — nobody prices a fire by the
+token.
 
 ## Hard rules
 

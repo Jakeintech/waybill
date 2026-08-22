@@ -617,3 +617,32 @@ by construction.
 own job, a new failure surface in the trust path, and a standing
 temptation to add a server. The append-only design was chosen for
 auditability; getting multi-machine for free is the design paying rent.
+
+## 2026-08-22 — Many readers are renderings, and disclosure belongs to the IC (1.8.0)
+
+**Question.** v1.8 promises six new audiences — invoices, expense
+receipts, AI-disclosure registers, grant reports, career ledgers,
+incident packs. Are these engine features, and who owns the disclosure
+register?
+
+**Choice.** Renderings, almost entirely. The engine's whole cost is
+three additive fields on report shipped rows — `work_type`, `sessions`
+(a count, so it survives every redaction level), `metered_cost_usd` —
+and everything else is skills and presets over queries that already
+existed: `invoice` and `disclose` as new skills (their readers speak
+different vocabularies than "report" — a client paying for hours, a
+policy asking about AI use), `grant-report`/`incident` as report
+presets, and the career ledger as the documented external full-history
+export. Two honesty lines drawn in the skills, structurally: the invoice
+never presents counterfactual hours (`estimate_without_claude_hours`,
+`time_saved_hours`) as billable time — only recorded `actual_hours` —
+and the disclosure register never blends the recorded `claude_role` with
+metered token volume into an invented "AI wrote N%". The register is the
+individual's to produce, per item, on their initiative: no standing
+feeds, no colleague aggregation, methodology §6 unchanged.
+
+**Rationale.** The completion thesis says the performance review is one
+reader of the receipts, not the product. Proving it means new readers
+must cost near-zero engine surface — if a new audience needed new
+metering, the receipt schema would be wrong. Three additive row fields
+and zero new commands is the thesis holding.

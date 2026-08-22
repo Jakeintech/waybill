@@ -1974,8 +1974,25 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
   const views = effectiveShipped(ledgerEvents).filter((s) => inWindow2(s.shipped_ts, window));
   const spend = spendData(usageEvents, exceptionEvents, ledgerEvents, config, window);
   const tokensByKey = /* @__PURE__ */ new Map();
+  const costByKey = /* @__PURE__ */ new Map();
   for (const a of spend.accounts) {
-    if (a.account.startsWith("story:")) tokensByKey.set(a.account.slice(6), a.tokens);
+    if (a.account.startsWith("story:")) {
+      tokensByKey.set(a.account.slice(6), a.tokens);
+      costByKey.set(a.account.slice(6), a.cost_usd);
+    }
+  }
+  const storyModelTokens = /* @__PURE__ */ new Map();
+  const sessionsByKey = /* @__PURE__ */ new Map();
+  for (const u of authoritative(usageEvents)) {
+    if (u.kind !== "usage" || !inWindow2(u.ts, window) || totalTokens(u) === 0) continue;
+    if (!u.attribution.account.startsWith("story:")) continue;
+    const key = u.attribution.account.slice(6);
+    const split = storyModelTokens.get(key) ?? /* @__PURE__ */ new Map();
+    split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
+    storyModelTokens.set(key, split);
+    const sess = sessionsByKey.get(key) ?? /* @__PURE__ */ new Set();
+    sess.add(u.session_id);
+    sessionsByKey.set(key, sess);
   }
   const shipped = views.map(({ entry: e, shipped_ts }) => ({
     id: e.id,
@@ -1988,7 +2005,10 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
     deploy: e.artifacts.deploy,
     ts: shipped_ts,
     claude_role: e.claude_role,
+    work_type: e.work_type,
     metered_tokens: e.tracker_key !== null ? tokensByKey.get(e.tracker_key) ?? null : null,
+    sessions: e.tracker_key !== null ? sessionsByKey.get(e.tracker_key)?.size ?? 0 : 0,
+    metered_cost_usd: e.tracker_key !== null ? costByKey.get(e.tracker_key) ?? null : null,
     escrowed: e.escrow !== null
   })).sort((a, b) => a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0);
   const entries = views.map((v) => v.entry);
@@ -2006,15 +2026,6 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
     bucket.n += 1;
   }
   const allocation = config.allocations[config.allocations.length - 1] ?? null;
-  const storyModelTokens = /* @__PURE__ */ new Map();
-  for (const u of authoritative(usageEvents)) {
-    if (u.kind !== "usage" || !inWindow2(u.ts, window) || totalTokens(u) === 0) continue;
-    if (!u.attribution.account.startsWith("story:")) continue;
-    const key = u.attribution.account.slice(6);
-    const split = storyModelTokens.get(key) ?? /* @__PURE__ */ new Map();
-    split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
-    storyModelTokens.set(key, split);
-  }
   const byModel = /* @__PURE__ */ new Map();
   const mixed = { stories: 0, points: 0, tokens: 0 };
   for (const s of shipped) {
@@ -5434,7 +5445,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "1.7.0" : "dev";
+var ENGINE_VERSION = true ? "1.8.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]

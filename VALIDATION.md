@@ -1,17 +1,43 @@
-# Validation — FINALPASS gate (v1.7.0; earlier release evidence retained below)
+# Validation — FINALPASS gate (v1.8.0; earlier release evidence retained below)
 
 ## Gate results (2026-08-22, Linux/Node 22 dev container; CI mirrors on Ubuntu/Node 24)
 
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict) | clean |
-| `node --test` full suite | **184 / 184 pass** (v1.7 batch: verification pack end-to-end, cache savings, model mix, calibration, remote status against a real git upstream, own-data conformance) |
+| `node --test` full suite | **187 / 187 pass** (v1.8 batch: shipped-row work_type/sessions/metered_cost_usd, null-not-zero USD, redaction survival of counts) |
 | Reproducible build + zero bin diff | pass |
-| `scripts/validate-plugin.sh` (incl. version agreement, `retro` naming) | pass |
+| `scripts/validate-plugin.sh` (incl. version agreement, `invoice`/`disclose` naming) | pass |
 | Hook suite | 7 / 7 pass |
-| Built-binary smoke: `export --pack` from the real bundle → recipient `verify` green | pass |
+
+## 1.8.0 DoD — "Many readers"
+
+- The engine cost of six new audiences is exactly three additive fields
+  on report shipped rows, each fixture-tested: `work_type` travels from
+  the entry; `sessions` counts distinct metered sessions (a repeat
+  session must not inflate it); `metered_cost_usd` is the story's
+  windowed spend cost and is null — never $0 — when unpriced.
+- Redaction behavior of the new fields is asserted: session *counts*
+  survive `internal` and `external` (numbers are never identifiers)
+  while titles/PRs drop and keys pseudonymize exactly as before.
+- The honesty lines are structural in the skills: `invoice` bills only
+  recorded `actual_hours` (counterfactual estimates and time-saved
+  ranges are never presented as billable time; pricing stays the
+  user's); `disclose` keeps the recorded role and the metered volume
+  separate (no invented "AI wrote N%"), includes role-`none` rows, and
+  is per-item, IC-initiated — no standing feeds, no colleague data.
+- Trigger evals added for both new skills (`evals/trigger-invoice`,
+  `evals/trigger-disclose`); the validator's naming and reserved-word
+  checks pass for `invoice` and `disclose`.
 
 ## 1.7.0 DoD — "Bill of lading"
+
+Gate at release (same environment): tsc clean; **184 / 184** tests
+(verification pack end-to-end, cache savings, model mix, calibration,
+remote status against a real git upstream, own-data conformance);
+reproducible build, zero bin diff; validator (incl. `retro` naming)
+pass; hook suite 7 / 7; built-binary smoke — `export --pack` from the
+real bundle → recipient `verify` green.
 
 - The verification pack is exercised through the real recipient flow in
   the test suite AND against the built binary: pack a fixture home,

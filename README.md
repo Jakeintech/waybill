@@ -93,6 +93,7 @@ ledger unlocks the stronger claims (see tiers below).
 | The sprint ends | `retro` runs the honest look back: estimates vs. actuals (over-range items named, not hidden), tokens-per-point by model, waste, rework, and what sat on the truck |
 | You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own metered tokens-per-story-point |
 | They should not have to trust you | `waybill export --pack` ships the **verification pack**: the verbatim events behind the numbers plus the engine itself, so the recipient re-runs the integrity checks offline — `node waybill.mjs verify --home .` |
+| A client, a policy, or finance asks | `invoice` renders shipped work as billing paperwork (recorded hours, disclosed AI costs); `disclose` answers "was AI used here?" per item from the meter — recorded role, sessions, tokens, conservation-checked |
 
 Every Claude Code token is metered deterministically from your local
 transcripts and attributed to the story it served, with a per-event resolver
@@ -118,6 +119,9 @@ Plus structural honesty: append-only storage (corrections supersede, never overw
 - **`token-pitch`** — the ask, the receipts, the spend ledger, the efficiency trend, the forecast.
 - **`perf-review`** — epic-level outcomes for a review period, including review/incident/docs work.
 - **`sprint-recap`** / **`quarterly`** — the running record.
+- **`grant-report`** — what the sponsorship shipped, for maintainers and their funders.
+- **`incident`** — the receipts pack over an incident timeframe: timeline facts, no efficiency math.
+- Beyond reports: the **career ledger** (externally-redacted full export that follows you between jobs — see the ledger skill's exit section) and the `invoice`/`disclose` skills above.
 
 Reports render at three audience levels — `self`, `internal`, `external` —
 with deterministic pseudonymization before anything leaves the org.

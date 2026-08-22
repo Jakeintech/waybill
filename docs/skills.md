@@ -37,6 +37,8 @@ keeps `verify` meaningful.
 | `standup` | `/waybill:standup` | action | "What did I do" digests from the ledger: shipped, in progress, opened, session/token totals, for any day or range | "what did I do yesterday", "prep my standup", "weekly digest" |
 | `salvage` | `/waybill:salvage` | action | Turn untracked work into receipts: cluster unattributed/unlogged spend, propose titles from the receipts, one tap per cluster | "group my untracked work", "clean up my unattributed spend", "what did I forget to log" |
 | `retro` | `/waybill:retro` | action | The honest look back: shipped + cost, estimate calibration (above-range included), model mix, waste/rework, cache savings, what sat | "run my retro", "how did my estimates hold up", "how did the sprint actually go" |
+| `invoice` | `/waybill:invoice` | action | Billing paperwork from the receipts: client invoice pack (line items, recorded hours, disclosed AI costs) and the personal expense receipt | "prepare my invoice", "invoice my client", "expense my Claude usage" |
+| `disclose` | `/waybill:disclose` | action | Per-item AI-involvement statements the meter can back: recorded role, sessions, tokens, share — single item or a window's register | "was AI used on PLAT-482", "build my AI disclosure", "AI involvement report" |
 
 ## Naming decisions (recorded)
 
@@ -61,6 +63,13 @@ keeps `verify` meaningful.
   of the pack, not the pack. Pure rendering — every number it shows
   already exists on `query report`/`manifest`/`untracked`, so no engine
   name is consumed at all.
+- **`invoice` and `disclose`, not more `report` presets.** Presets share
+  an audience (a decision-maker reading about value); these two serve
+  different readers with different vocabularies — a client paying for
+  hours, a policy asking about AI involvement — and their trigger phrases
+  ("invoice my client", "was AI used on…") would never find the report
+  skill. Both are pure renderings; `disclose` is a verb on purpose:
+  disclosure is something the user does, never something done to them.
 - **Reserved words never used as skill names:** `waybill` (the plugin),
   every engine subcommand (`init`, `bootstrap`, `mine`, `meter`, `append`,
   `resolve`, `verify`, `query`, `pace`, `status`, `export`, `pricing`,

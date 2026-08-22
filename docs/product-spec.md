@@ -355,6 +355,19 @@ Each must be answerable in one interaction from local projections:
   `node waybill.mjs verify --home .`, and `pack.json` with SHA-256 of
   every file. The engine refuses to pack a home that does not verify
   green. `identity.json` never travels.
+- FR-R9. **Reader presets (v1.8)** — the same receipts rendered for new
+  audiences, engine-side cost kept to three additive fields on report
+  shipped rows (`work_type`, `sessions` — a distinct-session count that
+  survives every redaction level, and `metered_cost_usd` — the story's
+  windowed spend-account cost): the **invoice pack** and **expense
+  receipt** (`invoice` skill — recorded `actual_hours` only, never
+  counterfactuals as billable time; list-price labeling throughout), the
+  **AI-disclosure register** (`disclose` skill — recorded role and
+  metered volume, clearly separated, single item or windowed register,
+  IC-owned and handed over per item), the **maintainer grant report** and
+  **incident receipts** (report presets `grant-report` / `incident`), and
+  the **portable career ledger** (externally-redacted full-history
+  export, documented in the ledger skill's exit section).
 
 ### 5.7 Skill surface (FR-S)
 
@@ -368,6 +381,8 @@ Each must be answerable in one interaction from local projections:
 | `standup` | **new** | "what did I do yesterday", "prep my standup", "weekly digest" |
 | `salvage` | **new (v1.6)** | "group my untracked work", "clean up my unattributed spend", "what did I forget to log" |
 | `retro` | **new (v1.7)** | "run my retro", "how did my estimates hold up", "how did the sprint actually go" |
+| `invoice` | **new (v1.8)** | "prepare my invoice", "invoice my client", "expense my Claude usage" |
+| `disclose` | **new (v1.8)** | "was AI used on PLAT-482", "build my AI disclosure", "AI involvement report" |
 
 The meter itself is **not** a skill: it is a deterministic, stdlib-only
 executable (`bin/waybill.mjs`, TypeScript compiled to a single dependency-free
