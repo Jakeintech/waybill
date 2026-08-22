@@ -4,7 +4,7 @@
 # links, eval coverage — are checked mechanically, not asserted. Run it
 # before tagging: bash scripts/release-gate.sh
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 fails=0
 ok()   { printf 'OK   %s\n' "$1"; }
