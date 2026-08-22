@@ -184,7 +184,7 @@ ledgers individuals chose to publish.
 
 ## Distribution checklist (executed at v2.0)
 
-- [ ] GitHub repo description starts with "Claude Code plugin"; topics set:
+- [x] GitHub repo description starts with "Claude Code plugin"; topics set:
       `claude`, `claude-code`, `claude-plugin`, `mcp`, `jira`, `github`,
       `brag-document`, `performance-review`, `developer-productivity`,
       `ai-roi`, `engineering-metrics`.
