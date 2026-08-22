@@ -17,7 +17,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: ['.github/releases.txt']
+    paths: ['.github/releases.txt', '.github/workflows/release.yml']
   workflow_dispatch: {}
 
 permissions:
@@ -63,12 +63,7 @@ jobs:
             fi
             # gh api prints the error body to stdout on 404 — capture only on success.
             existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha 2>/dev/null)" || existing=""
-            if [ -z "$existing" ]; then
-              gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$sha" > /dev/null
-              echo "   tag created"
-            elif [ "$existing" = "$sha" ]; then
-              echo "   tag exists and matches"
-            else
+            if [ -n "$existing" ] && [ "$existing" != "$sha" ]; then
               echo "::error::$tag: already exists at $existing — published tags never move"; fails=$((fails+1)); continue
             fi
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
@@ -84,13 +79,21 @@ jobs:
               "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" >> /tmp/body.md
             latest_flag='--latest=false'
             [ "$tag" = "$maxtag" ] && latest_flag='--latest'
-            gh release create "$tag" \
+            # One call creates the tag (at --target, when absent) AND the
+            # release; guarded so one refusal never aborts the other entries.
+            target_flag=""
+            [ -z "$existing" ] && target_flag="--target=$sha"
+            if out="$(gh release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
               --title "waybill $version" \
               --notes-file /tmp/body.md \
-              --verify-tag \
-              "$latest_flag"
-            echo "   release published"
+              "$latest_flag" $target_flag 2>&1)"; then
+              echo "   release published: $out"
+            else
+              echo "::error::$tag: release creation failed — $out"
+              echo "::notice::if this is 'Resource not accessible by integration', a repo setting is capping GITHUB_TOKEN: Settings → Actions → General → Workflow permissions → 'Read and write permissions' (or a tag ruleset needs an Actions bypass)"
+              fails=$((fails+1)); continue
+            fi
           done <<EOF_ENTRIES
           $entries
           EOF_ENTRIES
