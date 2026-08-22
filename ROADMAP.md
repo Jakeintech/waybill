@@ -188,14 +188,20 @@ ledgers individuals chose to publish.
       `claude`, `claude-code`, `claude-plugin`, `mcp`, `jira`, `github`,
       `brag-document`, `performance-review`, `developer-productivity`,
       `ai-roi`, `engineering-metrics`.
-- [ ] 60–90s demo (GIF or asciinema) at the top of the README:
-      sync → bootstrap report → token pitch.
+- [x] Demo at the top of the README: `assets/demo.svg` — an animated
+      terminal (pure SVG/CSS, no scripts, demo data labeled) walking
+      init → sync → standup → token pitch → verify. A screen recording
+      of a real session can replace it later; the slot is filled.
 - [ ] Social preview image set in repo settings.
 - [ ] Submit to the official plugin directory
       ([anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official))
       — it's available by default in every Claude Code install.
 - [ ] PR to community lists (awesome-claude-code and plugin directories).
 - [ ] Launch write-up: *"I asked for a bigger Claude budget with receipts"* —
-      include the actual generated report as the artifact. Post to dev.to /
-      r/ClaudeAI / Hacker News / the Claude Discord.
-- [ ] Seed 4–6 `good first issue`s (adapters, report templates, test cases).
+      **drafted** at [docs/launch-post.md](docs/launch-post.md) (swap in
+      your real `query report` render, then post to dev.to / r/ClaudeAI /
+      Hacker News / the Claude Discord — posting is the open half).
+- [x] Seed 4–6 `good first issue`s — five seeded (#16–#20): adapter
+      live-run reports, native-Windows report, a dashboard
+      cache-savings tile, a community-adapter recipe, and OTel-recipe
+      validation.

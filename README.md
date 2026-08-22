@@ -8,7 +8,9 @@ A *waybill* is the shipping document that itemizes cargo and its charges. You sh
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757)](https://code.claude.com/docs/en/plugins)
 
-<!-- TODO: 60–90s demo GIF here — init → bootstrap receipt → the token pitch rendered as a receipt. -->
+<p align="center">
+  <img src="assets/demo.svg" alt="waybill demo: initialize the ledger, sync it, ask what you did yesterday, build the token pitch, then verify — every number conservation-checked" width="800">
+</p>
 
 ## Why
 
