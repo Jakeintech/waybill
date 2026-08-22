@@ -103,6 +103,57 @@ function checkItem(
   }
 }
 
+/**
+ * Own-data scoping (methodology §6, defense-in-depth): with the user's
+ * identity in the context, records belonging to someone else must be
+ * dropped even when a mis-scoped query fetched them — and with no identity
+ * configured, the adapter must NOT over-drop (scoped queries are the
+ * primary defense; an adapter that cannot check keeps the record).
+ *
+ * `foreign` names the fixture records that belong to someone else — item
+ * keys for a tracker adapter, urls (or titles when url-less) for a git-host
+ * adapter. The kit refuses a fixture whose foreign records don't survive
+ * the no-identity run: a check that never sees the foreign record proves
+ * nothing.
+ */
+export function checkOwnDataScoping(
+  adapter: TrackerAdapter | GitHostAdapter,
+  raw: unknown,
+  ctx: AdapterContext,
+  foreign: string[],
+): ConformanceReport {
+  const failures: string[] = [];
+  const anonCtx: AdapterContext = {
+    ...ctx,
+    identityEmails: [],
+    githubLogin: null,
+    jiraAccountId: null,
+    gitlabUsername: null,
+    linearUserId: null,
+  };
+  const labels = (c: AdapterContext): Set<string> =>
+    "normalizeItems" in adapter
+      ? new Set(adapter.normalizeItems(raw, c).map((i) => i.key))
+      : new Set(adapter.normalizeChanges(raw, c).map((ch) => ch.url ?? ch.title));
+  const withIdentity = labels(ctx);
+  const withoutIdentity = labels(anonCtx);
+
+  for (const f of foreign) {
+    if (!withoutIdentity.has(f)) {
+      failures.push(`fixture: foreign record ${f} absent even with no identity — this check proves nothing`);
+    }
+    if (withIdentity.has(f)) {
+      failures.push(`${f}: someone else's record survived the identity check`);
+    }
+  }
+  for (const l of withIdentity) {
+    if (!withoutIdentity.has(l)) {
+      failures.push(`${l}: appears only WITH identity set — identity must only ever narrow the output`);
+    }
+  }
+  return { adapter: `${adapter.kind}:own-data`, passed: failures.length === 0, failures };
+}
+
 export function checkGitHostAdapter(
   adapter: GitHostAdapter,
   raw: unknown,

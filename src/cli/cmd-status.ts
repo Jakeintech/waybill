@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../core/config.ts";
@@ -108,6 +108,42 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     }
   }
 
+  // Multi-machine (v1.7): is the ledger home tracking a remote, and how far
+  // apart are they? LOCAL REFS ONLY — status never touches the network, so
+  // ahead/behind is "as of the last fetch", and says so.
+  const git = (cwdArgs: string[]): string | null => {
+    try {
+      return execFileSync("git", ["-C", home, ...cwdArgs], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000,
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const gitBacked = git(["rev-parse", "--is-inside-work-tree"]) === "true";
+  const upstream = gitBacked ? git(["rev-parse", "--abbrev-ref", "@{upstream}"]) : null;
+  let ahead: number | null = null;
+  let behind: number | null = null;
+  let fetchedAt: string | null = null;
+  if (upstream !== null) {
+    const counts = git(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
+    const m = counts !== null ? /^(\d+)\s+(\d+)$/.exec(counts) : null;
+    if (m) {
+      ahead = Number(m[1]);
+      behind = Number(m[2]);
+    }
+    try {
+      const gitDir = git(["rev-parse", "--absolute-git-dir"]) ?? join(home, ".git");
+      fetchedAt = statSync(join(gitDir, "FETCH_HEAD"))
+        .mtime.toISOString().replace(/\.\d{3}Z$/, "Z");
+    } catch {
+      fetchedAt = null; // never fetched on this machine — push-only so far
+    }
+  }
+  const remote = { git_backed: gitBacked, upstream, ahead, behind, fetched_at: fetchedAt };
+
   // The menu, not just the health screen: state-derived trigger phrases —
   // what to *say* next, chosen from what the ledger actually needs.
   const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
@@ -161,6 +197,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       demurrage_days: manifest.demurrage_days,
     },
     verify: { findings: findings.length, ok: findings.length === 0 },
+    remote,
     next: next.slice(0, 2),
   };
 
@@ -220,6 +257,22 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       ? "verify: all checks pass"
       : `verify: ${findings.length} finding(s) — run: waybill verify`,
   );
+  if (remote.upstream !== null) {
+    lines.push(
+      `remote: ${remote.upstream} — ` +
+        (remote.ahead !== null && remote.behind !== null
+          ? `${remote.ahead} ahead, ${remote.behind} behind` +
+            (remote.fetched_at !== null ? ` (as of last fetch ${remote.fetched_at})` : " (never fetched here — counts are vs the last push)")
+          : "counts unavailable") +
+        (remote.behind !== null && remote.behind > 0
+          ? ". Pull before logging: git -C \"$WAYBILL_HOME\" pull"
+          : ""),
+    );
+  } else if (remote.git_backed) {
+    lines.push(
+      "remote: none — this ledger lives on this machine only. Multi-machine setup: docs/multi-machine.md",
+    );
+  }
   if (!githubPatSet) {
     lines.push(
       "mcp: GITHUB_MCP_PAT not set — the GitHub sync upgrade is inactive (everything else works).",

@@ -544,3 +544,76 @@ label means "ran the waybill CLI", nothing subtler.
 **Rationale.** An accountant that bills for its own hours, itemized on
 its own invoice, is the most on-brand feature the product can ship — and
 the honest way to keep the lightweight promise checkable forever.
+
+## 2026-08-22 — Verification packs are verbatim, green-only, and never redacted (1.7.0)
+
+**Question.** `export --pack` arms the *recipient* of a pitch to re-run
+the integrity checks. What may the pack contain — and can it be redacted
+like a report?
+
+**Choice.** Three rules. (1) **Verbatim lines only**: event ids recompute
+from content, so the pack copies stream lines byte-for-byte; any
+re-serialization — including pseudonymization — would read as tampering.
+Packs are therefore never redacted; the external-audience artifact
+remains the redacted report, and the pack's README says it travels at
+internal sensitivity. (2) **Session-complete usage**: conservation is
+per-session (Σ usage = receipt totals), so the window selects *which*
+sessions travel (any in-window usage) and never slices one — a session
+goes whole, receipts and its exceptions along, or not at all. The ledger
+travels in full (chains and escrow must stay unbroken; it is small);
+`identity.json` never travels. (3) **Green-only**: the engine refuses to
+build a pack from a home whose `verify` has findings — a pack is a claim
+of integrity, and shipping a red one would be manufacturing false
+evidence with the product's own tooling.
+
+**Rationale.** The whole feature is one sentence: "you don't have to
+trust me — check." Every rule above exists so that sentence stays true
+against a hostile reading: nothing re-encoded, nothing partially
+included that a check depends on, nothing packed that was already known
+broken.
+
+## 2026-08-22 — Calibration reports the counterfactual gap honestly (1.7.0)
+
+**Question.** "Estimate calibration" usually means predicted-vs-actual of
+the same quantity. Waybill's pre-registered estimate is *hours without
+Claude* while `actual_hours` is hours *with* it — so what does
+calibration honestly mean here?
+
+**Choice.** `query report`'s calibration section never pretends the two
+are the same quantity. It reports coverage (how much shipped work was
+pre-registered at all, and how much recorded actuals) and the actual's
+position against the range: **below** the low bound — the claimed saving
+held in full; **within** — partial; **above** the high bound — the work
+took longer with Claude than the without-Claude estimate, i.e. negative
+savings, named per item and never softened. Judgment-tier estimates
+(`pre_registered: false`) are excluded entirely — calibrating a
+recollection would launder tier-4 into tier-3.
+
+**Rationale.** The above-range bucket is the section's credibility: a
+calibration view structurally incapable of showing a loss would be
+marketing, and one visible loss is what makes every reported win
+believable.
+
+## 2026-08-22 — Multi-machine is a git property, not a sync feature (1.7.0)
+
+**Question.** One ledger across several machines — build a sync
+mechanism, or document a workflow?
+
+**Choice.** No sync code in the engine. The data model already merges:
+append-only shards, deterministic ids, order-independent reads — so
+`init` marks `streams/**/*.jsonl merge=union` and the workflow is an
+ordinary private git remote (docs/multi-machine.md). Machine-local state
+(`meter_state.json`, `pending-sessions/`, `rollups/`) stays gitignored;
+each machine meters its own sessions, so usage never collides. `status`
+gains a remote line — ahead/behind computed from **local refs only**,
+labeled "as of last fetch": the engine's no-network promise is absolute,
+so it reports staleness instead of hiding it. Known edge, documented
+rather than papered over: the same event appended on two machines before
+a pull union-merges into byte-identical duplicate lines, which `verify`
+flags and a documented dedupe fixes — the honest failure mode, visible
+by construction.
+
+**Rationale.** A sync feature would be code competing with git at git's
+own job, a new failure surface in the trust path, and a standing
+temptation to add a server. The append-only design was chosen for
+auditability; getting multi-machine for free is the design paying rent.

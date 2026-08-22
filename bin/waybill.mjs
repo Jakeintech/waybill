@@ -1858,11 +1858,22 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
   let total = 0;
   let pricedTokens = 0;
   let overheadTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheSavedUsd = 0;
+  let cacheCoveredTokens = 0;
   const unpricedByModel = /* @__PURE__ */ new Set();
   for (const u of usage) {
     const t = totalTokens(u);
     total += t;
     if (u.overhead === true) overheadTokens += t;
+    if (u.tokens.cache_read > 0) {
+      cacheReadTokens += u.tokens.cache_read;
+      const rate = resolveRate(config.pricing, u.model);
+      if (rate !== null) {
+        cacheCoveredTokens += u.tokens.cache_read;
+        cacheSavedUsd += u.tokens.cache_read * (rate.rates.input_per_mtok - rate.rates.cache_read_per_mtok) / 1e6;
+      }
+    }
     if (u.cost_usd) pricedTokens += t;
     else if (u.model !== "unknown") unpricedByModel.add(u.model);
     const acc = accounts.get(u.attribution.account) ?? {
@@ -1941,6 +1952,13 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
     overhead: {
       tokens: overheadTokens,
       pct: total > 0 ? Math.round(overheadTokens / total * 1e3) / 10 : 0
+    },
+    cache_savings: {
+      cache_read_tokens: cacheReadTokens,
+      cache_read_pct: total > 0 ? Math.round(cacheReadTokens / total * 1e3) / 10 : 0,
+      saved_usd: cacheCoveredTokens > 0 ? Math.round(cacheSavedUsd * 1e4) / 1e4 : null,
+      covered_pct: cacheReadTokens > 0 ? Math.round(cacheCoveredTokens / cacheReadTokens * 1e3) / 10 : 0,
+      basis: "list_price_equivalent_derived"
     }
   };
 }
@@ -1988,6 +2006,60 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
     bucket.n += 1;
   }
   const allocation = config.allocations[config.allocations.length - 1] ?? null;
+  const storyModelTokens = /* @__PURE__ */ new Map();
+  for (const u of authoritative(usageEvents)) {
+    if (u.kind !== "usage" || !inWindow2(u.ts, window) || totalTokens(u) === 0) continue;
+    if (!u.attribution.account.startsWith("story:")) continue;
+    const key = u.attribution.account.slice(6);
+    const split = storyModelTokens.get(key) ?? /* @__PURE__ */ new Map();
+    split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
+    storyModelTokens.set(key, split);
+  }
+  const byModel = /* @__PURE__ */ new Map();
+  const mixed = { stories: 0, points: 0, tokens: 0 };
+  for (const s of shipped) {
+    if (s.tracker_key === null || s.points === null || s.points <= 0) continue;
+    const split = storyModelTokens.get(s.tracker_key);
+    if (!split) continue;
+    let storyTotal = 0;
+    let topModel = "";
+    let topTokens = -1;
+    for (const [model, tokens] of [...split.entries()].sort()) {
+      storyTotal += tokens;
+      if (tokens > topTokens) {
+        topModel = model;
+        topTokens = tokens;
+      }
+    }
+    if (topTokens * 2 > storyTotal) {
+      const row = byModel.get(topModel) ?? { stories: 0, points: 0, tokens: 0 };
+      row.stories += 1;
+      row.points += s.points;
+      row.tokens += storyTotal;
+      byModel.set(topModel, row);
+    } else {
+      mixed.stories += 1;
+      mixed.points += s.points;
+      mixed.tokens += storyTotal;
+    }
+  }
+  const calEntries = [];
+  let preRegistered = 0;
+  for (const { entry } of views) {
+    const est = entry.estimate_without_claude_hours;
+    if (!est || !est.pre_registered) continue;
+    preRegistered += 1;
+    if (entry.actual_hours === null) continue;
+    const a = entry.actual_hours;
+    calEntries.push({
+      tracker_key: entry.tracker_key,
+      low: est.low,
+      high: est.high,
+      actual_hours: a,
+      position: a < est.low ? "below" : a > est.high ? "above" : "within"
+    });
+  }
+  calEntries.sort((a, b) => (a.tracker_key ?? "") < (b.tracker_key ?? "") ? -1 : 1);
   return {
     window,
     shipped,
@@ -2015,7 +2087,27 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
       )
     },
     spend_ledger: spend,
-    baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null ? config.baseline : null
+    baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null ? config.baseline : null,
+    model_mix: {
+      by_model: [...byModel.entries()].map(([model, r]) => ({
+        model,
+        stories: r.stories,
+        points: r.points,
+        tokens: r.tokens,
+        tokens_per_point: r.points > 0 ? Math.round(r.tokens / r.points) : null
+      })).sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
+      mixed
+    },
+    calibration: {
+      shipped: views.length,
+      pre_registered: preRegistered,
+      coverage_pct: views.length > 0 ? Math.round(preRegistered / views.length * 1e3) / 10 : 0,
+      with_actuals: calEntries.length,
+      actual_below_range: calEntries.filter((e) => e.position === "below").length,
+      actual_within_range: calEntries.filter((e) => e.position === "within").length,
+      actual_above_range: calEntries.filter((e) => e.position === "above").length,
+      entries: calEntries
+    }
   };
 }
 function forecastData(ledgerEvents, usageEvents, config) {
@@ -2672,6 +2764,7 @@ function runInit(home, args, json) {
     git(home, ["init", "-b", "main"]);
   }
   writeFileSync4(join8(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
+  writeFileSync4(join8(home, ".gitattributes"), "streams/**/*.jsonl merge=union\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);
@@ -3258,6 +3351,9 @@ function runMine(home, args, json) {
   return 0;
 }
 
+// src/cli/cmd-export.ts
+import { join as join12 } from "node:path";
+
 // src/report/redaction.ts
 var SESSION_KEYS = /* @__PURE__ */ new Set(["session_id", "transcript_path", "cwd", "sessions"]);
 var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes", "branches"]);
@@ -3367,6 +3463,197 @@ function rewrite(value, mapping) {
   return value;
 }
 
+// src/cli/cmd-pack.ts
+import { copyFileSync, existsSync as existsSync10, mkdirSync as mkdirSync6, readFileSync as readFileSync12, readdirSync as readdirSync4, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join11 } from "node:path";
+function readRawLines(home, stream) {
+  const out = [];
+  for (const shard of listShards(home, stream)) {
+    for (const raw of readFileSync12(shardPath(home, stream, shard), "utf8").split("\n")) {
+      if (raw.trim() === "") continue;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+      out.push({ raw, parsed, shard });
+    }
+  }
+  return out;
+}
+function engineBundlePath() {
+  const argv1 = process.argv[1] ?? "";
+  if (argv1.endsWith("waybill.mjs") && existsSync10(argv1)) return argv1;
+  let dir = import.meta.dirname;
+  for (let i = 0; i < 6; i++) {
+    const candidate = join11(dir, "bin", "waybill.mjs");
+    if (existsSync10(candidate)) return candidate;
+    dir = join11(dir, "..");
+  }
+  return null;
+}
+function buildPack(home, outDir, window, nowIso2) {
+  const empty = {
+    out_dir: outDir,
+    sessions: 0,
+    events: { ledger: 0, usage: 0, sessions: 0, exceptions: 0 },
+    total_tokens: 0,
+    engine_included: false,
+    config_included: false
+  };
+  const findings = verifyHome(home);
+  if (findings.length > 0) {
+    return {
+      result: empty,
+      error: `refusing to pack an unverified ledger: ${findings.length} finding(s) \u2014 run: waybill verify`
+    };
+  }
+  if (existsSync10(outDir) && readdirSync4(outDir).length > 0) {
+    return { result: empty, error: `output directory is not empty: ${outDir} \u2014 pass --out <dir>` };
+  }
+  const usageLines = readRawLines(home, "usage");
+  const included = /* @__PURE__ */ new Set();
+  for (const l of usageLines) {
+    const ts = l.parsed?.["ts"];
+    const sid = l.parsed?.["session_id"];
+    if (typeof ts === "string" && typeof sid === "string" && inWindow(ts, window.from, window.to)) {
+      included.add(sid);
+    }
+  }
+  const keep = {
+    ledger: readRawLines(home, "ledger"),
+    usage: usageLines.filter((l) => included.has(String(l.parsed?.["session_id"]))),
+    sessions: readRawLines(home, "sessions").filter((l) => included.has(String(l.parsed?.["session_id"]))),
+    exceptions: []
+  };
+  const exceptionLines = readRawLines(home, "exceptions");
+  const includedAmbiguities = /* @__PURE__ */ new Set();
+  for (const l of exceptionLines) {
+    if (l.parsed?.["kind"] === "ambiguity" && included.has(String(l.parsed?.["session_id"]))) {
+      includedAmbiguities.add(String(l.parsed?.["id"]));
+    }
+  }
+  keep.exceptions = exceptionLines.filter((l) => {
+    if (l.parsed?.["kind"] === "resolution") return includedAmbiguities.has(String(l.parsed?.["resolves"]));
+    return included.has(String(l.parsed?.["session_id"]));
+  });
+  const packUsage = keep.usage.map((l) => l.parsed).filter((u) => u !== null);
+  const totalTokens5 = authoritative(packUsage).filter((u) => u.kind === "usage").reduce((n, u) => n + u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation, 0);
+  mkdirSync6(outDir, { recursive: true });
+  const files = {};
+  const writePackFile = (rel, content) => {
+    const p = join11(outDir, rel);
+    mkdirSync6(join11(p, ".."), { recursive: true });
+    writeFileSync7(p, content, "utf8");
+    files[rel] = sha256Hex(content);
+  };
+  for (const stream of ["ledger", "usage", "sessions", "exceptions"]) {
+    const byShard = /* @__PURE__ */ new Map();
+    for (const l of keep[stream]) {
+      const bucket = byShard.get(l.shard) ?? [];
+      bucket.push(l.raw);
+      byShard.set(l.shard, bucket);
+    }
+    for (const [shard, lines] of [...byShard.entries()].sort()) {
+      writePackFile(join11("streams", stream, `${shard}.jsonl`), lines.join("\n") + "\n");
+    }
+  }
+  let configIncluded = false;
+  const configPath2 = join11(home, "config.json");
+  if (existsSync10(configPath2)) {
+    writePackFile("config.json", readFileSync12(configPath2, "utf8"));
+    configIncluded = true;
+  }
+  let engineIncluded = false;
+  const engine = engineBundlePath();
+  if (engine !== null) {
+    copyFileSync(engine, join11(outDir, "waybill.mjs"));
+    files["waybill.mjs"] = sha256Hex(readFileSync12(join11(outDir, "waybill.mjs"), "utf8"));
+    engineIncluded = true;
+  }
+  const result = {
+    out_dir: outDir,
+    sessions: included.size,
+    events: {
+      ledger: keep.ledger.length,
+      usage: keep.usage.length,
+      sessions: keep.sessions.length,
+      exceptions: keep.exceptions.length
+    },
+    total_tokens: totalTokens5,
+    engine_included: engineIncluded,
+    config_included: configIncluded
+  };
+  writePackFile("README.md", packReadme(result, window, nowIso2));
+  writeFileSync7(
+    join11(outDir, "pack.json"),
+    JSON.stringify(
+      {
+        kind: "waybill-verification-pack",
+        pack_version: 1,
+        engine_version: ENGINE_VERSION,
+        generated_at: nowIso2,
+        window,
+        sessions: result.sessions,
+        events: result.events,
+        total_tokens: result.total_tokens,
+        engine_included: engineIncluded,
+        config_included: configIncluded,
+        verify_at_pack_time: "green",
+        files
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
+  return { result, error: null };
+}
+function packReadme(result, window, nowIso2) {
+  const windowLine = window.from === null && window.to === null ? "all recorded history" : `${window.from ?? "(start)"} \u2192 ${window.to ?? "(now)"}`;
+  const verifyCmd = result.engine_included ? "node waybill.mjs verify --home ." : "node <path-to-waybill.mjs> verify --home .  (engine: github.com/jakeintech/waybill, bin/waybill.mjs)";
+  return `# Waybill verification pack
+
+Generated ${nowIso2} \xB7 window: ${windowLine} \xB7 ${result.sessions} session(s), ${result.total_tokens.toLocaleString("en-US")} tokens.
+
+This directory accompanies a report or token pitch. It contains the actual
+event lines behind the numbers \u2014 not a rendering of them \u2014 so you can check
+the claims yourself, offline, with one command:
+
+\`\`\`
+${verifyCmd}
+\`\`\`
+
+That re-runs, against the included events (Node 20+, no network, no install):
+
+- **Id determinism** \u2014 every event id recomputes from its content
+  (SHA-256); an edited line no longer matches its id.
+- **Escrow seals** \u2014 pre-registered estimates are hash-sealed at logging
+  time; a backdated or altered estimate fails the seal.
+- **Conservation** \u2014 per session, the sum of per-turn usage events equals
+  the session receipt's totals. Sessions are included whole (every usage
+  event, even outside the window) so this check is meaningful.
+- **Supersession integrity** \u2014 corrections form unforked chains; nothing
+  is silently edited or double-counted.
+
+Then read the numbers the same way the sender did:
+
+\`\`\`
+${result.engine_included ? "node waybill.mjs" : "node <path-to-waybill.mjs>"} query spend --home .
+${result.engine_included ? "node waybill.mjs" : "node <path-to-waybill.mjs>"} query report --home .
+\`\`\`
+
+Contents: \`streams/\` (verbatim ledger, usage, session-receipt, and
+exception events)${result.config_included ? ", `config.json` (the sender's rate table, so cost figures reproduce)" : ""}${result.engine_included ? ", `waybill.mjs` (the engine \u2014 a single dependency-free bundle)" : ""},
+and \`pack.json\` (metadata + SHA-256 of every file here).
+
+Note: pack contents are **verbatim and unredacted** (tracker keys, titles,
+repos) \u2014 redaction would break the id checks above. Treat the pack at the
+same sensitivity as the internal report it accompanies.
+`;
+}
+
 // src/cli/cmd-export.ts
 function csvCell(v) {
   const s = v === null || v === void 0 ? "" : String(v);
@@ -3377,9 +3664,24 @@ function runExport(home, args, json) {
   let from = null;
   let to = null;
   let audience = null;
+  let pack = false;
+  let out = null;
+  let now = null;
+  let formatSet = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--format") {
+    if (a === "--pack") {
+      pack = true;
+    } else if (a === "--out" || a === "--now") {
+      const v = args[++i];
+      if (v === void 0) {
+        process.stderr.write(`waybill export: ${a} needs a value
+`);
+        return 2;
+      }
+      if (a === "--out") out = v;
+      else now = v;
+    } else if (a === "--format") {
       const v = args[++i];
       if (v !== "csv" && v !== "json") {
         process.stderr.write("waybill export: --format must be csv or json\n");
@@ -3390,6 +3692,7 @@ function runExport(home, args, json) {
         return 2;
       }
       format = v;
+      formatSet = true;
     } else if (a === "--from" || a === "--to") {
       const v = args[++i];
       if (v === void 0) {
@@ -3419,6 +3722,47 @@ function runExport(home, args, json) {
   } catch (err) {
     process.stderr.write(`waybill export: ${err.message}
 `);
+    return 2;
+  }
+  if (pack) {
+    if (formatSet) {
+      process.stderr.write("waybill export: --pack writes a directory \u2014 --format applies to csv/json exports only\n");
+      return 2;
+    }
+    if (audience !== null) {
+      process.stderr.write(
+        "waybill export: --pack cannot be redacted (--audience) \u2014 verbatim events are what the recipient verifies; share the redacted report instead\n"
+      );
+      return 2;
+    }
+    if (now !== null && Number.isNaN(Date.parse(now))) {
+      process.stderr.write(`waybill export: --now is not a date: ${now}
+`);
+      return 2;
+    }
+    const nowIso2 = now ?? (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const outDir = out ?? join12(home, "rollups", "verification-pack");
+    const { result, error } = buildPack(home, outDir, window, nowIso2);
+    if (error !== null) {
+      process.stderr.write(`waybill export: ${error}
+`);
+      return 1;
+    }
+    if (json) {
+      process.stdout.write(JSON.stringify({ data: result }, null, 2) + "\n");
+    } else {
+      const events = result.events.ledger + result.events.usage + result.events.sessions + result.events.exceptions;
+      process.stdout.write(
+        `verification pack: ${result.out_dir}
+${result.sessions} session(s), ${events} event lines, ${result.total_tokens.toLocaleString("en-US")} tokens \u2014 verified green at pack time.
+Recipient check: node waybill.mjs verify --home .
+`
+      );
+    }
+    return 0;
+  }
+  if (out !== null || now !== null) {
+    process.stderr.write("waybill export: --out/--now apply to --pack only\n");
     return 2;
   }
   const spend = spendData(
@@ -3473,8 +3817,8 @@ function runExport(home, args, json) {
 }
 
 // src/cli/cmd-pace.ts
-import { existsSync as existsSync10, mkdirSync as mkdirSync6, readFileSync as readFileSync12, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join11 } from "node:path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync13, writeFileSync as writeFileSync8 } from "node:fs";
+import { join as join13 } from "node:path";
 
 // src/projections/pace.ts
 function periodWindow(period, grantedAt) {
@@ -3614,32 +3958,32 @@ function renderPace(p) {
 
 // src/cli/cmd-pace.ts
 function stateFile(home) {
-  return join11(home, "rollups", "pace-state.json");
+  return join13(home, "rollups", "pace-state.json");
 }
 function loadPaceState(home) {
   const p = stateFile(home);
-  if (!existsSync10(p)) return null;
+  if (!existsSync11(p)) return null;
   try {
-    return JSON.parse(readFileSync12(p, "utf8"));
+    return JSON.parse(readFileSync13(p, "utf8"));
   } catch {
     return null;
   }
 }
 function firstRunFile(home) {
-  return join11(home, "rollups", "first-run.json");
+  return join13(home, "rollups", "first-run.json");
 }
 function loadFirstRun(home) {
   const p = firstRunFile(home);
-  if (!existsSync10(p)) return {};
+  if (!existsSync11(p)) return {};
   try {
-    return JSON.parse(readFileSync12(p, "utf8"));
+    return JSON.parse(readFileSync13(p, "utf8"));
   } catch {
     return {};
   }
 }
 function saveFirstRun(home, state) {
-  mkdirSync6(join11(home, "rollups"), { recursive: true });
-  writeFileSync7(firstRunFile(home), JSON.stringify(state) + "\n", "utf8");
+  mkdirSync7(join13(home, "rollups"), { recursive: true });
+  writeFileSync8(firstRunFile(home), JSON.stringify(state) + "\n", "utf8");
 }
 function runPace(home, args, json) {
   let notice = false;
@@ -3688,8 +4032,8 @@ function runPace(home, args, json) {
       }
       if (lines.length > 0) {
         process.stdout.write(lines.join("\n") + "\n");
-        mkdirSync6(join11(home, "rollups"), { recursive: true });
-        writeFileSync7(
+        mkdirSync7(join13(home, "rollups"), { recursive: true });
+        writeFileSync8(
           stateFile(home),
           JSON.stringify({
             period: pace.allocation.period,
@@ -3703,7 +4047,7 @@ function runPace(home, args, json) {
     }
     if (level !== "normal") return 0;
     const firstRun = loadFirstRun(home);
-    if (!existsSync10(configPath(home))) {
+    if (!existsSync11(configPath(home))) {
       if (firstRun.uninitialized_announced !== true) {
         process.stdout.write(
           'waybill: not initialized. Say "initialize my waybill ledger" \u2014 60s, no auth.\n'
@@ -3732,15 +4076,15 @@ function runPace(home, args, json) {
 }
 
 // src/cli/cmd-status.ts
-import { existsSync as existsSync11, readFileSync as readFileSync13, readdirSync as readdirSync4 } from "node:fs";
+import { existsSync as existsSync12, readFileSync as readFileSync14, readdirSync as readdirSync5, statSync as statSync2 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join12 } from "node:path";
+import { join as join14 } from "node:path";
 import { execFileSync as execFileSync6 } from "node:child_process";
 function fmtInt2(n) {
   return n.toLocaleString("en-US");
 }
 function runStatus(home, args, json) {
-  let claudeSettings = join12(homedir4(), ".claude", "settings.json");
+  let claudeSettings = join14(homedir4(), ".claude", "settings.json");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
@@ -3750,16 +4094,16 @@ function runStatus(home, args, json) {
       return 2;
     }
   }
-  const initialized = existsSync11(join12(home, "config.json"));
+  const initialized = existsSync12(join14(home, "config.json"));
   const config = loadConfig(home);
   const retention = checkRetention(claudeSettings);
   let pendingUnmined = 0;
-  const queueDir = join12(home, "pending-sessions");
-  if (existsSync11(queueDir)) {
-    for (const f of readdirSync4(queueDir)) {
+  const queueDir = join14(home, "pending-sessions");
+  if (existsSync12(queueDir)) {
+    for (const f of readdirSync5(queueDir)) {
       if (!f.endsWith(".json")) continue;
       try {
-        const capture = JSON.parse(readFileSync13(join12(queueDir, f), "utf8"));
+        const capture = JSON.parse(readFileSync14(join14(queueDir, f), "utf8"));
         if (capture.mined !== true && typeof capture.mined !== "string") pendingUnmined += 1;
       } catch {
         pendingUnmined += 1;
@@ -3801,6 +4145,37 @@ function runStatus(home, args, json) {
     } catch {
     }
   }
+  const git2 = (cwdArgs) => {
+    try {
+      return execFileSync6("git", ["-C", home, ...cwdArgs], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5e3
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const gitBacked = git2(["rev-parse", "--is-inside-work-tree"]) === "true";
+  const upstream = gitBacked ? git2(["rev-parse", "--abbrev-ref", "@{upstream}"]) : null;
+  let ahead = null;
+  let behind = null;
+  let fetchedAt = null;
+  if (upstream !== null) {
+    const counts = git2(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]);
+    const m = counts !== null ? /^(\d+)\s+(\d+)$/.exec(counts) : null;
+    if (m) {
+      ahead = Number(m[1]);
+      behind = Number(m[2]);
+    }
+    try {
+      const gitDir = git2(["rev-parse", "--absolute-git-dir"]) ?? join14(home, ".git");
+      fetchedAt = statSync2(join14(gitDir, "FETCH_HEAD")).mtime.toISOString().replace(/\.\d{3}Z$/, "Z");
+    } catch {
+      fetchedAt = null;
+    }
+  }
+  const remote = { git_backed: gitBacked, upstream, ahead, behind, fetched_at: fetchedAt };
   const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
   const next = [];
   if (!initialized) {
@@ -3849,6 +4224,7 @@ function runStatus(home, args, json) {
       demurrage_days: manifest.demurrage_days
     },
     verify: { findings: findings.length, ok: findings.length === 0 },
+    remote,
     next: next.slice(0, 2)
   };
   if (json) {
@@ -3885,6 +4261,15 @@ function runStatus(home, args, json) {
   lines.push(
     findings.length === 0 ? "verify: all checks pass" : `verify: ${findings.length} finding(s) \u2014 run: waybill verify`
   );
+  if (remote.upstream !== null) {
+    lines.push(
+      `remote: ${remote.upstream} \u2014 ` + (remote.ahead !== null && remote.behind !== null ? `${remote.ahead} ahead, ${remote.behind} behind` + (remote.fetched_at !== null ? ` (as of last fetch ${remote.fetched_at})` : " (never fetched here \u2014 counts are vs the last push)") : "counts unavailable") + (remote.behind !== null && remote.behind > 0 ? '. Pull before logging: git -C "$WAYBILL_HOME" pull' : "")
+    );
+  } else if (remote.git_backed) {
+    lines.push(
+      "remote: none \u2014 this ledger lives on this machine only. Multi-machine setup: docs/multi-machine.md"
+    );
+  }
   if (!githubPatSet) {
     lines.push(
       "mcp: GITHUB_MCP_PAT not set \u2014 the GitHub sync upgrade is inactive (everything else works)."
@@ -4168,7 +4553,7 @@ function runQuery(home, args) {
 
 // src/cli/cmd-resolve.ts
 import { execFileSync as execFileSync7 } from "node:child_process";
-import { existsSync as existsSync12 } from "node:fs";
+import { existsSync as existsSync13 } from "node:fs";
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -4287,7 +4672,7 @@ function runResolve(home, args, json) {
   }
   const checkpoint = loadState(home).sessions[ambiguity.session_id];
   const transcriptPath = checkpoint?.transcript_path ?? authoritative(readEvents(home, "sessions")).find((s) => s.kind === "session" && s.session_id === ambiguity.session_id)?.transcript_path ?? null;
-  if (transcriptPath && existsSync12(transcriptPath)) {
+  if (transcriptPath && existsSync13(transcriptPath)) {
     if (acquireLock(home)) {
       try {
         const result = meterFile(home, transcriptPath, null, true);
@@ -4324,7 +4709,7 @@ function runResolve(home, args, json) {
 
 // src/cli/cmd-sync-plan.ts
 import { execFileSync as execFileSync8 } from "node:child_process";
-import { readFileSync as readFileSync14 } from "node:fs";
+import { readFileSync as readFileSync15 } from "node:fs";
 
 // src/adapters/contract.ts
 function defaultContext(partial = {}) {
@@ -4955,7 +5340,7 @@ function runSyncPlan(home, args) {
   }
   const config = loadConfig(home);
   if (applyPath) {
-    const plan2 = JSON.parse(readFileSync14(applyPath, "utf8"));
+    const plan2 = JSON.parse(readFileSync15(applyPath, "utf8"));
     const bodies = [
       ...plan2.shipped,
       ...plan2.corrections.map((c) => c.body),
@@ -5008,7 +5393,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync14(itemsPath, "utf8")), ctx);
+    items = TRACKERS[tracker].normalizeItems(JSON.parse(readFileSync15(itemsPath, "utf8")), ctx);
   }
   let changes = [];
   if (changesPath) {
@@ -5017,7 +5402,7 @@ function runSyncPlan(home, args) {
 `);
       return 2;
     }
-    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync14(changesPath, "utf8")), ctx);
+    changes = GIT_HOSTS[gitHost].normalizeChanges(JSON.parse(readFileSync15(changesPath, "utf8")), ctx);
   }
   if (localRepos.length > 0) {
     const sinceIso = since ?? config.last_sync ?? new Date(Date.parse(now) - 90 * 864e5).toISOString().slice(0, 19) + "Z";
@@ -5049,7 +5434,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "1.6.0" : "dev";
+var ENGINE_VERSION = true ? "1.7.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
@@ -5081,8 +5466,11 @@ Commands:
                 [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
-  status      One screen of ledger health: init, retention, mining, inbox, verify
+  status      One screen of ledger health: init, retention, mining, inbox, verify,
+                remote ahead/behind (multi-machine, local refs only \u2014 no network)
   export      Spend ledger as csv|json [--format csv|json] [--from/--to] [--audience]
+                | --pack [--out <dir>] [--from/--to]: verification pack \u2014 verbatim
+                events + the engine, so the recipient runs verify themselves
   pricing     show | import [--model <id-or-alias>]... | set <model-id> --version <date>
                 --input/--output/--cache-read/--cache-5m/--cache-1h <usd per mtok>
                 (import loads bundled Anthropic rates; set overrides any model)

@@ -36,6 +36,7 @@ keeps `verify` meaningful.
 | `spend` | `/waybill:spend` | action | Spend analytics ("what did PLAT-482 cost?"), budget pacing, and the attribution inbox | "where am I spending", "how's my burn", "resolve my attribution inbox" |
 | `standup` | `/waybill:standup` | action | "What did I do" digests from the ledger: shipped, in progress, opened, session/token totals, for any day or range | "what did I do yesterday", "prep my standup", "weekly digest" |
 | `salvage` | `/waybill:salvage` | action | Turn untracked work into receipts: cluster unattributed/unlogged spend, propose titles from the receipts, one tap per cluster | "group my untracked work", "clean up my unattributed spend", "what did I forget to log" |
+| `retro` | `/waybill:retro` | action | The honest look back: shipped + cost, estimate calibration (above-range included), model mix, waste/rework, cache savings, what sat | "run my retro", "how did my estimates hold up", "how did the sprint actually go" |
 
 ## Naming decisions (recorded)
 
@@ -55,6 +56,11 @@ keeps `verify` meaningful.
   shipping term for recovering unmanifested cargo — which is literally
   what it does. The engine half is a `query` projection
   (`query untracked`), so the noun stays available as the data's name.
+- **`retro`, not `retrospective` or `calibration`.** The word teams
+  actually say for the ritual it serves; `calibration` names one section
+  of the pack, not the pack. Pure rendering — every number it shows
+  already exists on `query report`/`manifest`/`untracked`, so no engine
+  name is consumed at all.
 - **Reserved words never used as skill names:** `waybill` (the plugin),
   every engine subcommand (`init`, `bootstrap`, `mine`, `meter`, `append`,
   `resolve`, `verify`, `query`, `pace`, `status`, `export`, `pricing`,

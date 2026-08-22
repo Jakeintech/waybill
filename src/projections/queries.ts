@@ -8,6 +8,7 @@ import type {
   UsageEvent,
 } from "../core/events.ts";
 import { inWindow as isInWindow, isIsoBound } from "../core/time.ts";
+import { resolveRate } from "../core/pricing-resolve.ts";
 import { authoritative } from "../core/streams.ts";
 
 export interface Window {
@@ -123,6 +124,18 @@ export interface SpendData {
   /** The plugin's own keep — tokens from turns that ran the waybill CLI
    * (v1.6, meter-tagged). The accountant bills for its own hours. */
   overhead: { tokens: number; pct: number };
+  /** What cache reads saved vs. re-sending those tokens at the uncached
+   * input rate — DERIVED at query time from the current rate table (v1.7),
+   * never a stored fact. `saved_usd` is null until at least one cache-read
+   * event's model resolves a rate; `covered_pct` says how much of the
+   * cache-read volume the figure actually covers. */
+  cache_savings: {
+    cache_read_tokens: number;
+    cache_read_pct: number;
+    saved_usd: number | null;
+    covered_pct: number;
+    basis: "list_price_equivalent_derived";
+  };
 }
 
 function isoWeek(ts: string): string {
@@ -153,12 +166,27 @@ export function spendData(
   let total = 0;
   let pricedTokens = 0;
   let overheadTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheSavedUsd = 0;
+  let cacheCoveredTokens = 0;
   const unpricedByModel = new Set<string>();
 
   for (const u of usage) {
     const t = totalTokens(u);
     total += t;
     if (u.overhead === true) overheadTokens += t;
+    if (u.tokens.cache_read > 0) {
+      cacheReadTokens += u.tokens.cache_read;
+      // Derived, current-rate-table math (not the stored cost_usd): what
+      // these cache-read tokens would have cost at the uncached input rate,
+      // minus what the cache-read rate charges for them.
+      const rate = resolveRate(config.pricing, u.model);
+      if (rate !== null) {
+        cacheCoveredTokens += u.tokens.cache_read;
+        cacheSavedUsd +=
+          (u.tokens.cache_read * (rate.rates.input_per_mtok - rate.rates.cache_read_per_mtok)) / 1_000_000;
+      }
+    }
     if (u.cost_usd) pricedTokens += t;
     // "unknown" (no model id in the source) counts as unpriced tokens but
     // stays out of the named list — no rate could ever fix it, and status
@@ -251,6 +279,14 @@ export function spendData(
       tokens: overheadTokens,
       pct: total > 0 ? Math.round((overheadTokens / total) * 1000) / 10 : 0,
     },
+    cache_savings: {
+      cache_read_tokens: cacheReadTokens,
+      cache_read_pct: total > 0 ? Math.round((cacheReadTokens / total) * 1000) / 10 : 0,
+      saved_usd: cacheCoveredTokens > 0 ? Math.round(cacheSavedUsd * 10000) / 10000 : null,
+      covered_pct:
+        cacheReadTokens > 0 ? Math.round((cacheCoveredTokens / cacheReadTokens) * 1000) / 10 : 0,
+      basis: "list_price_equivalent_derived",
+    },
   };
 }
 
@@ -307,6 +343,42 @@ export interface ReportData {
   };
   spend_ledger: SpendData;
   baseline: Config["baseline"] | null;
+  /** Tokens-per-shipped-point by model (v1.7), own history only. A shipped
+   * story counts under a model when that model carried >50% of the story's
+   * metered tokens; `tokens` is the story's FULL metered spend (the honest
+   * cost of shipping the point, minority models included). Stories with no
+   * majority model land in `mixed`. */
+  model_mix: {
+    by_model: Array<{
+      model: string;
+      stories: number;
+      points: number;
+      tokens: number;
+      tokens_per_point: number | null;
+    }>;
+    mixed: { stories: number; points: number; tokens: number };
+  };
+  /** Pre-registered ranges vs. recorded actual hours (v1.7). The estimate
+   * is "hours without Claude"; `actual_hours` is what the work took with
+   * it. `below` = actual under the range's low (the claimed saving holds in
+   * full), `within` = partial, `above` = the work took longer than the
+   * no-Claude estimate — negative savings, surfaced, never hidden. */
+  calibration: {
+    shipped: number;
+    pre_registered: number;
+    coverage_pct: number;
+    with_actuals: number;
+    actual_below_range: number;
+    actual_within_range: number;
+    actual_above_range: number;
+    entries: Array<{
+      tracker_key: string | null;
+      low: number;
+      high: number;
+      actual_hours: number;
+      position: "below" | "within" | "above";
+    }>;
+  };
 }
 
 export function reportData(
@@ -358,6 +430,66 @@ export function reportData(
 
   const allocation = config.allocations[config.allocations.length - 1] ?? null;
 
+  // Model mix: per-story per-model token splits from the same authoritative
+  // in-window usage spendData counted, so the two projections agree.
+  const storyModelTokens = new Map<string, Map<string, number>>();
+  for (const u of authoritative(usageEvents)) {
+    if (u.kind !== "usage" || !inWindow(u.ts, window) || totalTokens(u) === 0) continue;
+    if (!u.attribution.account.startsWith("story:")) continue;
+    const key = u.attribution.account.slice(6);
+    const split = storyModelTokens.get(key) ?? new Map<string, number>();
+    split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
+    storyModelTokens.set(key, split);
+  }
+  const byModel = new Map<string, { stories: number; points: number; tokens: number }>();
+  const mixed = { stories: 0, points: 0, tokens: 0 };
+  for (const s of shipped) {
+    if (s.tracker_key === null || s.points === null || s.points <= 0) continue;
+    const split = storyModelTokens.get(s.tracker_key);
+    if (!split) continue;
+    let storyTotal = 0;
+    let topModel = "";
+    let topTokens = -1;
+    for (const [model, tokens] of [...split.entries()].sort()) {
+      storyTotal += tokens;
+      if (tokens > topTokens) {
+        topModel = model;
+        topTokens = tokens;
+      }
+    }
+    if (topTokens * 2 > storyTotal) {
+      const row = byModel.get(topModel) ?? { stories: 0, points: 0, tokens: 0 };
+      row.stories += 1;
+      row.points += s.points;
+      row.tokens += storyTotal;
+      byModel.set(topModel, row);
+    } else {
+      mixed.stories += 1;
+      mixed.points += s.points;
+      mixed.tokens += storyTotal;
+    }
+  }
+
+  // Calibration: pre-registered "hours without Claude" ranges vs. recorded
+  // actual hours, over the window's shipped items (authoritative views).
+  const calEntries: ReportData["calibration"]["entries"] = [];
+  let preRegistered = 0;
+  for (const { entry } of views) {
+    const est = entry.estimate_without_claude_hours;
+    if (!est || !est.pre_registered) continue;
+    preRegistered += 1;
+    if (entry.actual_hours === null) continue;
+    const a = entry.actual_hours;
+    calEntries.push({
+      tracker_key: entry.tracker_key,
+      low: est.low,
+      high: est.high,
+      actual_hours: a,
+      position: a < est.low ? "below" : a > est.high ? "above" : "within",
+    });
+  }
+  calEntries.sort((a, b) => ((a.tracker_key ?? "") < (b.tracker_key ?? "") ? -1 : 1));
+
   return {
     window,
     shipped,
@@ -391,6 +523,28 @@ export function reportData(
     baseline: config.baseline.velocity_points_per_sprint !== null || config.baseline.median_cycle_time_days !== null
       ? config.baseline
       : null,
+    model_mix: {
+      by_model: [...byModel.entries()]
+        .map(([model, r]) => ({
+          model,
+          stories: r.stories,
+          points: r.points,
+          tokens: r.tokens,
+          tokens_per_point: r.points > 0 ? Math.round(r.tokens / r.points) : null,
+        }))
+        .sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
+      mixed,
+    },
+    calibration: {
+      shipped: views.length,
+      pre_registered: preRegistered,
+      coverage_pct: views.length > 0 ? Math.round((preRegistered / views.length) * 1000) / 10 : 0,
+      with_actuals: calEntries.length,
+      actual_below_range: calEntries.filter((e) => e.position === "below").length,
+      actual_within_range: calEntries.filter((e) => e.position === "within").length,
+      actual_above_range: calEntries.filter((e) => e.position === "above").length,
+      entries: calEntries,
+    },
   };
 }
 

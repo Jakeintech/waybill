@@ -90,7 +90,9 @@ ledger unlocks the stronger claims (see tiers below).
 | It's 9:58 and standup is at 10 | `standup` turns the ledger into "what I did yesterday" bullets — shipped, in progress, started — every line traceable to a receipt; `--days 7` makes it a weekly digest |
 | Work shipped without a ticket | `salvage` clusters the untracked spend with its receipts (sessions, branches, PRs), proposes what each group plainly was, and turns your one-tap confirmations into reconstructed entries — facts tier, never forged estimates |
 | You just want to *look* | `waybill dashboard` writes a self-contained local page (spend, pacing, open work, last 7 days) the miner keeps fresh — reading your own numbers costs **zero tokens** |
+| The sprint ends | `retro` runs the honest look back: estimates vs. actuals (over-range items named, not hidden), tokens-per-point by model, waste, rework, and what sat on the truck |
 | You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own metered tokens-per-story-point |
+| They should not have to trust you | `waybill export --pack` ships the **verification pack**: the verbatim events behind the numbers plus the engine itself, so the recipient re-runs the integrity checks offline — `node waybill.mjs verify --home .` |
 
 Every Claude Code token is metered deterministically from your local
 transcripts and attributed to the story it served, with a per-event resolver
@@ -167,7 +169,7 @@ it. The full exit path, from turning it down to walking away:
 ## Docs
 
 - **Tutorial**: this README's quickstart, above.
-- **How-to**: [swap Jira/GitHub for Linear, GitLab, Bitbucket…](docs/adapters.md)
+- **How-to**: [swap Jira/GitHub for Linear, GitLab, Bitbucket…](docs/adapters.md) · [one ledger on several machines](docs/multi-machine.md)
 - **Reference**: [ledger entry & config schema](skills/ledger/references/schema.md) · [skill reference](docs/skills.md) · [test plan](docs/testing.md) — the docs Claude reads are the docs you read.
 - **Explanation**: [architecture & system design](docs/architecture.md) — how the pieces compose, the trust model, and the recorded 1.5.0 review · [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](ROADMAP.md) · [brand & voice](docs/brand.md) · [schema freeze & migration policy](docs/migration.md)
 - **Spec**: [full product specification](docs/product-spec.md) — the normative design the shipped engine implements.

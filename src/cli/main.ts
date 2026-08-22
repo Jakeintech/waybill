@@ -51,8 +51,11 @@ Commands:
                 [--detail terse|standard|full  echoed for the rendering layer]
   pace        Budget pacing vs the allocation (spend, linear + work-weighted pace,
                 per-epic envelopes) [--notice  one line, only on a fresh threshold]
-  status      One screen of ledger health: init, retention, mining, inbox, verify
+  status      One screen of ledger health: init, retention, mining, inbox, verify,
+                remote ahead/behind (multi-machine, local refs only — no network)
   export      Spend ledger as csv|json [--format csv|json] [--from/--to] [--audience]
+                | --pack [--out <dir>] [--from/--to]: verification pack — verbatim
+                events + the engine, so the recipient runs verify themselves
   pricing     show | import [--model <id-or-alias>]... | set <model-id> --version <date>
                 --input/--output/--cache-read/--cache-5m/--cache-1h <usd per mtok>
                 (import loads bundled Anthropic rates; set overrides any model)

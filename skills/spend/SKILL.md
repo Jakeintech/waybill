@@ -9,7 +9,7 @@ description: >
   or asks about token usage by model, week, epic, or story. Answers come
   from the local metered ledger — deterministic numbers, never estimates.
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # Spend
@@ -40,6 +40,8 @@ shown, never hidden).
 | What's still in flight / sitting? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query manifest` |
 | What never got tracked? | `query untracked` — then hand off to the salvage skill |
 | Share the ledger as a file? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" export --format csv` (respects --audience) |
+| What did caching save me? | `query spend` → `.data.cache_savings` (derived, labeled) |
+| Prove the numbers to a recipient? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" export --pack` — see the report skill's verification-pack section |
 | What's in my inbox? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query inbox` |
 
 Render compactly, honest-auditor voice. Length follows the **detail
@@ -70,6 +72,11 @@ expand only when asked. Numbers first, prose second, nothing twice:
   When `.data.overhead.tokens` > 0, one line itemizes the plugin's own
   keep ("waybill overhead: 41,000 tokens, 0.4% — itemized") — the
   accountant bills for its own hours.
+  When the user asks about caching (or `full` detail), one line from
+  `.data.cache_savings`: "cache reads were 61% of volume, saving ~$118 vs.
+  uncached list rates — **derived** at current rates, covering
+  `covered_pct`% of cache volume". Always labeled derived, never added
+  into cost totals; skip the dollars when `saved_usd` is null.
 - **Story cost**: one line — total tokens, cache-read share, and
   tokens-per-point if shipped ("PLAT-482: 2.9M tokens, 61% cache reads,
   shipped at 5 pts → 0.58M/pt"). USD only if priced, labeled.

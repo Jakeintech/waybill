@@ -1,17 +1,52 @@
-# Validation — FINALPASS gate (v1.6.0; earlier release evidence retained below)
+# Validation — FINALPASS gate (v1.7.0; earlier release evidence retained below)
 
 ## Gate results (2026-08-22, Linux/Node 22 dev container; CI mirrors on Ubuntu/Node 24)
 
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict) | clean |
-| `node --test` full suite | **175 / 175 pass** (v1.6 batch: overhead, untracked clustering, manifest/demurrage, conventions incl. the hook run against a real repo, dashboard incl. breakout-escape) |
+| `node --test` full suite | **184 / 184 pass** (v1.7 batch: verification pack end-to-end, cache savings, model mix, calibration, remote status against a real git upstream, own-data conformance) |
 | Reproducible build + zero bin diff | pass |
-| `scripts/validate-plugin.sh` (incl. version agreement, `salvage` naming, reserved words `conventions`/`dashboard`) | pass |
+| `scripts/validate-plugin.sh` (incl. version agreement, `retro` naming) | pass |
 | Hook suite | 7 / 7 pass |
-| Dashboard headless render (Chromium: tiles, empty states, meta line) | pass |
+| Built-binary smoke: `export --pack` from the real bundle → recipient `verify` green | pass |
+
+## 1.7.0 DoD — "Bill of lading"
+
+- The verification pack is exercised through the real recipient flow in
+  the test suite AND against the built binary: pack a fixture home,
+  then run the **copied** engine's `verify --home <pack>` and require
+  green. Session-completeness is asserted (an out-of-window session's
+  events do not travel; an in-window session travels whole with its
+  receipt and exceptions), pack.json's SHA-256 file hashes recompute,
+  and the refusals are tested: a tampered ledger (red verify), a
+  non-empty output directory, and `--audience` (packs are verbatim by
+  design — DECISIONS 2026-08-22).
+- Calibration counts pre-registration coverage and actual-vs-range
+  positions with the above-range case (negative savings) surfaced,
+  fixture-tested; judgment-tier estimates are excluded structurally.
+- Model mix buckets a story under a model only at >50% dominance and
+  accounts the story's FULL spend; the even-split story lands in
+  `mixed` (fixture-tested).
+- Cache savings are derived (current rate table), labeled, and honest
+  about coverage: an unpriced model contributes volume but no dollars,
+  `covered_pct` says so, and an empty rate table yields null — never $0.
+- `status`'s remote line is tested against a real local upstream
+  (bare repo + push + one extra commit → `1 ahead, 0 behind`), computed
+  from local refs only.
+- The conformance kit's own-data check passes for the bundled Jira and
+  GitHub adapters on the sync skill's documented fetch shapes, fails an
+  identity-blind adapter, and refuses a vacuous fixture (foreign record
+  never present).
+
+---
 
 ## 1.6.0 DoD — "Salvage"
+
+Gate at release (same environment): tsc clean; **175 / 175** tests;
+reproducible build, zero bin diff; validator (incl. `salvage` naming,
+reserved words `conventions`/`dashboard`) pass; hook suite 7 / 7;
+dashboard headless render (Chromium: tiles, empty states, meta line) pass.
 
 - Salvage clustering exercised end-to-end (`query untracked` through the
   CLI envelope) with tracked work excluded and receipts attached; the

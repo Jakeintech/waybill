@@ -210,6 +210,17 @@ preserves each session's source-side totals so conservation stays verifiable
 after Claude Code prunes the transcript. Normative field-level detail:
 [schema reference](../skills/ledger/references/schema.md).
 
+**Multi-machine (v1.7).** The home is a git repository, and the data model
+makes an ordinary *private* remote sufficient for one-ledger-many-machines:
+append-only shards with deterministic ids and order-independent reads are
+exactly the shape git's union merge resolves correctly, so `init` marks
+`streams/**/*.jsonl merge=union`; machine-local state (`meter_state.json`,
+`pending-sessions/`, `rollups/`) stays gitignored, and each machine meters
+only its own sessions. `waybill status` reports the remote's
+ahead/behind from **local refs only** — the engine never touches the
+network; freshness is stated ("as of last fetch"), never implied. Workflow
+and edge cases: [docs/multi-machine.md](multi-machine.md).
+
 **Usage event schema (v2, normative):**
 
 ```json
@@ -286,6 +297,13 @@ Each must be answerable in one interaction from local projections:
    (sessions, branches, repo, window, tokens) so the salvage skill can
    propose items a human confirms one tap at a time. Titles come from
    receipts only; pre-registration is never backfilled.
+8. **Cache economics (v1.7)**: every spend payload carries
+   `cache_savings` — cache-read volume and share, plus what those reads
+   saved vs. the uncached input rate. The dollars are **derived at query
+   time from the current rate table** and labeled so
+   (`basis: "list_price_equivalent_derived"`, with a `covered_pct` naming
+   how much cache volume had a resolvable rate); they are never folded
+   into cost totals, which remain metered facts.
 
 ### 5.6 Reports & forecast integration (FR-R)
 
@@ -315,6 +333,28 @@ Each must be answerable in one interaction from local projections:
   best-effort by the miner after each mined session. Presentation stays
   out of the verified path: the template is a static plugin file, the
   output a derived, deletable rollup, never a receipt.
+- FR-R6. **Model mix (v1.7)**: `query report` carries tokens-per-shipped-
+  point by model, own history only. A story counts under the model that
+  carried >50% of its metered tokens; the bucket accumulates the story's
+  FULL spend (minority models included — the honest cost of the point);
+  stories with no majority land in a separate `mixed` bucket, never
+  silently assigned.
+- FR-R7. **Estimate calibration (v1.7)**: `query report` compares each
+  shipped item's pre-registered "hours without Claude" range with its
+  recorded `actual_hours`: coverage (share of shipped items
+  pre-registered), and positions — below the range (the claimed saving
+  held in full), within (partial), **above** (the work exceeded the
+  no-Claude estimate — negative savings, surfaced by name). Judgment-tier
+  estimates (`pre_registered: false`) never enter calibration.
+- FR-R8. **Verification pack (v1.7)**: `waybill export --pack` writes a
+  directory the *recipient* of a pitch or review verifies offline:
+  verbatim stream lines (ids must recompute, so no re-serialization and
+  no redaction — packs are internal-grade by construction), sessions
+  included whole so conservation is re-checkable, the full ledger, the
+  sender's rate table, the engine bundle, a README whose one command is
+  `node waybill.mjs verify --home .`, and `pack.json` with SHA-256 of
+  every file. The engine refuses to pack a home that does not verify
+  green. `identity.json` never travels.
 
 ### 5.7 Skill surface (FR-S)
 
@@ -326,6 +366,8 @@ Each must be answerable in one interaction from local projections:
 | `forecast` | metered rates | unchanged |
 | `sync` | + story→epic/sprint map refresh; acli-first Jira fetch | unchanged |
 | `standup` | **new** | "what did I do yesterday", "prep my standup", "weekly digest" |
+| `salvage` | **new (v1.6)** | "group my untracked work", "clean up my unattributed spend", "what did I forget to log" |
+| `retro` | **new (v1.7)** | "run my retro", "how did my estimates hold up", "how did the sprint actually go" |
 
 The meter itself is **not** a skill: it is a deterministic, stdlib-only
 executable (`bin/waybill.mjs`, TypeScript compiled to a single dependency-free

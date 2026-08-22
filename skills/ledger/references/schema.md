@@ -23,6 +23,13 @@ itself a git repository (the audit trail):
 └── pending-sessions/        # raw SessionEnd captures awaiting mining
 ```
 
+`init` also writes `.gitignore` (rollups, pending-sessions, meter state —
+rebuildable, machine-local) and `.gitattributes` marking stream shards
+`merge=union`: append-only lines with deterministic ids and
+order-independent reads make git's union merge *correct* for them, which
+is what lets one ledger follow its owner across machines via an ordinary
+private git remote ([docs/multi-machine.md](../../../docs/multi-machine.md)).
+
 **Sharding rule.** An event is appended to `streams/<stream>/<YYYY-MM>.jsonl`
 where `YYYY-MM` is the UTC month of the event's `ts`. Events are never moved
 between shards; a shard is append-only.
@@ -323,3 +330,27 @@ source of truth.
    events equals the session receipt's `totals`, per token class. Any
    mismatch is reported (and should already exist as a `meter_discrepancy`).
 7. `pre_registered: true` estimates have `logged_at` ≤ their entry's `ts`.
+
+## Verification pack (`waybill export --pack`)
+
+A portable subset of the home a report's *recipient* can verify offline
+(`node waybill.mjs verify --home .`):
+
+```
+<pack>/
+├── README.md            # what to run, what each check proves
+├── pack.json            # metadata + SHA-256 of every file below
+├── waybill.mjs          # the engine, copied in (dependency-free)
+├── config.json          # the sender's rates — cost figures reproduce
+└── streams/...          # verbatim event lines (same layout as above)
+```
+
+Selection rules, both load-bearing: stream lines are **verbatim** (ids
+recompute from content, so any re-serialization would read as tampering —
+which is also why packs are never redacted), and usage travels
+**session-complete** (a session with any in-window usage is included
+whole, receipts and exceptions along, so conservation is re-checkable).
+The ledger stream travels in full; `identity.json` never does. The engine
+refuses to build a pack from a home that doesn't verify green.
+`pack.json`: `kind: "waybill-verification-pack"`, `pack_version: 1`,
+engine/window/counts, and a `files` map of SHA-256 hashes.

@@ -20,7 +20,7 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.6.0 (2026-08)
+## Shipped — 1.7.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
@@ -50,7 +50,13 @@ small payloads; MCP fallback kept), and a recorded architecture review
 first leg of the committed path below: **salvage** (untracked work →
 receipts), **conventions**, the **zero-token dashboard**,
 **manifest/demurrage**, **overhead tagging** (waybill bills itself), and
-the unified timestamp module.
+the unified timestamp module. 1.7.0 shipped the second leg: the
+**verification pack** (`export --pack` — the recipient re-runs the
+integrity checks themselves), **estimate calibration** and **model mix**
+on `query report`, **cache economics** on every spend payload, the
+**retro** skill, the **multi-machine ledger** (union-merge attributes +
+the local-refs-only remote line in `status`), and the conformance kit's
+**own-data scoping check**.
 
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.
@@ -91,7 +97,7 @@ above is unchanged; every item below passes it.
 - **One strict timestamp module** — the architecture review's top
   recommendation, retiring the duplicate-window-logic failure class.
 
-### v1.7 "Bill of lading" — arm the recipient
+### v1.7 "Bill of lading" — arm the recipient ✅ shipped 2026-08-22
 
 - **Verification pack**: `export --pack` bundles a report with the event
   lines it cites and a one-command check, so the *recipient* of a pitch

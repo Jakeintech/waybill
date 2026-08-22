@@ -152,6 +152,11 @@ export function runInit(home: string, args: string[], json: boolean): number {
   // miner lock inside it, and the meter checkpoints) stay out of the
   // append-only audit history — they are rebuildable, the streams are not.
   writeFileSync(join(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
+  // Multi-machine (docs/multi-machine.md): stream shards are append-only
+  // JSONL with deterministic ids and order-independent reads, so git's
+  // union merge is *correct* for them — a crossed append from two machines
+  // merges to the union of lines instead of a conflict.
+  writeFileSync(join(home, ".gitattributes"), "streams/**/*.jsonl merge=union\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);

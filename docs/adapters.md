@@ -23,9 +23,17 @@ places:
    stable ordering, determinism). Own-data scoping lives in the adapters
    themselves — each drops records naming someone else when the matching
    `identity.json` field is set (GitHub login, Jira accountId, GitLab
-   username, Linear user id) — and is covered by fixture tests. Bundled
-   adapters — Jira, Linear, GitHub, GitLab, git-local — all pass the same
-   kit, and CI runs it.
+   username, Linear user id) — and the kit checks it directly
+   (`checkOwnDataScoping`, v1.7): given a fixture with a foreign record,
+   the record must vanish when identity is set, must *survive* when no
+   identity is configured (the adapter is defense-in-depth, never the
+   primary filter — over-dropping would hide the user's own data), and
+   identity may only ever narrow the output. The kit refuses a fixture
+   whose foreign record never appears — a scoping check that never sees
+   foreign data proves nothing. Bundled adapters — Jira, Linear, GitHub,
+   GitLab, git-local — all pass the same kit, and CI runs it against the
+   sync skill's exact documented fetch shapes (acli view compositions,
+   `gh pr list` / `gh issue list` JSON).
 4. **The `sync` skill's query examples** — JQL for Jira, search syntax for
    GitHub. The skill treats these as examples; with a different server
    connected, Claude adapts to that server's tools, but tested guidance makes

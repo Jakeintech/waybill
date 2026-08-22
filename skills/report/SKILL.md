@@ -16,7 +16,7 @@ description: >
   numbers.) Produces a one-page, receipt-backed report; never invents
   numbers.
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # Report
@@ -87,6 +87,14 @@ claims to fill the gap.
    request)".
 3. **Efficiency** — tokens/point and tokens/PR from `report.efficiency`,
    with the previous window for trend if data exists (run a second query).
+   When `report.model_mix.by_model` has 2+ rows, one line on
+   tokens-per-point by dominant model ("opus-carried stories: 0.9M/pt;
+   sonnet-carried: 0.4M/pt") — own history only, and rows built on a
+   single story are anecdotes, said as such. When
+   `report.calibration.with_actuals` > 0, one line on estimate
+   calibration: coverage plus positions — and any `above` items (work
+   that exceeded its no-Claude range) named, never dropped; that honesty
+   is what makes the `below` items credible.
 4. **Spend ledger** — from `report.spend_ledger`: total metered tokens, top
    accounts with confidence noted, open spend (tokens on not-yet-shipped
    stories), and the unattributed % — always shown, never hidden
@@ -143,3 +151,22 @@ boundary"): the engine supplies the numbers, never the presentation.
 when the user explicitly asks, publish via the Atlassian MCP tools, confirm
 the destination space/page first, and remind them in one line which
 audience level the report was rendered at before it leaves their machine.
+
+## Arm the recipient: the verification pack
+
+When the report's audience is a decision-maker (token pitch, review
+packet), offer — in one line, without doing it unprompted — to attach the
+**verification pack**:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" export --pack --from <iso> --to <iso> --out <dir>
+```
+
+It writes a directory holding the verbatim event lines behind the
+report's numbers, the engine itself, and a README whose one command —
+`node waybill.mjs verify --home .` — lets the recipient re-run id
+determinism, escrow seals, and conservation offline. Two things to say
+when offering it: the engine refuses to build a pack from a ledger that
+doesn't verify green, and pack contents are **unredacted by design**
+(redaction would break the id checks), so it travels only where the
+internal report would.

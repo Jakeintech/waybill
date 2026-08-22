@@ -5,6 +5,64 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [1.7.0] - 2026-08-22
+
+"Bill of lading": arm the recipient — the second release of the committed
+path to complete ([ROADMAP](ROADMAP.md)).
+
+### Added
+- **The verification pack** — `waybill export --pack [--out <dir>]
+  [--from/--to]` writes a directory the *recipient* of a pitch or review
+  packet verifies offline: verbatim stream lines (ids must recompute, so
+  nothing is re-serialized — and nothing redacted; the pack README states
+  it travels at internal sensitivity), sessions included **whole** so the
+  conservation check is meaningful, the full ledger (chains and escrow
+  seals unbroken), the sender's rate table so cost figures reproduce, the
+  engine bundle itself, a README whose one command is
+  `node waybill.mjs verify --home .`, and `pack.json` carrying SHA-256 of
+  every file. The engine refuses to pack a home that does not verify
+  green, refuses `--audience`, and never copies `identity.json`. The
+  report skill offers the pack when the audience is a decision-maker.
+- **Estimate calibration** — `query report` now carries `calibration`:
+  coverage (how much shipped work was pre-registered, how much recorded
+  `actual_hours`) and each actual's position against its pre-registered
+  without-Claude range — below (the claimed saving held in full), within
+  (partial), or **above** (the work exceeded the no-Claude estimate —
+  negative savings, named per item, never softened). Judgment-tier
+  estimates are excluded; calibrating a recollection would launder
+  tier-4 into tier-3.
+- **Model mix** — `query report` now carries `model_mix`:
+  tokens-per-shipped-point by model, own history only. A story counts
+  under the model that carried >50% of its tokens and contributes its
+  FULL spend (the honest cost of the point); stories with no majority
+  model land in `mixed`, never silently assigned.
+- **Cache economics** — every spend payload carries `cache_savings`:
+  cache-read volume/share and what those reads saved vs. the uncached
+  input rate. Derived at query time from the current rate table and
+  labeled so (`basis: "list_price_equivalent_derived"`, plus a
+  `covered_pct` naming how much cache volume had a resolvable rate);
+  never folded into metered cost totals.
+- **The `retro` skill** — the honest sprint look-back, rendered entirely
+  from existing queries: shipped work with cost, calibration (above-range
+  items are the section's reason to exist), model mix, waste and rework,
+  cache savings, what sat past the demurrage line, and the untracked
+  share. Facts only; the user draws the conclusions. Trigger eval
+  included.
+- **Multi-machine ledger** — one ledger across machines as a git
+  workflow, not a sync feature ([docs/multi-machine.md](docs/multi-machine.md)):
+  `init` now writes `.gitattributes` marking stream shards `merge=union`
+  (append-only lines + deterministic ids + order-independent reads make
+  the union merge *correct*), and `waybill status` reports the home's
+  remote — `origin/main — 2 ahead, 0 behind (as of last fetch …)` — from
+  **local refs only**; the engine still never touches the network.
+- **Own-data conformance check** — the adapter kit gains
+  `checkOwnDataScoping`: with identity set, a fixture's foreign records
+  must be dropped; with no identity, they must survive (the adapter is
+  defense-in-depth, never the primary filter); identity may only ever
+  narrow. Verified against the bundled Jira and GitHub adapters on the
+  sync skill's exact documented fetch shapes, closing the v1.7 roadmap's
+  own-data loop.
+
 ## [1.6.0] - 2026-08-22
 
 "Salvage": untracked AI work becomes first-class, and routine reads become
