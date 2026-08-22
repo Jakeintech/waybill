@@ -6,6 +6,8 @@
 #
 # Releases up to v1.5.0 were published manually and are not managed here.
 # (Any edit to this file — this comment included — re-runs the reconciler.)
+# v1.6.0–v1.8.0 tags were pushed by the owner on 2026-08-22; the
+# reconciler attaches the CHANGELOG release bodies to them.
 v1.6.0 76f6e9232ed20fded5f9aae73fc3d0070a4a2e94
 v1.7.0 84e55e9b8617e46e39c7f9ef4300fcb43756dbc3
 v1.8.0 1a736ec5e1d7f201558603cad32d998107744a3f
