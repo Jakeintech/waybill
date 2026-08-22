@@ -167,7 +167,7 @@ it. The full exit path, from turning it down to walking away:
 - **Tutorial**: this README's quickstart, above.
 - **How-to**: [swap Jira/GitHub for Linear, GitLab, Bitbucket…](docs/adapters.md)
 - **Reference**: [ledger entry & config schema](skills/ledger/references/schema.md) · [skill reference](docs/skills.md) · [test plan](docs/testing.md) — the docs Claude reads are the docs you read.
-- **Explanation**: [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](ROADMAP.md) · [brand & voice](docs/brand.md) · [schema freeze & migration policy](docs/migration.md)
+- **Explanation**: [architecture & system design](docs/architecture.md) — how the pieces compose, the trust model, and the recorded 1.5.0 review · [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](ROADMAP.md) · [brand & voice](docs/brand.md) · [schema freeze & migration policy](docs/migration.md)
 - **Spec**: [full product specification](docs/product-spec.md) — the normative design the shipped engine implements.
 
 ## FAQ

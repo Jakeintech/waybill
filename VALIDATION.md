@@ -1,8 +1,44 @@
-# Validation — FINALPASS gate (v1.0.1; earlier release evidence retained below)
+# Validation — FINALPASS gate (v1.5.0; earlier release evidence retained below)
 
-Evidence for milestones M0 "Believable", M1 "Metered", M2 "Answerable",
-and M3 "Trustworthy at scale". Every claim below is reproducible from a
-clean checkout with
+## Gate results (2026-08-22, Linux/Node 22 dev container; CI mirrors on Ubuntu/Node 24)
+
+| Check | Result |
+|---|---|
+| `tsc --noEmit` (strict, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) | clean |
+| `node --test` unit + golden + determinism + conservation + acceptance suites | **168 / 168 pass** |
+| Reproducible build (`npm run build` then `git diff --exit-code bin/`) | zero diff |
+| `scripts/validate-plugin.sh` (manifests, version agreement, skills, D19 naming, schema examples, dependency-free engine) | pass |
+| `tests/test-capture-session.sh` (hook never blocks/fails) | 7 / 7 pass |
+| Built-binary smoke: fresh init → `query standup` → `status`; upgrader re-init imports empty rate table | pass |
+
+## 1.5.0 DoD — the tested-feedback batch
+
+- Adversarial architecture review, recorded in
+  [docs/architecture.md](docs/architecture.md): 15 agents (6 subsystem
+  reviewers + a release-diff reviewer, adversarial verification per scope,
+  synthesis) over the full engine and plugin — 82 raw findings, 51
+  confirmed; all 8 majors and the substantive minors fixed in-release,
+  one regression test per fix (`tests/unit/review-1-5.test.ts`,
+  `tests/unit/feedback-1-5.test.ts`).
+- The pricing claim is enforced, not asserted: bundled-rate resolution
+  covers every realistic transcript id shape
+  (`tests/unit/pricing-resolution.test.ts`), upgraders auto-import on
+  re-init, and `status`/`pricing show` name every unpriced metered model
+  with its exact fix.
+- The acli and gh CLI sync paths are conformance-tested against composed
+  fixtures (`tests/unit/jira-acli.test.ts`, `tests/unit/gh-pr-list.test.ts`);
+  the fixture provenance and its runtime shape-check are documented in
+  the test headers and the sync skill.
+- Standup verified end-to-end through the real CLI (`query standup`
+  envelope, `--date`/`--days`/`--now` window words, audience redaction
+  including the session summary), with a trigger eval
+  (`evals/trigger-standup/`).
+
+---
+
+Earlier release evidence follows: milestones M0 "Believable", M1
+"Metered", M2 "Answerable", and M3 "Trustworthy at scale". Every claim
+below is reproducible from a clean checkout with
 `npm ci && npm run check && bash scripts/validate-plugin.sh &&
 shellcheck scripts/*.sh tests/*.sh && bash tests/test-capture-session.sh`.
 

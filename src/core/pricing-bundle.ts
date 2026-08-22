@@ -54,8 +54,10 @@ export function loadPricingBundle(): PricingBundle {
  * crosses families — an alias can be generous, a metered cost cannot.
  */
 export function resolveBundledModel(bundle: PricingBundle, nameOrAlias: string): string | null {
-  if (nameOrAlias in bundle.models) return nameOrAlias;
-  const aliased = bundle.aliases[nameOrAlias];
-  if (aliased && aliased in bundle.models) return aliased;
+  // Own-property checks: `pricing import --model constructor` must miss,
+  // not resolve to an Object.prototype member.
+  if (Object.hasOwn(bundle.models, nameOrAlias)) return nameOrAlias;
+  const aliased = Object.hasOwn(bundle.aliases, nameOrAlias) ? bundle.aliases[nameOrAlias] : undefined;
+  if (aliased && Object.hasOwn(bundle.models, aliased)) return aliased;
   return null;
 }

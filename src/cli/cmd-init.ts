@@ -148,9 +148,10 @@ export function runInit(home: string, args: string[], json: boolean): number {
   if (!existsSync(join(home, ".git"))) {
     git(home, ["init", "-b", "main"]);
   }
-  // Derived caches and transient runtime state (the capture queue and the
-  // miner lock inside it) stay out of the append-only audit history.
-  writeFileSync(join(home, ".gitignore"), "rollups/\npending-sessions/\n", "utf8");
+  // Derived caches and transient runtime state (the capture queue, the
+  // miner lock inside it, and the meter checkpoints) stay out of the
+  // append-only audit history — they are rebuildable, the streams are not.
+  writeFileSync(join(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);

@@ -1725,9 +1725,9 @@ function loadPricingBundle() {
   return cached;
 }
 function resolveBundledModel(bundle, nameOrAlias) {
-  if (nameOrAlias in bundle.models) return nameOrAlias;
-  const aliased = bundle.aliases[nameOrAlias];
-  if (aliased && aliased in bundle.models) return aliased;
+  if (Object.hasOwn(bundle.models, nameOrAlias)) return nameOrAlias;
+  const aliased = Object.hasOwn(bundle.aliases, nameOrAlias) ? bundle.aliases[nameOrAlias] : void 0;
+  if (aliased && Object.hasOwn(bundle.models, aliased)) return aliased;
   return null;
 }
 
@@ -2015,7 +2015,7 @@ function runInit(home, args, json) {
   if (!existsSync7(join7(home, ".git"))) {
     git(home, ["init", "-b", "main"]);
   }
-  writeFileSync3(join7(home, ".gitignore"), "rollups/\npending-sessions/\n", "utf8");
+  writeFileSync3(join7(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);

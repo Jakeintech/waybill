@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
-## [1.5.0] - 2026-08-21
+## [1.5.0] - 2026-08-22
 
 The tested-feedback batch: the standup digest, honest pricing end to end,
 and CLI-first Jira syncs — plus a recorded architecture review
