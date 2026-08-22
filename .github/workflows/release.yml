@@ -1,0 +1,101 @@
+name: Release
+
+# Publish a release for an already-validated commit: create the tag ref
+# server-side and a GitHub release whose body is the CHANGELOG section.
+# Exists because some contribution environments can push branches but not
+# tags; the tag is created by the GitHub API instead of git push.
+#
+# Self-verifying, like the release gate: it refuses a tag whose version
+# doesn't match package.json at the target commit, and refuses a version
+# with no CHANGELOG section. Idempotent: an existing tag is reused if it
+# points at the same sha (error if it doesn't); an existing release is
+# left untouched.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v2.0.0"
+        required: true
+        type: string
+      sha:
+        description: "Commit sha the tag must point at (the validated release commit)"
+        required: true
+        type: string
+      latest:
+        description: "Mark this release as the repository's latest"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag + release from CHANGELOG
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - name: Validate tag against the commit's own claims
+        run: |
+          tag='${{ inputs.tag }}'
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::tag must look like vX.Y.Z, got: $tag"; exit 1 ;;
+          esac
+          version="${tag#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "$version" ]; then
+            echo "::error::package.json at ${{ inputs.sha }} says $pkg, not $version — wrong sha or wrong tag"
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no [$version] section"
+            exit 1
+          fi
+      - name: Extract the CHANGELOG section as the release body
+        run: |
+          version='${{ inputs.tag }}'; version="${version#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on=1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > /tmp/release-body.md
+          printf '\n[CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md) · [VALIDATION](https://github.com/%s/blob/main/VALIDATION.md) · [DECISIONS](https://github.com/%s/blob/main/DECISIONS.md)\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" >> /tmp/release-body.md
+      - name: Create the tag ref (server-side)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='${{ inputs.tag }}'
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha 2>/dev/null || true)"
+          if [ -z "$existing" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha='${{ inputs.sha }}'
+            echo "tag $tag created at ${{ inputs.sha }}"
+          elif [ "$existing" = '${{ inputs.sha }}' ]; then
+            echo "tag $tag already points at ${{ inputs.sha }} — reusing"
+          else
+            echo "::error::tag $tag already exists at $existing (asked for ${{ inputs.sha }}) — refusing to move a published tag"
+            exit 1
+          fi
+      - name: Create the release (skip if it exists)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='${{ inputs.tag }}'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists — leaving it untouched"
+            exit 0
+          fi
+          latest_flag='--latest=false'
+          if [ '${{ inputs.latest }}' = 'true' ]; then latest_flag='--latest'; fi
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "waybill ${tag#v}" \
+            --notes-file /tmp/release-body.md \
+            --verify-tag \
+            "$latest_flag"
+          echo "release $tag published"
