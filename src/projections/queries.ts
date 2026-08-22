@@ -40,6 +40,17 @@ export function normalizeWindow(from: string | null, to: string | null): Window 
 }
 
 function inWindow(ts: string, w: Window): boolean {
+  // Instants, not strings: a second-precision "…59Z" sorts after the
+  // day-end bound "…59.999Z" lexicographically and would fall out of the
+  // day it belongs to. Unparseable values fall back to string order.
+  const t = Date.parse(ts);
+  const from = w.from !== null ? Date.parse(w.from) : null;
+  const to = w.to !== null ? Date.parse(w.to) : null;
+  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
+    if (from !== null && t < from) return false;
+    if (to !== null && t > to) return false;
+    return true;
+  }
   if (w.from !== null && ts < w.from) return false;
   if (w.to !== null && ts > w.to) return false;
   return true;
@@ -160,7 +171,10 @@ export function spendData(
     const t = totalTokens(u);
     total += t;
     if (u.cost_usd) pricedTokens += t;
-    else unpricedByModel.add(u.model);
+    // "unknown" (no model id in the source) counts as unpriced tokens but
+    // stays out of the named list — no rate could ever fix it, and status
+    // must be able to print a fix for every model this list names.
+    else if (u.model !== "unknown") unpricedByModel.add(u.model);
     const acc = accounts.get(u.attribution.account) ?? {
       account: u.attribution.account,
       tokens: 0, input: 0, output: 0, cache_read: 0, cache_creation: 0,

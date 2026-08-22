@@ -74,6 +74,17 @@ export interface StandupData {
 }
 
 function inWindow(ts: string, w: Window): boolean {
+  // Instants, not strings: a second-precision "…59Z" sorts after the
+  // day-end bound "…59.999Z" lexicographically and would fall out of the
+  // day it belongs to. Unparseable values fall back to string order.
+  const t = Date.parse(ts);
+  const from = w.from !== null ? Date.parse(w.from) : null;
+  const to = w.to !== null ? Date.parse(w.to) : null;
+  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
+    if (from !== null && t < from) return false;
+    if (to !== null && t > to) return false;
+    return true;
+  }
   if (w.from !== null && ts < w.from) return false;
   if (w.to !== null && ts > w.to) return false;
   return true;
@@ -135,6 +146,9 @@ export function standupData(
     totals.cache_read += u.tokens.cache_read;
     totals.cache_creation += u.tokens.cache_creation;
     if (u.cost_usd) cost = Math.round(((cost ?? 0) + u.cost_usd.value) * 10000) / 10000;
+    // "unknown" carried no model id at all — its tokens count as unpriced,
+    // but it is not a *model* a rate could fix, so it stays out of the
+    // named list (consistent with status/pricing show).
     else unpriced.set(u.model, (unpriced.get(u.model) ?? 0) + totalTokens(u.tokens));
     if (u.waste) {
       waste.retried_commands += u.waste.retried_commands;
@@ -175,24 +189,43 @@ export function standupData(
     })
     .sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
 
-  // Entries opened in the window (chain origin = the opened event itself).
+  // Entries opened in the window — chain-aware: once an item ships or a
+  // sync correction supersedes its `opened` event, the head is no longer
+  // kind "opened", but the day it was STARTED does not change. Walk each
+  // authoritative head to its chain-origin `opened` event, window on that
+  // ts, and report the head's (corrected) fields.
+  const byId = new Map<string, LedgerEntry | PinEntry>(ledgerEvents.map((e) => [e.id, e]));
   const opened = authoritative(ledgerEvents)
-    .filter((e): e is LedgerEntry => e.kind === "opened" && inWindow(e.ts, window))
-    .map((e) => ({
-      tracker_key: e.tracker_key,
-      title: e.title,
-      ts: e.ts,
-      pre_registered: e.estimate_without_claude_hours?.pre_registered === true,
+    .filter((e): e is LedgerEntry => e.kind !== "pin")
+    .map((head) => {
+      let cur: LedgerEntry | PinEntry | undefined = head;
+      const seen = new Set<string>();
+      while (cur && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        if (cur.kind === "opened") return { head, opened_ts: cur.ts };
+        cur = cur.supersedes !== null ? byId.get(cur.supersedes) : undefined;
+      }
+      return null;
+    })
+    .filter((v): v is { head: LedgerEntry; opened_ts: string } => v !== null && inWindow(v.opened_ts, window))
+    .map(({ head, opened_ts }) => ({
+      tracker_key: head.tracker_key,
+      title: head.title,
+      ts: opened_ts,
+      pre_registered: head.estimate_without_claude_hours?.pre_registered === true,
     }))
     .sort((a, b) => (a.ts < b.ts ? -1 : 1));
 
   // Sessions that overlap the window (a session spanning midnight counts
-  // toward the day it ran into, not only the day it ended).
+  // toward the day it ran into, not only the day it ended). Overlap =
+  // the session ends at-or-after the window start AND starts at-or-before
+  // the window end — instant comparisons, same as inWindow.
   const receipts = authoritative(sessionEvents).filter((s) => {
     if (s.kind !== "session") return false;
-    if (window.from !== null && s.last_ts < window.from) return false;
-    if (window.to !== null && s.first_ts > window.to) return false;
-    return true;
+    return (
+      (window.from === null || inWindow(s.last_ts, { from: window.from, to: null })) &&
+      (window.to === null || inWindow(s.first_ts, { from: null, to: window.to }))
+    );
   });
   const repos: string[] = [];
   const branches: string[] = [];
@@ -220,7 +253,7 @@ export function standupData(
       totals,
       cost_usd: cost,
       pricing_version: config.pricing.version,
-      unpriced_models: [...unpriced.keys()].sort(),
+      unpriced_models: [...unpriced.keys()].filter((m) => m !== "unknown").sort(),
       unpriced_tokens: unpricedTokens,
     },
     waste,

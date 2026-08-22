@@ -65,12 +65,21 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   // Pricing health — the check behind "costs appear from day one": which
   // models actually metered into the ledger have no resolvable rate, and
   // how many events still carry no cost (cured by the next meter run).
+  // Sessions whose transcripts are gone (meter_gap) can never re-price —
+  // they must not keep the "run meter --all" hint alive forever.
   const authUsage = authoritative(usage).filter((u) => u.kind === "usage");
   const seenModels = [...new Set(authUsage.map((u) => u.model))];
   const unpriced = unpricedModels(config.pricing, seenModels);
   const unpricedEvents = authUsage.filter((u) => u.cost_usd === null).length;
+  const gapSessions = new Set(
+    exceptions.filter((e) => e.kind === "meter_gap").map((e) => (e as { session_id: string }).session_id),
+  );
   const repriceable = authUsage.filter(
-    (u) => u.cost_usd === null && u.model !== "unknown" && resolveRate(config.pricing, u.model) !== null,
+    (u) =>
+      u.cost_usd === null &&
+      u.model !== "unknown" &&
+      !gapSessions.has(u.session_id) &&
+      resolveRate(config.pricing, u.model) !== null,
   ).length;
 
   // MCP credential check — env only, no network: helps generate the
@@ -83,14 +92,18 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   } catch {
     // gh missing or unauthenticated — fine
   }
-  // Atlassian CLI (acli) — the light-payload Jira sync path. Local exec
-  // reading its own config; exit 0 only when authenticated.
-  let acliAuthenticated = false;
-  try {
-    execFileSync("acli", ["jira", "auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5000 });
-    acliAuthenticated = true;
-  } catch {
-    // acli missing or unauthenticated — fine; the MCP path still works
+  // Atlassian CLI (acli) — the light-payload Jira sync path. Probed only
+  // when the tracker is Jira: a wedged acli must not stall the health
+  // screen for users who never touch it. null = not probed.
+  let acliAuthenticated: boolean | null = null;
+  if (config.tracker.kind === "jira") {
+    acliAuthenticated = false;
+    try {
+      execFileSync("acli", ["jira", "auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5000 });
+      acliAuthenticated = true;
+    } catch {
+      // acli missing or unauthenticated — fine; the MCP path still works
+    }
   }
 
   // The menu, not just the health screen: state-derived trigger phrases —

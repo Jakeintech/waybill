@@ -39,10 +39,13 @@ function repoOf(pr: RawPr): string | null {
     const m = /repos\/([^/]+\/[^/]+)$/.exec(repoUrl);
     if (m) return m[1]!;
   }
-  // gh CLI rows carry no repo object; the PR's own html URL names it.
+  // gh CLI rows carry no repo object; the PR's own html URL names it. The
+  // /pull/N path shape is the signal, not the hostname — GitHub Enterprise
+  // hosts must work too (REST API urls never match: their paths run
+  // /repos/owner/repo/pulls/N).
   const html = str(pr.html_url) ?? str(pr.url);
   if (html) {
-    const m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(html);
+    const m = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/\d+/.exec(html);
     if (m) return m[1]!;
   }
   return null;

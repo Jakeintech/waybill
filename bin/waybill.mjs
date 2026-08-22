@@ -2614,6 +2614,14 @@ function normalizeWindow(from, to) {
   return { from: f, to: t };
 }
 function inWindow(ts, w) {
+  const t = Date.parse(ts);
+  const from = w.from !== null ? Date.parse(w.from) : null;
+  const to = w.to !== null ? Date.parse(w.to) : null;
+  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
+    if (from !== null && t < from) return false;
+    if (to !== null && t > to) return false;
+    return true;
+  }
   if (w.from !== null && ts < w.from) return false;
   if (w.to !== null && ts > w.to) return false;
   return true;
@@ -2666,7 +2674,7 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
     const t = totalTokens(u);
     total += t;
     if (u.cost_usd) pricedTokens += t;
-    else unpricedByModel.add(u.model);
+    else if (u.model !== "unknown") unpricedByModel.add(u.model);
     const acc = accounts.get(u.attribution.account) ?? {
       account: u.attribution.account,
       tokens: 0,
@@ -3377,8 +3385,11 @@ function runStatus(home, args, json) {
   const seenModels = [...new Set(authUsage.map((u) => u.model))];
   const unpriced = unpricedModels(config.pricing, seenModels);
   const unpricedEvents = authUsage.filter((u) => u.cost_usd === null).length;
+  const gapSessions = new Set(
+    exceptions.filter((e) => e.kind === "meter_gap").map((e) => e.session_id)
+  );
   const repriceable = authUsage.filter(
-    (u) => u.cost_usd === null && u.model !== "unknown" && resolveRate(config.pricing, u.model) !== null
+    (u) => u.cost_usd === null && u.model !== "unknown" && !gapSessions.has(u.session_id) && resolveRate(config.pricing, u.model) !== null
   ).length;
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
   let ghCliAvailable = false;
@@ -3387,11 +3398,14 @@ function runStatus(home, args, json) {
     ghCliAvailable = true;
   } catch {
   }
-  let acliAuthenticated = false;
-  try {
-    execFileSync6("acli", ["jira", "auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5e3 });
-    acliAuthenticated = true;
-  } catch {
+  let acliAuthenticated = null;
+  if (config.tracker.kind === "jira") {
+    acliAuthenticated = false;
+    try {
+      execFileSync6("acli", ["jira", "auth", "status"], { stdio: ["ignore", "ignore", "ignore"], timeout: 5e3 });
+      acliAuthenticated = true;
+    } catch {
+    }
   }
   const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
   const next = [];
@@ -3487,6 +3501,14 @@ function runStatus(home, args, json) {
 
 // src/projections/standup.ts
 function inWindow2(ts, w) {
+  const t = Date.parse(ts);
+  const from = w.from !== null ? Date.parse(w.from) : null;
+  const to = w.to !== null ? Date.parse(w.to) : null;
+  if (!Number.isNaN(t) && (from === null || !Number.isNaN(from)) && (to === null || !Number.isNaN(to))) {
+    if (from !== null && t < from) return false;
+    if (to !== null && t > to) return false;
+    return true;
+  }
   if (w.from !== null && ts < w.from) return false;
   if (w.to !== null && ts > w.to) return false;
   return true;
@@ -3561,17 +3583,25 @@ function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, 
       shipped_earlier: key !== null && allShippedKeys.has(key)
     };
   }).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
-  const opened = authoritative(ledgerEvents).filter((e) => e.kind === "opened" && inWindow2(e.ts, window)).map((e) => ({
-    tracker_key: e.tracker_key,
-    title: e.title,
-    ts: e.ts,
-    pre_registered: e.estimate_without_claude_hours?.pre_registered === true
+  const byId = new Map(ledgerEvents.map((e) => [e.id, e]));
+  const opened = authoritative(ledgerEvents).filter((e) => e.kind !== "pin").map((head) => {
+    let cur = head;
+    const seen = /* @__PURE__ */ new Set();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      if (cur.kind === "opened") return { head, opened_ts: cur.ts };
+      cur = cur.supersedes !== null ? byId.get(cur.supersedes) : void 0;
+    }
+    return null;
+  }).filter((v) => v !== null && inWindow2(v.opened_ts, window)).map(({ head, opened_ts }) => ({
+    tracker_key: head.tracker_key,
+    title: head.title,
+    ts: opened_ts,
+    pre_registered: head.estimate_without_claude_hours?.pre_registered === true
   })).sort((a, b) => a.ts < b.ts ? -1 : 1);
   const receipts = authoritative(sessionEvents).filter((s) => {
     if (s.kind !== "session") return false;
-    if (window.from !== null && s.last_ts < window.from) return false;
-    if (window.to !== null && s.first_ts > window.to) return false;
-    return true;
+    return (window.from === null || inWindow2(s.last_ts, { from: window.from, to: null })) && (window.to === null || inWindow2(s.first_ts, { from: null, to: window.to }));
   });
   const repos = [];
   const branches = [];
@@ -3597,7 +3627,7 @@ function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, 
       totals,
       cost_usd: cost,
       pricing_version: config.pricing.version,
-      unpriced_models: [...unpriced.keys()].sort(),
+      unpriced_models: [...unpriced.keys()].filter((m) => m !== "unknown").sort(),
       unpriced_tokens: unpricedTokens
     },
     waste,
@@ -4159,7 +4189,7 @@ function repoOf(pr) {
   }
   const html = str3(pr.html_url) ?? str3(pr.url);
   if (html) {
-    const m = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(html);
+    const m = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\/\d+/.exec(html);
     if (m) return m[1];
   }
   return null;

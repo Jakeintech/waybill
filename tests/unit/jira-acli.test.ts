@@ -3,6 +3,15 @@
 // bare array (jq -s). The jira adapter must normalize that composition
 // exactly like an MCP/REST search envelope — same fields, same own-data
 // scoping, conformance-clean.
+//
+// Fixture provenance: hand-authored to the REST issue bean that
+// `workitem view --json` documents (acli 1.3.x; the official docs' own
+// example pipes it to `jq '.fields.summary'`). Not yet pinned to a live
+// capture — the sync skill therefore shape-checks the composition
+// (`has("key") and has("fields")`) before planning, so an acli output
+// change fails loudly instead of syncing zero items silently. Replacing
+// this file with a real capture (noting the acli version) is a welcome
+// contribution.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

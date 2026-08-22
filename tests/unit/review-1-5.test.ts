@@ -15,6 +15,7 @@ import { meterFile } from "../../src/meter/run.ts";
 import { isPromptLine } from "../../src/meter/transcript.ts";
 import { parseGitLog } from "../../src/gitlocal/gitlocal.ts";
 import { gitLocalAdapter } from "../../src/adapters/gitlocal-adapter.ts";
+import { githubAdapter } from "../../src/adapters/github.ts";
 import { gitlabAdapter } from "../../src/adapters/gitlab.ts";
 import { linearAdapter } from "../../src/adapters/linear.ts";
 import { defaultContext } from "../../src/adapters/contract.ts";
@@ -266,6 +267,68 @@ test("sync-plan --apply: duplicate bodies within one plan append once", () => {
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("standup: the Started section survives shipping/corrections (chain-aware opened)", () => {
+  const config = defaultConfig();
+  const opened = makeOpened({ ts: "2026-08-18T09:00:00Z" }); // opened Tuesday
+  const { id: _id, ...body } = opened;
+  const shipped = finalizeEvent("ledger", {
+    ...body,
+    ts: "2026-08-20T15:00:00Z", // ships Thursday — supersedes the opened event
+    kind: "shipped" as const,
+    supersedes: opened.id,
+  }) as LedgerEntry;
+  const tuesday = standupData([opened, shipped], [], [], [], config, {
+    from: "2026-08-18T00:00:00Z",
+    to: "2026-08-18T23:59:59.999Z",
+  });
+  assert.equal(tuesday.opened.length, 1, "Tuesday's digest must still show what was started Tuesday");
+  assert.equal(tuesday.opened[0]!.tracker_key, "PLAT-482");
+  assert.equal(tuesday.opened[0]!.ts, "2026-08-18T09:00:00Z"); // origin ts, not the ship ts
+});
+
+test("windows compare instants: a second-precision ts in the day's last second stays inside", () => {
+  const config = defaultConfig();
+  const usage = [
+    makeUsage({ ts: "2026-08-20T23:59:59Z", turnIndex: 1, tokens: { input: 77, output: 0, cache_read: 0, cache_creation: 0 } }),
+  ];
+  const d = standupData([], usage, [], [], config, {
+    from: "2026-08-20T00:00:00.000Z",
+    to: "2026-08-20T23:59:59.999Z",
+  });
+  assert.equal(d.tokens.total, 77, "…59Z must not sort after the …59.999Z bound");
+});
+
+test("unknown model: tokens count as unpriced, but no list names it as a fixable model", async () => {
+  const { spendData } = await import("../../src/projections/queries.ts");
+  const config = defaultConfig();
+  config.pricing.version = "2026-08-17";
+  const usage = [
+    makeUsage({ ts: "2026-08-20T10:00:00Z", turnIndex: 1, model: "unknown", tokens: { input: 50, output: 0, cache_read: 0, cache_creation: 0 } }),
+  ];
+  const spend = spendData(usage, [], [], config, { from: null, to: null });
+  assert.equal(spend.pricing_coverage.unpriced_tokens, 50);
+  assert.deepEqual(spend.pricing_coverage.unpriced_event_models, []);
+  const d = standupData([], usage, [], [], config, { from: null, to: null });
+  assert.equal(d.tokens.unpriced_tokens, 50);
+  assert.deepEqual(d.tokens.unpriced_models, []);
+});
+
+test("github adapter: GitHub Enterprise hosts derive the repo from the PR URL too", () => {
+  const rows = [
+    {
+      url: "https://ghe.corp.example/platform-team/checkout/pull/88",
+      title: "PLAT-482: retry logic",
+      headRefName: "feat/PLAT-482-retry",
+      mergedAt: "2026-08-20T10:00:00Z",
+      body: "",
+      author: { login: "me" },
+    },
+  ];
+  const changes = githubAdapter.normalizeChanges(rows, defaultContext({ githubLogin: "me" }));
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0]!.repo, "platform-team/checkout");
 });
 
 test("query: typo'd flags and missing values error instead of silently widening the window", () => {

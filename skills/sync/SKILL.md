@@ -65,14 +65,23 @@ own data.
 
    Each `view` output is a REST-shaped issue saved verbatim; `jq -s` only
    composes them into an array (a shape the jira adapter accepts) — never
-   edit or annotate the objects themselves. The custom field ids are the
-   common story-points/sprint/epic candidates; if this site rejects one,
-   drop it from `--fields` and continue — points and sprint stay null
-   rather than guessed. `currentUser()` in the JQL scopes the fetch to the
-   user's own items at the source. This is one `view` call per item: fine
-   for a routine sync window (a handful of updated items), slow for a big
-   backfill — past ~50 items, prefer the MCP fallback's single search for
-   that one run.
+   edit or annotate the objects themselves. Sanity-check the composition
+   before planning — an acli output-shape change must fail loudly, never
+   as a silently empty sync:
+
+   ```bash
+   jq -e 'length > 0 and (.[0] | has("key") and has("fields"))' /tmp/waybill-items.json \
+     || echo "acli view output shape unexpected — fall back to the MCP fetch"
+   ```
+
+   (Zero keys from a window that plainly had activity deserves the same
+   suspicion.) The custom field ids are the common story-points/sprint/
+   epic candidates; if this site rejects one, drop it from `--fields` and
+   continue — points and sprint stay null rather than guessed.
+   `currentUser()` in the JQL scopes the fetch to the user's own items at
+   the source. This is one `view` call per item: fine for a routine sync
+   window (a handful of updated items), slow for a big backfill — past
+   ~50 items, prefer the MCP fallback's single search for that one run.
 
    **Atlassian MCP — fallback (no acli):** search issues assigned to the
    current user in the configured projects, updated since `last_sync` —
@@ -105,8 +114,11 @@ own data.
    ```bash
    gh pr list -R <org/name> --author "@me" --state merged \
      --search "merged:>=<date> base:<default_branch>" --limit 200 \
-     --json url,title,headRefName,mergedAt,body > /tmp/waybill-changes.json
+     --json url,title,headRefName,mergedAt,body,author > /tmp/waybill-changes.json
    ```
+
+   (`author` matters: it is what the adapter's own-data check reads, so a
+   mangled query still cannot smuggle in colleagues' PRs.)
 
    (Repeat per repo; concatenate arrays with `jq -s 'add'` if needed.
    Request the **body** — closing keywords there, "Fixes #12", are how PRs
