@@ -54,6 +54,20 @@ jobs:
           git diff --exit-code bin/ \
             || { echo "::error::bin/waybill.mjs does not match src/ — run npm run build and commit"; exit 1; }
 
+  release-gate:
+    name: Release gate (self-verifying claims)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dev toolchain
+        run: npm ci
+      - name: Gate — VALIDATION counts, changelog coverage, doc links, eval coverage
+        run: npm run gate
+
   trigger-evals:
     name: Skill trigger evals (opt-in)
     runs-on: ubuntu-latest

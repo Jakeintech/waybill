@@ -33,9 +33,37 @@ export function acquireLock(home: string): boolean {
       const claim = `${p}.reap.${process.pid}`;
       try {
         renameSync(p, claim); // atomic: exactly one reaper wins
-        unlinkSync(claim);
       } catch {
         return false; // another process reaped (or the holder revived) — yield
+      }
+      // Post-rename verification (architecture review rec. 5): between the
+      // staleness read and the rename, the stale lock could have been
+      // freed and a NEW live holder's lock created at the same path — the
+      // rename would then have swept a live lock. Re-read what was
+      // actually claimed; if it names a live process, put it back (wx, so
+      // a lock created in the meantime is never clobbered) and yield.
+      try {
+        const claimed = readFileSync(claim, "utf8");
+        const claimedPid = Number(claimed.trim());
+        if (Number.isInteger(claimedPid) && claimedPid > 0 && claimedPid !== process.pid) {
+          try {
+            process.kill(claimedPid, 0); // throws if gone — the expected case
+            try {
+              writeFileSync(p, claimed, { flag: "wx" });
+              unlinkSync(claim);
+            } catch {
+              // p re-created by a third process before restore: the claim
+              // file stays as a harmless orphan; the live holder's next
+              // release is already a silent no-op either way.
+            }
+            return false;
+          } catch {
+            // dead as observed — the reap stands
+          }
+        }
+        unlinkSync(claim);
+      } catch {
+        return false; // claim vanished under us — yield
       }
     }
   }

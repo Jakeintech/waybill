@@ -12,7 +12,7 @@ description: >
   receipts.) Every bullet traces to a ledger event; nothing is padded or
   invented.
 metadata:
-  version: "1.8.0"
+  version: "2.0.0"
 ---
 
 # Standup

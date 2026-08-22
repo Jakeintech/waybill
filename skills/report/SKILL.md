@@ -16,7 +16,7 @@ description: >
   numbers.) Produces a one-page, receipt-backed report; never invents
   numbers.
 metadata:
-  version: "1.8.0"
+  version: "2.0.0"
 ---
 
 # Report

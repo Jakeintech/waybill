@@ -100,8 +100,8 @@ Open a PR that adds:
 | GitHub Issues (as tracker) | the GitHub server above, or the `gh` CLI directly | ✅ bundled adapter, conformance-tested | Keys are GitHub's own `owner/repo#number` syntax, derived from the issue URL (see note below); labels → `work_type`, milestone → `sprint`; no estimates, so `points` stays null |
 | Linear | `https://mcp.linear.app/mcp` (official, OAuth) | ✅ bundled adapter, conformance-tested | Estimates → `points`, cycles → `sprint`, projects → `epic_name`; a live end-to-end test report is a welcome first contribution |
 | GitLab | `npx @zereight/mcp-gitlab` (community, PAT) | ✅ bundled adapter, conformance-tested | MRs map to `artifacts.prs`; a live end-to-end test report is a welcome contribution |
-| Bitbucket | — | 🙋 wanted | Available via Atlassian's server; needs testing |
-| Azure DevOps | — | 🙋 wanted | |
+| Bitbucket (Cloud) | Atlassian's server, or save the REST 2.0 `pullrequests?state=MERGED` page to a file | ✅ bundled adapter, conformance-tested | Merged PRs map to `artifacts.prs`; the PR object has no `merged_on`, so `updated_on` of a MERGED PR stands in for merge time (documented approximation, verbatim leaf); no closing-keyword linkage, so `closes` is omitted. Own-data via `identity.json.bitbucket_username` (the author nickname). Live end-to-end report welcome |
+| Azure DevOps | save the REST `wit/workitems?$expand=links` (or WIQL) response to a file | ✅ bundled adapter, conformance-tested | Work item ids are the keys (`AB#123`-style branch refs match the numeric pattern); StoryPoints/Effort → `points`, iteration path tail → `sprint`, ClosedDate/terminal states → `done`. Own-data via `System.AssignedTo.uniqueName` against the identity map's git emails. Live end-to-end report welcome |
 
 ### Composed keys and the no-fabrication check
 

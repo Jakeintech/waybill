@@ -7,6 +7,8 @@ import { githubAdapter } from "../adapters/github.ts";
 import { githubIssuesAdapter } from "../adapters/github-issues.ts";
 import { gitLocalAdapter } from "../adapters/gitlocal-adapter.ts";
 import { gitlabAdapter } from "../adapters/gitlab.ts";
+import { azureDevOpsAdapter } from "../adapters/azure-devops.ts";
+import { bitbucketAdapter } from "../adapters/bitbucket.ts";
 import { loadConfig, loadIdentity, saveConfig } from "../core/config.ts";
 import { finalizeEvent, type Envelope, type LedgerEntry, type PinEntry } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
@@ -19,8 +21,14 @@ const TRACKERS = {
   jira: jiraAdapter,
   linear: linearAdapter,
   "github-issues": githubIssuesAdapter,
+  "azure-devops": azureDevOpsAdapter,
 } as const;
-const GIT_HOSTS = { github: githubAdapter, gitlab: gitlabAdapter, local: gitLocalAdapter } as const;
+const GIT_HOSTS = {
+  github: githubAdapter,
+  gitlab: gitlabAdapter,
+  bitbucket: bitbucketAdapter,
+  local: gitLocalAdapter,
+} as const;
 
 export function runSyncPlan(home: string, args: string[]): number {
   let tracker: keyof typeof TRACKERS | null = null;
@@ -103,6 +111,7 @@ export function runSyncPlan(home: string, args: string[]): number {
     jiraAccountId: identity?.jira_account_id ?? null,
     gitlabUsername: identity?.gitlab_username ?? null,
     linearUserId: identity?.linear_user_id ?? null,
+    bitbucketUsername: identity?.bitbucket_username ?? null,
     projectKeys: config.tracker.project_keys,
   });
 

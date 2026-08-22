@@ -5,6 +5,72 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [2.0.0] - 2026-08-22
+
+"Delivered": the free side complete — the final release of the committed
+path ([ROADMAP](ROADMAP.md)). The major version marks scope completion,
+not breakage: the event schema is unchanged (v2, frozen since 1.0), every
+addition is additive, and 1.x ledgers need no migration. From here,
+changes are upkeep, not construction.
+
+### Added
+- **Azure DevOps tracker adapter** — REST/WIQL work items → WorkItems:
+  numeric work item ids as keys (`AB#123`-style branch refs match),
+  StoryPoints or Scrum Effort → `points` (never invented), iteration
+  path tail → `sprint`, ClosedDate/terminal states → `done`, work item
+  type → `work_type`. Own-data defense-in-depth reads
+  `System.AssignedTo.uniqueName` (an email) against the identity map's
+  existing `git_emails` — no new identity field needed.
+  Conformance- and own-data-tested on a realistic fixture
+  (`--tracker azure-devops`). Honest limit: live end-to-end run not yet
+  performed; the adapters table says so.
+- **Bitbucket Cloud git-host adapter** — merged pull requests →
+  MergedChanges: repo from the destination repository, branch/title keys,
+  and — documented approximation, verbatim leaf — `updated_on` of a
+  MERGED PR standing in for the merge time (the 2.0 PR object exposes no
+  merged_on). No closing-keyword linkage on Bitbucket, so `closes` is
+  omitted, never faked. Own-data via new optional
+  `identity.json.bitbucket_username`. Conformance- and own-data-tested
+  (`--git bitbucket`).
+- **The Windows story** ([docs/windows.md](docs/windows.md)) — the
+  engine is pure Node and runs everywhere; hooks need only a `bash` on
+  PATH (Git for Windows, WSL); and because metering is retroactive and
+  idempotent, a machine where hooks never fire loses nothing — scheduled
+  `mine --all` is a full substitute. Retention is the one real caveat,
+  and `status` already checks it. Honest limit stated: reasoned port,
+  native end-to-end report welcome.
+- **The OTel live-export recipe** ([docs/otel.md](docs/otel.md)) —
+  telemetry env vars → local OTLP collector with a file exporter →
+  `waybill meter --otel` backfills pruned-transcript sessions. Fallback
+  semantics restated: fills transcript-less sessions only; the
+  transcript stays the source of truth.
+- **The self-verifying release gate** (`scripts/release-gate.sh`,
+  `npm run gate`, new CI job) — the release's claims about itself are
+  checked mechanically: VALIDATION's headline test count must match the
+  suite that actually runs, the released version must have CHANGELOG and
+  ROADMAP coverage, every relative doc link must resolve, and every
+  skill must have a trigger eval.
+- **`status --fast`** — skips the full-ledger verify re-hash (the one
+  expensive step on a large home); the verify line reports "skipped",
+  never "ok".
+
+### Changed
+- **Architecture review closed out** — all eight standing
+  recommendations from the 1.5.0 review now carry a recorded disposition
+  in [docs/architecture.md](docs/architecture.md): done in code (time
+  module v1.6; own-data kit v1.7; lock-takeover post-rename verification,
+  status fast mode, release gate, standup↔spend agreement golden — all
+  v2.0), or deliberately closed with rationale (the shared strict flag
+  parser `src/cli/flags.ts` is adopted by the simple read-side commands,
+  while tested bespoke parsers on the write paths stay — strictness is
+  enforced by regression tests either way). The pricing-honesty
+  vocabulary (*unpriced* / *repriceable* / *unidentified*) now has one
+  owning definition there.
+- **Lock takeover hardened** — after the atomic rename that reaps a
+  stale miner lock, the reaper re-reads what it actually claimed; a lock
+  that turned live inside the race window is restored via
+  exclusive-create and the takeover yields.
+
 ## [1.8.0] - 2026-08-22
 
 "Many readers": the same receipts, new audiences — the third release of

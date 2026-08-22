@@ -8,7 +8,7 @@ description: >
   section. Combines upcoming tracker work with historical rates from the
   waybill ledger.
 metadata:
-  version: "1.8.0"
+  version: "2.0.0"
 ---
 
 # Forecast

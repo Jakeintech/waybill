@@ -1,16 +1,46 @@
-# Validation — FINALPASS gate (v1.8.0; earlier release evidence retained below)
+# Validation — FINALPASS gate (v2.0.0; earlier release evidence retained below)
 
 ## Gate results (2026-08-22, Linux/Node 22 dev container; CI mirrors on Ubuntu/Node 24)
 
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict) | clean |
-| `node --test` full suite | **187 / 187 pass** (v1.8 batch: shipped-row work_type/sessions/metered_cost_usd, null-not-zero USD, redaction survival of counts) |
+| `node --test` full suite | **192 / 192 pass** (v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
 | Reproducible build + zero bin diff | pass |
-| `scripts/validate-plugin.sh` (incl. version agreement, `invoice`/`disclose` naming) | pass |
+| `scripts/validate-plugin.sh` | pass |
+| `scripts/release-gate.sh` (`npm run gate` — the release's claims about itself, checked mechanically) | pass |
 | Hook suite | 7 / 7 pass |
 
+## 2.0.0 DoD — "Delivered"
+
+- The Azure DevOps and Bitbucket adapters pass the conformance kit and
+  the own-data scoping check on realistic fixtures (foreign assignee /
+  foreign author present and dropped; unassigned items kept; identity
+  only narrows). Field semantics fixture-asserted: numeric keys,
+  StoryPoints *and* Scrum Effort, iteration-path sprints, ClosedDate
+  done-ness; Bitbucket merged-only with the documented `updated_on`
+  merge-time stand-in and `closes` omitted, never faked. Honest limit
+  recorded in the adapters table: live end-to-end runs still welcome.
+- Every 1.5.0 architecture-review recommendation carries a recorded
+  disposition in docs/architecture.md — six done in code, the flag
+  parser closed by partial adoption with written rationale, the pricing
+  vocabulary given an owning definition.
+- The release gate is self-verifying and runs in CI: a stale VALIDATION
+  test count, a missing CHANGELOG section, a broken doc link, or a
+  skill without a trigger eval each fail the gate (verified locally by
+  running it against this release).
+- `status --fast` skips only verify and says "skipped", never "ok"
+  (CLI-tested); the standup↔spend token-total agreement golden pins the
+  two projections together over an explicit window.
+- Windows and OTel stories are documented with their honest limits
+  (docs/windows.md, docs/otel.md): reasoned port + retention caveat;
+  fallback-only OTel semantics restated.
+
 ## 1.8.0 DoD — "Many readers"
+
+Gate at release (same environment): tsc clean; **187 / 187** tests;
+reproducible build, zero bin diff; validator (incl. `invoice`/`disclose`
+naming) pass; hook suite 7 / 7.
 
 - The engine cost of six new audiences is exactly three additive fields
   on report shipped rows, each fixture-tested: `work_type` travels from

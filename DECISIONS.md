@@ -646,3 +646,34 @@ reader of the receipts, not the product. Proving it means new readers
 must cost near-zero engine surface — if a new audience needed new
 metering, the receipt schema would be wrong. Three additive row fields
 and zero new commands is the thesis holding.
+
+## 2026-08-22 — 2.0 means "scope complete", and recommendations close with dispositions (2.0.0)
+
+**Question.** What does the 2.0 major mean for a project whose schema
+froze at 1.0 — and what does "the remaining architecture-review
+recommendations closed" require when some recommendations aren't worth
+their risk?
+
+**Choice.** 2.0 is a completion marker, not a compatibility event: the
+event schema is untouched (v2, frozen), every 2.0 change is additive,
+and a 1.x ledger opens under 2.0 with no migration. The version says
+"the committed scope is built" — coverage matrix (Azure DevOps,
+Bitbucket, Windows, OTel), review closeout, self-verifying gate.
+"Closed" for a recommendation means *a recorded disposition*, not
+unconditional implementation: six closed in code, and the shared flag
+parser closed by partial adoption with the rationale written down —
+write-path commands keep their tested bespoke parsers because rewriting
+tested parsing for uniformity trades regression risk for zero user
+value, and the property the recommendation actually wanted (strict flag
+handling) is enforced by regression tests on every command regardless.
+An engineering-judgment "no, because" recorded in the architecture
+document is a close; a silent skip is not.
+
+**Rationale.** The product's own rule — claims need receipts — applies
+to its roadmap: "complete" had to be checkable (the release gate now
+mechanically verifies the release's claims about itself), and "closed"
+had to be auditable (every recommendation's disposition is one lookup
+away). The two adapters follow the same honesty pattern as Linear and
+GitLab before them: conformance-tested on realistic fixtures, own-data
+verified, and the adapters table says plainly that live end-to-end runs
+are still welcome contributions.

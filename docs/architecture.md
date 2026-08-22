@@ -169,26 +169,64 @@ retired in 1.5.0, kept here because they are the shapes to watch):
    windowing and chain logic beside `queries.ts` and diverged exactly
    there — where this release's majors lived.
 
-**Standing recommendations** (open, in priority order):
+**Standing recommendations — all closed as of 2.0.0**, each with its
+disposition:
 
-1. A single strict-ISO timestamp module (validate, canonical precision,
-   one comparison helper, half-open day windows) used at every edge.
-2. A conformance-kit identity-scoping check plus one test that runs the
-   exact fetch shapes the sync skill documents through the adapters.
-3. A shared strict flag parser for all `cmd-*` entry points.
-4. Refactor standup onto the shared projection primitives, with a golden
-   test asserting standup and spend agree over the same window.
-5. Post-rename verification in the miner-lock takeover (a live lock can
-   theoretically be reaped during a takeover race).
-6. A cheap structural mode for `status` (it currently re-hashes the full
-   ledger via verify on every run).
-7. A self-verifying release gate: regenerate test counts and VALIDATION
-   entries per release, check doc links resolve, lint eval criteria
-   against current skill rules.
-8. One owner for the pricing-honesty vocabulary — *unpriced* (no
-   resolvable rate), *repriceable* (rate exists, transcripts survive),
-   *unidentified* (no model id) — already consistent in 1.5.0, worth a
-   named definition here so it cannot drift.
+1. *One strict timestamp module.* **Done, v1.6** — `src/core/time.ts`
+   (ISO-shape validation, instant comparison, inclusive windows) backs
+   queries, standup, verify, and reconcile.
+2. *Conformance identity-scoping + documented-fetch-shape tests.*
+   **Done, v1.7** — `checkOwnDataScoping` in the kit (foreign records
+   must drop with identity, survive without it, identity only narrows),
+   run against the sync skill's exact acli / `gh pr list` /
+   `gh issue list` shapes; v2.0 extends it to the Azure DevOps and
+   Bitbucket fixtures.
+3. *A shared strict flag parser for all `cmd-*` entry points.* **Closed
+   by partial adoption, deliberately, v2.0** — `src/cli/flags.ts` is the
+   shared parser (unknown flags error, missing values error,
+   own-property lookups) and the simple read-side commands (`status`,
+   `dashboard`) use it. The commands with bespoke per-flag semantics —
+   `query`'s enums and window words, `export`'s format/pack interlocks,
+   and every write path (`append`, `resolve`, `meter`, `sync-plan`,
+   `pricing`) — keep their hand-rolled strict parsers: each error path
+   there carries a regression test, and rewriting tested write-path
+   parsing for uniformity trades real regression risk for zero user
+   value. The rule the recommendation was really about — strictness —
+   is enforced by tests on every command either way.
+4. *Standup on shared primitives + agreement golden.* **Closed, v1.6 +
+   v2.0** — standup was rebuilt on `core/time`/`authoritative` in 1.6;
+   the golden the review asked for lands in 2.0
+   (`tests/unit/v2-0.test.ts`): standup and spend must report the same
+   token total over the same window.
+5. *Post-rename verification in the lock takeover.* **Done, v2.0** —
+   after the atomic rename, the reaper re-reads the claimed file; if it
+   names a live pid (the stale lock was freed and a new holder appeared
+   inside the race window), the lock is restored via exclusive-create
+   and the reaper yields. Residual triple-interleaving risk is
+   documented at the site.
+6. *A cheap structural mode for `status`.* **Done, v2.0** —
+   `status --fast` skips the full-ledger verify re-hash; the verify line
+   reports "skipped", never "ok".
+7. *A self-verifying release gate.* **Done, v2.0** —
+   `scripts/release-gate.sh` (`npm run gate`): the VALIDATION headline
+   test count must match the suite that actually runs, the released
+   version must have a CHANGELOG section and ROADMAP Shipped heading,
+   every relative doc link must resolve, and every skill must have a
+   trigger eval.
+8. *One owner for the pricing-honesty vocabulary.* **Done — the
+   definitions live here:**
+   - **unpriced** — a metered model with no resolvable rate in the
+     current table (`resolveRate` returns null); `status` names each one
+     with its exact fix.
+   - **repriceable** — an event carrying no cost whose model *now*
+     resolves a rate and whose transcript survives; cured by
+     `waybill meter --all`, and excluded once a `meter_gap` says the
+     transcript is gone.
+   - **unidentified** — an event whose source carried no model id at all
+     (`model: "unknown"`); counted in unpriced *tokens* but never listed
+     as an unpriced *model*, because no rate could ever fix it.
+   Every surface (status, spend's `pricing_coverage`, the skills) uses
+   these words with exactly these meanings; drift is a bug.
 
 The hash-and-supersede core held under review: verify recomputes ids end
 to end, apply and re-meter idempotence are tested through the real CLI,

@@ -12,7 +12,7 @@ description: >
   reconstructed entries. Facts tier only — pre-registration is never
   backfilled.
 metadata:
-  version: "1.8.0"
+  version: "2.0.0"
 ---
 
 # Salvage

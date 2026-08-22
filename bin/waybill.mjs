@@ -1797,6 +1797,36 @@ function findReferenceFile(filename) {
   throw new Error(`bundled reference file not found: ${filename}`);
 }
 
+// src/cli/flags.ts
+function parseFlags(cmd, args, spec) {
+  const out = { values: {}, bools: {}, positional: [] };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith("--")) {
+      out.positional.push(a);
+      continue;
+    }
+    const kind = Object.hasOwn(spec, a) ? spec[a] : void 0;
+    if (kind === void 0) {
+      process.stderr.write(`waybill ${cmd}: unknown option ${a}
+`);
+      return null;
+    }
+    if (kind === "boolean") {
+      out.bools[a] = true;
+      continue;
+    }
+    const v = args[++i];
+    if (v === void 0) {
+      process.stderr.write(`waybill ${cmd}: ${a} needs a value
+`);
+      return null;
+    }
+    out.values[a] = v;
+  }
+  return out;
+}
+
 // src/projections/queries.ts
 function normalizeWindow(from, to) {
   const check = (v, name) => {
@@ -2432,21 +2462,16 @@ function refreshDashboardIfPresent(home) {
   }
 }
 function runDashboard(home, args, json) {
+  const flags = parseFlags("dashboard", args, { "--now": "value" });
+  if (flags === null) return 2;
   let nowIso2 = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--now") {
-      const v = args[++i];
-      if (!v || Number.isNaN(Date.parse(v))) {
-        process.stderr.write("waybill dashboard: --now needs an ISO timestamp\n");
-        return 2;
-      }
-      nowIso2 = v;
-    } else {
-      process.stderr.write(`waybill dashboard: unknown option ${a}
-`);
+  const now = flags.values["--now"];
+  if (now !== void 0) {
+    if (Number.isNaN(Date.parse(now))) {
+      process.stderr.write("waybill dashboard: --now needs an ISO timestamp\n");
       return 2;
     }
+    nowIso2 = now;
   }
   let out;
   try {
@@ -2884,6 +2909,24 @@ function acquireLock(home) {
       const claim = `${p}.reap.${process.pid}`;
       try {
         renameSync2(p, claim);
+      } catch {
+        return false;
+      }
+      try {
+        const claimed = readFileSync9(claim, "utf8");
+        const claimedPid = Number(claimed.trim());
+        if (Number.isInteger(claimedPid) && claimedPid > 0 && claimedPid !== process.pid) {
+          try {
+            process.kill(claimedPid, 0);
+            try {
+              writeFileSync5(p, claimed, { flag: "wx" });
+              unlinkSync(claim);
+            } catch {
+            }
+            return false;
+          } catch {
+          }
+        }
         unlinkSync(claim);
       } catch {
         return false;
@@ -4095,16 +4138,10 @@ function fmtInt2(n) {
   return n.toLocaleString("en-US");
 }
 function runStatus(home, args, json) {
-  let claudeSettings = join14(homedir4(), ".claude", "settings.json");
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
-    else {
-      process.stderr.write(`waybill status: unknown option ${a}
-`);
-      return 2;
-    }
-  }
+  const flags = parseFlags("status", args, { "--claude-settings": "value", "--fast": "boolean" });
+  if (flags === null) return 2;
+  const claudeSettings = flags.values["--claude-settings"] ?? join14(homedir4(), ".claude", "settings.json");
+  const fast = flags.bools["--fast"] === true;
   const initialized = existsSync12(join14(home, "config.json"));
   const config = loadConfig(home);
   const retention = checkRetention(claudeSettings);
@@ -4129,7 +4166,7 @@ function runStatus(home, args, json) {
   const state = loadState(home);
   const lastMine = Object.values(state.sessions).map((s) => s.metered_through_ts ?? "").filter((t) => t !== "").sort().pop() ?? null;
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
-  const findings = verifyHome(home);
+  const findings = fast ? null : verifyHome(home);
   const authUsage = authoritative(usage).filter((u) => u.kind === "usage");
   const seenModels = [...new Set(authUsage.map((u) => u.model))];
   const unpriced = unpricedModels(config.pricing, seenModels);
@@ -4234,13 +4271,13 @@ function runStatus(home, args, json) {
       sitting: manifest.sitting,
       demurrage_days: manifest.demurrage_days
     },
-    verify: { findings: findings.length, ok: findings.length === 0 },
+    verify: findings === null ? { skipped: true } : { findings: findings.length, ok: findings.length === 0 },
     remote,
     next: next.slice(0, 2)
   };
   if (json) {
     process.stdout.write(JSON.stringify({ data }, null, 2) + "\n");
-    return findings.length === 0 ? 0 : 1;
+    return findings === null || findings.length === 0 ? 0 : 1;
   }
   const lines = [];
   lines.push(`waybill status \u2014 ${home} (engine ${ENGINE_VERSION})`);
@@ -4270,7 +4307,7 @@ function runStatus(home, args, json) {
     );
   }
   lines.push(
-    findings.length === 0 ? "verify: all checks pass" : `verify: ${findings.length} finding(s) \u2014 run: waybill verify`
+    findings === null ? "verify: skipped (--fast) \u2014 run: waybill verify" : findings.length === 0 ? "verify: all checks pass" : `verify: ${findings.length} finding(s) \u2014 run: waybill verify`
   );
   if (remote.upstream !== null) {
     lines.push(
@@ -4297,7 +4334,7 @@ function runStatus(home, args, json) {
   }
   if (data.next.length > 0) lines.push(`next: ${data.next.join(" \xB7 ")}`);
   process.stdout.write(lines.join("\n") + "\n");
-  return findings.length === 0 ? 0 : 1;
+  return findings === null || findings.length === 0 ? 0 : 1;
 }
 
 // src/projections/untracked.ts
@@ -4731,6 +4768,7 @@ function defaultContext(partial = {}) {
     jiraAccountId: null,
     gitlabUsername: null,
     linearUserId: null,
+    bitbucketUsername: null,
     projectKeys: [],
     pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
     sprintFields: ["customfield_10020", "customfield_10010"],
@@ -5102,6 +5140,98 @@ ${str5(mr.description) ?? ""}`, repo)
   }
 };
 
+// src/adapters/azure-devops.ts
+function str6(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+function num2(v) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+var DONE_STATES = /* @__PURE__ */ new Set(["done", "closed", "completed", "resolved"]);
+function workTypeOf(t) {
+  const kind = (t ?? "").toLowerCase();
+  if (kind === "bug") return "bug";
+  if (kind === "task" || kind === "user story" || kind === "product backlog item" || kind === "feature" || kind === "epic") {
+    return "feature";
+  }
+  return "other";
+}
+var azureDevOpsAdapter = {
+  kind: "azure-devops",
+  keyPattern: "[0-9]+",
+  deriveKey(url) {
+    const m = /\/(\d+)$/.exec(url);
+    return m ? m[1] : null;
+  },
+  normalizeItems(raw, ctx) {
+    const items = Array.isArray(raw) ? raw : raw?.value ?? [];
+    const out = [];
+    const emails = ctx.identityEmails.map((e) => e.toLowerCase());
+    for (const item of items) {
+      const id = typeof item.id === "number" ? String(item.id) : str6(item.id);
+      const fields = item.fields ?? {};
+      if (!id || !/^\d+$/.test(id)) continue;
+      const assignedTo = fields["System.AssignedTo"];
+      const assignee = str6(assignedTo?.uniqueName);
+      if (emails.length > 0 && assignee && !emails.includes(assignee.toLowerCase())) continue;
+      const state = str6(fields["System.State"]);
+      const closedAt = str6(fields["Microsoft.VSTS.Common.ClosedDate"]);
+      const done = closedAt !== null || DONE_STATES.has((state ?? "").toLowerCase());
+      const iteration = str6(fields["System.IterationPath"]);
+      const sprint = iteration !== null ? iteration.split("\\").pop() ?? iteration : null;
+      out.push({
+        key: id,
+        title: str6(fields["System.Title"]) ?? id,
+        points: num2(fields["Microsoft.VSTS.Scheduling.StoryPoints"]) ?? num2(fields["Microsoft.VSTS.Scheduling.Effort"]),
+        epic_key: null,
+        // System.Parent is a bare id; a key without its title helps nobody
+        epic_name: null,
+        sprint,
+        status: state ?? "unknown",
+        done,
+        resolved_at: closedAt,
+        created_at: str6(fields["System.CreatedDate"]),
+        updated_at: str6(fields["System.ChangedDate"]),
+        work_type: workTypeOf(str6(fields["System.WorkItemType"])),
+        url: str6(item._links?.html?.href) ?? str6(item.url)
+      });
+    }
+    return sortItems(out);
+  }
+};
+
+// src/adapters/bitbucket.ts
+function str7(v) {
+  return typeof v === "string" && v !== "" ? v : null;
+}
+var bitbucketAdapter = {
+  kind: "bitbucket",
+  normalizeChanges(raw, ctx) {
+    const prs = Array.isArray(raw) ? raw : raw?.values ?? [];
+    const out = [];
+    for (const pr of prs) {
+      if (str7(pr.state) !== "MERGED") continue;
+      const url = str7(pr.links?.html?.href);
+      const repo = str7(pr.destination?.repository?.full_name);
+      const mergedAt = str7(pr.updated_on);
+      if (!url || !repo || !mergedAt) continue;
+      const author = str7(pr.author?.nickname);
+      if (ctx.bitbucketUsername && author && author !== ctx.bitbucketUsername) continue;
+      const title = str7(pr.title) ?? url;
+      const branch = str7(pr.source?.branch?.name);
+      out.push({
+        url,
+        title,
+        repo,
+        branch,
+        merged_at: mergedAt,
+        keys: extractKeys(`${title} ${branch ?? ""}`, ctx.keyPattern, ctx.projectKeys)
+      });
+    }
+    return sortChanges(out);
+  }
+};
+
 // src/sync/reconcile.ts
 function median(values) {
   if (values.length === 0) return null;
@@ -5317,9 +5447,15 @@ function reconcile(items, changes, ledgerEvents, now, options = {}) {
 var TRACKERS = {
   jira: jiraAdapter,
   linear: linearAdapter,
-  "github-issues": githubIssuesAdapter
+  "github-issues": githubIssuesAdapter,
+  "azure-devops": azureDevOpsAdapter
 };
-var GIT_HOSTS = { github: githubAdapter, gitlab: gitlabAdapter, local: gitLocalAdapter };
+var GIT_HOSTS = {
+  github: githubAdapter,
+  gitlab: gitlabAdapter,
+  bitbucket: bitbucketAdapter,
+  local: gitLocalAdapter
+};
 function runSyncPlan(home, args) {
   let tracker = null;
   let gitHost = null;
@@ -5395,6 +5531,7 @@ function runSyncPlan(home, args) {
     jiraAccountId: identity?.jira_account_id ?? null,
     gitlabUsername: identity?.gitlab_username ?? null,
     linearUserId: identity?.linear_user_id ?? null,
+    bitbucketUsername: identity?.bitbucket_username ?? null,
     projectKeys: config.tracker.project_keys
   });
   let items = [];
@@ -5445,7 +5582,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "1.8.0" : "dev";
+var ENGINE_VERSION = true ? "2.0.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
@@ -5465,8 +5602,8 @@ Commands:
   resolve     File an attribution-inbox item and re-attribute its turns
                 --ambiguity <id> --account <acct> [--pin | --repo-default <org/name>]
   sync-plan   Reconcile normalized tracker/git payloads into proposed entries
-                --tracker jira|linear|github-issues --items <raw.json>
-                --git github|gitlab|local --changes <raw.json>
+                --tracker jira|linear|github-issues|azure-devops --items <raw.json>
+                --git github|gitlab|bitbucket|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 | standup ("what did I do" digest \u2014 default window: yesterday;

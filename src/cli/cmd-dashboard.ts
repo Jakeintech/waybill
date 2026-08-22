@@ -10,6 +10,7 @@ import type {
 } from "../core/events.ts";
 import { findReferenceFile } from "../core/references.ts";
 import { readEvents } from "../core/streams.ts";
+import { parseFlags } from "./flags.ts";
 import { manifestData } from "../projections/manifest.ts";
 import { spendData } from "../projections/queries.ts";
 import { localDayWindow, standupData } from "../projections/standup.ts";
@@ -73,20 +74,16 @@ export function refreshDashboardIfPresent(home: string): void {
 }
 
 export function runDashboard(home: string, args: string[], json: boolean): number {
+  const flags = parseFlags("dashboard", args, { "--now": "value" });
+  if (flags === null) return 2;
   let nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (a === "--now") {
-      const v = args[++i];
-      if (!v || Number.isNaN(Date.parse(v))) {
-        process.stderr.write("waybill dashboard: --now needs an ISO timestamp\n");
-        return 2;
-      }
-      nowIso = v;
-    } else {
-      process.stderr.write(`waybill dashboard: unknown option ${a}\n`);
+  const now = flags.values["--now"];
+  if (now !== undefined) {
+    if (Number.isNaN(Date.parse(now))) {
+      process.stderr.write("waybill dashboard: --now needs an ISO timestamp\n");
       return 2;
     }
+    nowIso = now;
   }
   let out: string;
   try {

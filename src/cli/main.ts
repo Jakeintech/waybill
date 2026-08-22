@@ -39,8 +39,8 @@ Commands:
   resolve     File an attribution-inbox item and re-attribute its turns
                 --ambiguity <id> --account <acct> [--pin | --repo-default <org/name>]
   sync-plan   Reconcile normalized tracker/git payloads into proposed entries
-                --tracker jira|linear|github-issues --items <raw.json>
-                --git github|gitlab|local --changes <raw.json>
+                --tracker jira|linear|github-issues|azure-devops --items <raw.json>
+                --git github|gitlab|bitbucket|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
   query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
                 | standup ("what did I do" digest — default window: yesterday;

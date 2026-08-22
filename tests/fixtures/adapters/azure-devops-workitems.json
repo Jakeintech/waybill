@@ -1,0 +1,86 @@
+{
+  "count": 4,
+  "value": [
+    {
+      "id": 4821,
+      "rev": 9,
+      "fields": {
+        "System.Title": "Retry logic for checkout webhook",
+        "System.State": "Done",
+        "System.WorkItemType": "User Story",
+        "System.CreatedDate": "2026-08-04T08:12:44.32Z",
+        "System.ChangedDate": "2026-08-12T16:02:19.847Z",
+        "System.IterationPath": "Platform\\2026\\Sprint 17",
+        "System.AssignedTo": {
+          "displayName": "A. Engineer",
+          "uniqueName": "me@example.com"
+        },
+        "Microsoft.VSTS.Scheduling.StoryPoints": 5,
+        "Microsoft.VSTS.Common.ClosedDate": "2026-08-12T16:02:19.847Z"
+      },
+      "_links": {
+        "html": { "href": "https://dev.azure.com/acme/Platform/_workitems/edit/4821" }
+      },
+      "url": "https://dev.azure.com/acme/Platform/_apis/wit/workItems/4821"
+    },
+    {
+      "id": 4833,
+      "rev": 3,
+      "fields": {
+        "System.Title": "Ingest dedupe follow-up",
+        "System.State": "Active",
+        "System.WorkItemType": "Product Backlog Item",
+        "System.CreatedDate": "2026-08-10T09:00:00Z",
+        "System.ChangedDate": "2026-08-20T11:30:00Z",
+        "System.IterationPath": "Platform\\2026\\Sprint 18",
+        "System.AssignedTo": {
+          "displayName": "A. Engineer",
+          "uniqueName": "me@example.com"
+        },
+        "Microsoft.VSTS.Scheduling.Effort": 3
+      },
+      "_links": {
+        "html": { "href": "https://dev.azure.com/acme/Platform/_workitems/edit/4833" }
+      },
+      "url": "https://dev.azure.com/acme/Platform/_apis/wit/workItems/4833"
+    },
+    {
+      "id": 4840,
+      "rev": 5,
+      "fields": {
+        "System.Title": "Colleague's payment reconciliation fix",
+        "System.State": "Done",
+        "System.WorkItemType": "Bug",
+        "System.CreatedDate": "2026-08-11T10:00:00Z",
+        "System.ChangedDate": "2026-08-13T15:45:12Z",
+        "System.IterationPath": "Platform\\2026\\Sprint 17",
+        "System.AssignedTo": {
+          "displayName": "B. Colleague",
+          "uniqueName": "colleague@example.com"
+        },
+        "Microsoft.VSTS.Scheduling.StoryPoints": 2,
+        "Microsoft.VSTS.Common.ClosedDate": "2026-08-13T15:45:12Z"
+      },
+      "_links": {
+        "html": { "href": "https://dev.azure.com/acme/Platform/_workitems/edit/4840" }
+      },
+      "url": "https://dev.azure.com/acme/Platform/_apis/wit/workItems/4840"
+    },
+    {
+      "id": 4850,
+      "rev": 2,
+      "fields": {
+        "System.Title": "Unassigned triage spike",
+        "System.State": "New",
+        "System.WorkItemType": "Task",
+        "System.CreatedDate": "2026-08-18T12:00:00Z",
+        "System.ChangedDate": "2026-08-18T12:00:00Z",
+        "System.IterationPath": "Platform"
+      },
+      "_links": {
+        "html": { "href": "https://dev.azure.com/acme/Platform/_workitems/edit/4850" }
+      },
+      "url": "https://dev.azure.com/acme/Platform/_apis/wit/workItems/4850"
+    }
+  ]
+}

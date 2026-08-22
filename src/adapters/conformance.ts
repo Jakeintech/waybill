@@ -130,6 +130,7 @@ export function checkOwnDataScoping(
     jiraAccountId: null,
     gitlabUsername: null,
     linearUserId: null,
+    bitbucketUsername: null,
   };
   const labels = (c: AdapterContext): Set<string> =>
     "normalizeItems" in adapter

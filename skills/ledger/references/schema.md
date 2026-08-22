@@ -186,6 +186,13 @@ user-facing text).
 
 ## `identity.json` (the identity map)
 
+Optional additive fields beyond the seeded ones: `gitlab_username`,
+`linear_user_id`, `bitbucket_username` — set by hand or by a sync flow;
+each arms the matching adapter's own-data defense-in-depth (a record
+naming someone else is dropped even when a mis-scoped query fetched it).
+Azure DevOps needs no extra field: its assignee `uniqueName` is an email,
+checked against `git_emails`.
+
 Who "me" is in each system — used to scope every query to the user's own
 work, never anyone else's:
 

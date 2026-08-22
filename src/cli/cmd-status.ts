@@ -11,6 +11,7 @@ import { loadState } from "../meter/state.ts";
 import { verifyHome } from "../verify/verify.ts";
 import { execFileSync } from "node:child_process";
 import { checkRetention } from "./cmd-init.ts";
+import { parseFlags } from "./flags.ts";
 import { ENGINE_VERSION } from "./main.ts";
 
 function fmtInt(n: number): string {
@@ -22,15 +23,13 @@ function fmtInt(n: number): string {
  * from init/verify/query/jq by hand.
  */
 export function runStatus(home: string, args: string[], json: boolean): number {
-  let claudeSettings = join(homedir(), ".claude", "settings.json");
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
-    else {
-      process.stderr.write(`waybill status: unknown option ${a}\n`);
-      return 2;
-    }
-  }
+  const flags = parseFlags("status", args, { "--claude-settings": "value", "--fast": "boolean" });
+  if (flags === null) return 2;
+  const claudeSettings = flags.values["--claude-settings"] ?? join(homedir(), ".claude", "settings.json");
+  // --fast (architecture review rec. 6): skip the full-ledger verify
+  // re-hash — the one expensive step on a large home. Everything else on
+  // the screen is cheap. The verify line says it was skipped, never "ok".
+  const fast = flags.bools["--fast"] === true;
 
   const initialized = existsSync(join(home, "config.json"));
   const config = loadConfig(home);
@@ -62,7 +61,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     .sort()
     .pop() ?? null;
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
-  const findings = verifyHome(home);
+  const findings = fast ? null : verifyHome(home);
 
   // Pricing health — the check behind "costs appear from day one": which
   // models actually metered into the ledger have no resolvable rate, and
@@ -196,14 +195,17 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       sitting: manifest.sitting,
       demurrage_days: manifest.demurrage_days,
     },
-    verify: { findings: findings.length, ok: findings.length === 0 },
+    verify:
+      findings === null
+        ? { skipped: true as const }
+        : { findings: findings.length, ok: findings.length === 0 },
     remote,
     next: next.slice(0, 2),
   };
 
   if (json) {
     process.stdout.write(JSON.stringify({ data }, null, 2) + "\n");
-    return findings.length === 0 ? 0 : 1;
+    return findings === null || findings.length === 0 ? 0 : 1;
   }
 
   const lines: string[] = [];
@@ -253,9 +255,11 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     );
   }
   lines.push(
-    findings.length === 0
-      ? "verify: all checks pass"
-      : `verify: ${findings.length} finding(s) — run: waybill verify`,
+    findings === null
+      ? "verify: skipped (--fast) — run: waybill verify"
+      : findings.length === 0
+        ? "verify: all checks pass"
+        : `verify: ${findings.length} finding(s) — run: waybill verify`,
   );
   if (remote.upstream !== null) {
     lines.push(
@@ -293,5 +297,5 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   }
   if (data.next.length > 0) lines.push(`next: ${data.next.join(" · ")}`);
   process.stdout.write(lines.join("\n") + "\n");
-  return findings.length === 0 ? 0 : 1;
+  return findings === null || findings.length === 0 ? 0 : 1;
 }

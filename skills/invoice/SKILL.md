@@ -11,7 +11,7 @@ description: >
   (metered token costs for a period, CSV-ready for a finance tool). Facts
   only; it never sets prices or invents hours.
 metadata:
-  version: "1.8.0"
+  version: "2.0.0"
 ---
 
 # Invoice

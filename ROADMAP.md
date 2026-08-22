@@ -20,7 +20,7 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](docs/product-spec.md).
 
-## Shipped — 1.8.0 (2026-08)
+## Shipped — 2.0.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
 "Trustworthy at scale" (M3) are released: the deterministic metering and
@@ -60,7 +60,17 @@ the local-refs-only remote line in `status`), and the conformance kit's
 receipts, new audiences, at the cost of three additive report fields:
 the **invoice** and **disclose** skills, the **grant-report** and
 **incident** report presets, and the documented **portable career
-ledger**.
+ledger**. 2.0.0 delivered the final leg: **Azure DevOps and Bitbucket
+adapters** (conformance- and own-data-tested), the **Windows story**
+([docs/windows.md](docs/windows.md)), the **OTel live-export recipe**
+([docs/otel.md](docs/otel.md)), every architecture-review
+recommendation **closed with a recorded disposition**
+([docs/architecture.md](docs/architecture.md)), and the
+**self-verifying release gate** (`npm run gate`, run in CI). The OSS
+engineering scope is complete: changes from here are upkeep, not
+construction. The distribution checklist below remains the launch
+to-do — its items are repo-settings and publishing actions only the
+repo owner can perform.
 
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.
@@ -130,16 +140,18 @@ report** (what the sponsorship shipped), **portable career ledger**
 **incident-receipts recipe** (a windowed report over the incident
 timeframe).
 
-### v2.0 "Delivered" — the free side complete
+### v2.0 "Delivered" — the free side complete ✅ shipped 2026-08-22 (engineering scope)
 
 - Coverage matrix filled: Azure DevOps and Bitbucket adapters
   (conformance-tested), a Windows story for the hooks, the OTel
-  live-export recipe.
-- The distribution checklist below executed in full.
+  live-export recipe. ✅
 - The remaining architecture-review recommendations closed; the release
-  gate self-verifying (test counts, doc links, eval criteria).
-- After v2.0 the OSS project is **complete**: changes are upkeep, not
-  construction.
+  gate self-verifying (test counts, doc links, eval criteria). ✅
+- The distribution checklist below: **owner-side, outstanding** — repo
+  settings, demo recording, directory submissions, and the launch
+  write-up are publishing actions, not code.
+- With those executed, the OSS project is **complete**: changes are
+  upkeep, not construction.
 
 ## Beyond the free side (not part of the OSS project)
 

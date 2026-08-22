@@ -45,6 +45,7 @@ export interface AdapterContext {
   jiraAccountId: string | null;
   gitlabUsername: string | null;
   linearUserId: string | null;
+  bitbucketUsername: string | null;
   /** config.tracker.project_keys — gates key extraction (core/keys). */
   projectKeys: string[];
   /** Candidate custom field ids for story points (Jira instances vary). */
@@ -61,6 +62,7 @@ export function defaultContext(partial: Partial<AdapterContext> = {}): AdapterCo
     jiraAccountId: null,
     gitlabUsername: null,
     linearUserId: null,
+    bitbucketUsername: null,
     projectKeys: [],
     pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
     sprintFields: ["customfield_10020", "customfield_10010"],

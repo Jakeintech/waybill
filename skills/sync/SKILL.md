@@ -10,7 +10,7 @@ description: >
   gh CLI, or the Atlassian/GitHub MCP servers bundled with this plugin
   upgrade it. Jira fetches prefer acli — scoped fields, small payloads.
 metadata:
-  version: "1.8.0"
+  version: "2.0.0"
 ---
 
 # Sync
@@ -151,7 +151,9 @@ own data.
    entry, marked "Claude involvement unrecorded"), `unmatched_changes`
    (merged PRs with no tracker key — surfaced, never silently dropped), and
    a derived `baseline` when requested. Other trackers/hosts swap in the
-   same flow: `--tracker linear`, `--tracker github-issues`, `--git gitlab`.
+   same flow: `--tracker linear`, `--tracker github-issues`,
+   `--tracker azure-devops`, `--git gitlab`, `--git bitbucket`
+   (fetch shapes per adapter: [docs/adapters.md](../../docs/adapters.md)).
 5. Present the plan as a short table and get **one confirmation**. If the
    user excludes rows, delete them from the plan JSON before applying.
 6. **Apply:** `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" sync-plan --apply /tmp/waybill-plan.json` — appends

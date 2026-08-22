@@ -9,7 +9,7 @@ description: >
   or asks about token usage by model, week, epic, or story. Answers come
   from the local metered ledger — deterministic numbers, never estimates.
 metadata:
-  version: "1.8.0"
+  version: "2.0.0"
 ---
 
 # Spend
