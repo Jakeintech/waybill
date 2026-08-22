@@ -25,14 +25,29 @@ export function runQuery(home: string, args: string[]): number {
   let audience: Audience | null = null;
   let detail: Detail | null = null;
   const positional: string[] = [];
+  // A value-taking flag with no value, or a typo'd flag, must error — the
+  // silent alternative is a full-history window presented as filtered.
+  const need = (i: number, flag: string): string | null => {
+    const v = rest[i];
+    if (v === undefined) {
+      process.stderr.write(`waybill query: ${flag} needs a value\n`);
+      return null;
+    }
+    return v;
+  };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
-    if (a === "--from") from = rest[++i] ?? null;
-    else if (a === "--to") to = rest[++i] ?? null;
-    else if (a === "--date") date = rest[++i] ?? null;
-    else if (a === "--days") days = rest[++i] ?? null;
-    else if (a === "--now") now = rest[++i] ?? null;
-    else if (a === "--audience") {
+    if (a === "--from") {
+      if ((from = need(++i, a)) === null) return 2;
+    } else if (a === "--to") {
+      if ((to = need(++i, a)) === null) return 2;
+    } else if (a === "--date") {
+      if ((date = need(++i, a)) === null) return 2;
+    } else if (a === "--days") {
+      if ((days = need(++i, a)) === null) return 2;
+    } else if (a === "--now") {
+      if ((now = need(++i, a)) === null) return 2;
+    } else if (a === "--audience") {
       const v = rest[++i];
       if (!v || !AUDIENCES.includes(v as Audience)) {
         process.stderr.write(`waybill query: --audience must be one of ${AUDIENCES.join(", ")}\n`);
@@ -46,6 +61,9 @@ export function runQuery(home: string, args: string[]): number {
         return 2;
       }
       detail = v as Detail;
+    } else if (a.startsWith("--")) {
+      process.stderr.write(`waybill query: unknown option ${a}\n`);
+      return 2;
     } else positional.push(a);
   }
 

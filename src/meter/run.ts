@@ -126,16 +126,23 @@ export function turnOverridesFor(
   return overrides;
 }
 
-/** First-line sessionId probe — the fast path must not pay for a full parse. */
+/** Leading-lines sessionId probe — the fast path must not pay for a full
+ * parse. Reads a handful of lines, not just the first: transcripts often
+ * open with a `type:"summary"` line that carries no sessionId. */
 function probeSessionId(raw: string): string | null {
-  const nl = raw.indexOf("\n");
-  const first = nl === -1 ? raw : raw.slice(0, nl);
-  try {
-    const line = JSON.parse(first) as { sessionId?: string };
-    return typeof line.sessionId === "string" ? line.sessionId : null;
-  } catch {
-    return null;
+  let start = 0;
+  for (let i = 0; i < 8 && start < raw.length; i++) {
+    const nl = raw.indexOf("\n", start);
+    const line = nl === -1 ? raw.slice(start) : raw.slice(start, nl);
+    start = nl === -1 ? raw.length : nl + 1;
+    try {
+      const parsed = JSON.parse(line) as { sessionId?: string };
+      if (typeof parsed.sessionId === "string") return parsed.sessionId;
+    } catch {
+      // not JSON — keep probing
+    }
   }
+  return null;
 }
 
 /**
@@ -150,20 +157,38 @@ export function meterFile(
 ): MeterRunResult {
   const config = loadConfig(home);
   const state = loadState(home);
-  const raw = readFileSync(transcriptPath, "utf8");
+  // Stat before read: bytes appended between the two calls then read as a
+  // larger size next run (stale checkpoint → re-meter) instead of being
+  // checkpointed as metered without ever being parsed.
   const fileBytes = statSync(transcriptPath).size;
+  const raw = readFileSync(transcriptPath, "utf8");
+  const pricingDigest = sha256Hex(canonicalJson(config.pricing));
 
   const ledgerEvents = readEvents<LedgerEntry | PinEntry>(home, "ledger");
   const existingExceptions = readEvents<ExceptionEvent>(home, "exceptions");
   const fingerprint = attributionFingerprint(ledgerEvents, existingExceptions, config);
 
+  // Duplicate-transcript guard: two on-disk files carrying one sessionId
+  // (a copied project dir, a restored backup) must not take turns
+  // superseding each other's receipts on every run. The checkpointed path
+  // wins while it still exists and is at least as complete; the loser is
+  // skipped, never metered.
+  const duplicateOf = (sid: string): boolean => {
+    const cp = Object.hasOwn(state.sessions, sid) ? state.sessions[sid] : undefined;
+    if (!cp || cp.transcript_path === transcriptPath) return false;
+    if (!existsSync(cp.transcript_path)) return false;
+    try {
+      return statSync(cp.transcript_path).size >= fileBytes;
+    } catch {
+      return false;
+    }
+  };
+
   const probedId = probeSessionId(raw);
-  if (
-    !force &&
-    probedId !== null &&
-    isCurrent(state, probedId, fileBytes, config.pricing.version, fingerprint)
-  ) {
-    return { session_id: probedId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+  if (!force && probedId !== null) {
+    if (isCurrent(state, probedId, fileBytes, pricingDigest, fingerprint) || duplicateOf(probedId)) {
+      return { session_id: probedId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+    }
   }
 
   const probe = parseTranscript(raw, {
@@ -171,16 +196,13 @@ export function meterFile(
     projectKeys: config.tracker.project_keys,
   });
   const sessionId = probe.sessionId;
-  if (
-    !force &&
-    sessionId !== null &&
-    sessionId !== probedId &&
-    isCurrent(state, sessionId, fileBytes, config.pricing.version, fingerprint)
-  ) {
-    return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+  if (!force && sessionId !== null && sessionId !== probedId) {
+    if (isCurrent(state, sessionId, fileBytes, pricingDigest, fingerprint) || duplicateOf(sessionId)) {
+      return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+    }
   }
 
-  const hadCheckpoint = sessionId !== null && state.sessions[sessionId] !== undefined;
+  const hadCheckpoint = sessionId !== null && Object.hasOwn(state.sessions, sessionId);
   const repo = repoHint ?? repoFromCwd(probe.cwd);
   const existingUsage = readEvents<UsageEvent>(home, "usage");
   const existingSessions = readEvents<SessionEvent>(home, "sessions");
@@ -211,6 +233,7 @@ export function meterFile(
       metered_through_ts: out.transcript.lastTs,
       rules_version: RULES_VERSION,
       meter_version: METER_LOGIC_VERSION,
+      pricing_digest: pricingDigest,
       pricing_version: config.pricing.version,
       attribution_inputs: fingerprint,
     };

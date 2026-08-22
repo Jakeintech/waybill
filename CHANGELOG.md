@@ -19,8 +19,8 @@ and CLI-first Jira syncs — plus a recorded architecture review
   window words (`--date yesterday|today|YYYY-MM-DD`, `--days <n>`,
   `--now` injectable for determinism) and the query envelope's audience
   redaction. A new `standup` skill renders the bullets ("prep my
-  standup", "weekly digest" = `--days 7`; Monday standups use `--days 3`
-  to cover the weekend), with a trigger eval. Facts only — an empty
+  standup", "weekly digest" = `--days 7`; Monday standups use `--days 4`
+  — Friday through today), with a trigger eval. Facts only — an empty
   window says so; the ledger doesn't pad.
 - **CLI-first sync fetches** — the sync skill now prefers official CLIs
   over MCP tools for both halves. Jira via Atlassian's acli when
@@ -58,6 +58,39 @@ and CLI-first Jira syncs — plus a recorded architecture review
   sessions once, automatically — existing tokens-only events gain costs
   via superseding corrections on the next `mine`/`meter` run, no
   `--force` needed.
+- **Review-hardening batch** — confirmed findings from the recorded
+  architecture review ([docs/architecture.md](docs/architecture.md)),
+  each with a regression test: rate lookups and meter checkpoints use
+  own-property access (a transcript claiming model `"constructor"` can
+  no longer crash a meter run); checkpoints carry a pricing-table digest
+  (a `pricing set` under an unchanged version string now re-prices as
+  promised); `meter_state.json` writes atomically and a torn state file
+  loads as empty instead of stalling metering forever; duplicate
+  transcript files sharing one sessionId no longer take turns superseding
+  each other's receipts; a torn stream line no longer makes every command
+  throw (verify reports it instead); verify also flags forked supersession
+  chains, non-ISO timestamps, and timestamp-less pre-registrations
+  instead of crashing or waving them through; `query`/`export`/`pace`
+  reject typo'd flags, missing values, and non-ISO window bounds that
+  previously produced silently empty or unbounded "filtered" output;
+  `standup --date` refuses impossible calendar dates and labels follow-up
+  spend on already-shipped items (`shipped_earlier`); a second
+  `resolve --pin` on one session supersedes the first pin instead of
+  siring conflicting siblings, and `resolve` honors the metering pause;
+  git-local `merged_at` uses the committer date (a squash-merged branch
+  no longer predates its own merge); GitLab and Linear adapters gained
+  the same own-data defense-in-depth as GitHub/Jira (via optional
+  `identity.json` fields); `bootstrap --to` actually bounds the receipt;
+  image-only prompts count as turn boundaries; unsplit cache-write
+  remainders price at the 5m rate instead of zero; init survives a
+  missing pricing bundle, ignores the transient capture queue in the
+  ledger repo, reads `settings.local.json` for retention, and labels
+  bundled rates as bundled on re-init; the validator enforces
+  plugin.json/package.json version agreement.
+
+## [1.4.0] - 2026-08-17
+
+### Added
 - **`github-issues` tracker adapter** — GitHub Issues as the tracker of
   record: `waybill sync-plan --tracker github-issues`. Keys are GitHub's
   own cross-repo syntax (`owner/repo#15`), derived purely from the issue

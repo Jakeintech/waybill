@@ -69,6 +69,10 @@ export function runPace(home: string, args: string[], json: boolean): number {
       return 2;
     }
   }
+  if (Number.isNaN(Date.parse(nowIso))) {
+    process.stderr.write(`waybill pace: --now is not a date: ${nowIso}\n`);
+    return 2;
+  }
 
   const config = loadConfig(home);
   const ledger = readEvents<LedgerEntry | PinEntry>(home, "ledger");

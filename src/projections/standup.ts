@@ -32,13 +32,17 @@ export interface StandupData {
     escrowed: boolean;
   }>;
   /** Accounts with metered spend in the window that did not ship in it —
-   * work in progress, by the tokens it actually consumed. */
+   * work in progress, by the tokens it actually consumed. Rows with
+   * `shipped_earlier: true` are follow-up spend on an item that already
+   * shipped before the window (rework, hotfixes) — worked on, but not
+   * "in progress" in the open-spend sense. */
   progressed: Array<{
     account: string;
     title: string | null;
     tokens: number;
     sessions: number;
     last_ts: string;
+    shipped_earlier: boolean;
   }>;
   opened: Array<{
     tracker_key: string | null;
@@ -147,19 +151,28 @@ export function standupData(
     byAccount.set(u.attribution.account, acc);
   }
 
+  const allShippedKeys = new Set(
+    effectiveShipped(ledgerEvents)
+      .map((s) => s.entry.tracker_key)
+      .filter((k): k is string => k !== null),
+  );
   const progressed = [...byAccount.entries()]
     .filter(([account]) => {
       if (account === "unattributed") return false;
       const key = account.startsWith("story:") ? account.slice(6) : null;
       return key === null || !shippedKeys.has(key);
     })
-    .map(([account, a]) => ({
-      account,
-      title: account.startsWith("story:") ? (titleByKey.get(account.slice(6)) ?? null) : null,
-      tokens: a.tokens,
-      sessions: a.sessions.size,
-      last_ts: a.last_ts,
-    }))
+    .map(([account, a]) => {
+      const key = account.startsWith("story:") ? account.slice(6) : null;
+      return {
+        account,
+        title: key !== null ? (titleByKey.get(key) ?? null) : null,
+        tokens: a.tokens,
+        sessions: a.sessions.size,
+        last_ts: a.last_ts,
+        shipped_earlier: key !== null && allShippedKeys.has(key),
+      };
+    })
     .sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
 
   // Entries opened in the window (chain origin = the opened event itself).
@@ -270,6 +283,12 @@ export function resolveStandupWindow(
     throw new Error(`--date must be yesterday, today, or YYYY-MM-DD (got: ${date})`);
   }
   const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  const w = localDayWindow(new Date(y, m - 1, d), 0);
+  const base = new Date(y, m - 1, d);
+  // Round-trip check: the Date constructor rolls impossible dates over
+  // (2026-02-30 → March 2), which would silently label the wrong day.
+  if (base.getFullYear() !== y || base.getMonth() !== m - 1 || base.getDate() !== d) {
+    throw new Error(`--date is not a real calendar date: ${date}`);
+  }
+  const w = localDayWindow(base, 0);
   return { window: w, label: date };
 }

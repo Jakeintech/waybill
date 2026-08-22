@@ -8,6 +8,12 @@ export interface LocalCommit {
   sha: string;
   author_email: string;
   author_date: string;
+  /** Committer date (%cd) — when the commit actually landed. This is the
+   * merge-time signal: a squash-merged branch keeps its author date from
+   * days earlier, but the committer date is the merge. Empty for logs
+   * captured in the pre-committer-date format (adapter falls back to
+   * author_date). */
+  committer_date: string;
   parents: number;
   refs: string[];
   subject: string;
@@ -32,12 +38,14 @@ export interface RepoSummary {
 const FIELD_SEP = "\u001f";
 const RECORD_SEP = "\u001e";
 
-export function gitLogRaw(path: string, sinceIso: string): string {
+export function gitLogRaw(path: string, sinceIso: string, untilIso?: string): string {
   return execFileSync(
     "git",
     [
-      "-C", path, "log", `--since=${sinceIso}`, "--date=iso-strict",
-      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%P%x1f%D%x1f%s%x1f%b%x1e",
+      "-C", path, "log", `--since=${sinceIso}`,
+      ...(untilIso !== undefined ? [`--until=${untilIso}`] : []),
+      "--date=iso-strict",
+      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%cd%x1f%P%x1f%D%x1f%s%x1f%b%x1e",
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 30000, maxBuffer: 64 * 1024 * 1024 },
   );
@@ -50,17 +58,27 @@ export function parseGitLog(raw: string): LocalCommit[] {
     if (line.trim() === "") continue;
     const parts = line.split(FIELD_SEP);
     if (parts.length < 6) continue;
-    const [sha, email, date, parents, refs, subject, ...body] = parts;
+    // Format detection: the current format carries a committer date after
+    // the author date; the older one goes straight to the parents field.
+    // A date can never look like a parents list (space-separated hex shas
+    // or empty), so testing field 3 for an ISO shape is unambiguous.
+    const hasCommitterDate = /^\d{4}-\d{2}-\d{2}T/.test(parts[3] ?? "");
+    const [sha, email, adate] = parts;
+    const cdate = hasCommitterDate ? parts[3]! : "";
+    const rest = hasCommitterDate ? parts.slice(4) : parts.slice(3);
+    const [parents, refs, subject, ...body] = rest;
+    if (parents === undefined || refs === undefined || subject === undefined) continue;
     out.push({
       sha: sha!,
       author_email: email!,
-      author_date: date!,
-      parents: parents!.trim() === "" ? 0 : parents!.trim().split(" ").length,
-      refs: refs!
+      author_date: adate!,
+      committer_date: cdate,
+      parents: parents.trim() === "" ? 0 : parents.trim().split(" ").length,
+      refs: refs
         .split(",")
         .map((r) => r.trim())
         .filter((r) => r !== ""),
-      subject: subject!,
+      subject,
       body: body.join(FIELD_SEP), // "" for pre-body-format logs
     });
   }

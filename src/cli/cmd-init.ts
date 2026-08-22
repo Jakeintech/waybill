@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, loadConfig, saveConfig, saveIdentity, type Identity } from "../core/config.ts";
+import { loadPricingBundle } from "../core/pricing-bundle.ts";
 import { repoFromCwd } from "../meter/run.ts";
 import { applyBundledPricing, type PricingImportResult } from "./cmd-pricing.ts";
 
@@ -35,16 +36,26 @@ export interface RetentionCheck {
   recommendation: string | null;
 }
 
-/** D7: surface the transcript retention setting; recommend raising; warn on 0. */
+/** D7: surface the transcript retention setting; recommend raising; warn on 0.
+ * Claude Code layers settings.local.json over settings.json — read both so
+ * the report matches the effective value, not just the shared file. */
 export function checkRetention(claudeSettingsPath: string): RetentionCheck {
   let days: number | null = null;
-  if (existsSync(claudeSettingsPath)) {
+  const readDays = (path: string): number | null => {
+    if (!existsSync(path)) return null;
     try {
-      const settings = JSON.parse(readFileSync(claudeSettingsPath, "utf8")) as Record<string, unknown>;
-      if (typeof settings["cleanupPeriodDays"] === "number") days = settings["cleanupPeriodDays"];
+      const settings = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      return typeof settings["cleanupPeriodDays"] === "number"
+        ? settings["cleanupPeriodDays"]
+        : null;
     } catch {
-      // unreadable settings: treat as default
+      return null; // unreadable settings: treat as default
     }
+  };
+  days = readDays(claudeSettingsPath);
+  if (claudeSettingsPath.endsWith("settings.json")) {
+    const local = readDays(claudeSettingsPath.replace(/settings\.json$/, "settings.local.json"));
+    if (local !== null) days = local;
   }
   if (days === 0) {
     return {
@@ -118,9 +129,17 @@ export function runInit(home: string, args: string[], json: boolean): number {
   // install, or a re-init on a ledger initialized before bundled rates
   // shipped ("costs appear from day one" must hold for upgraders too).
   // A table holding any rate is never touched: re-init must not clobber
-  // rates the user has customized with `pricing set`.
-  const pricing: PricingImportResult | null =
-    Object.keys(config.pricing.models).length === 0 ? applyBundledPricing(config) : null;
+  // rates the user has customized with `pricing set`. A missing or corrupt
+  // bundle must not abort init — the "no pricing configured" needs-action
+  // line exists for exactly that state.
+  let pricing: PricingImportResult | null = null;
+  if (Object.keys(config.pricing.models).length === 0) {
+    try {
+      pricing = applyBundledPricing(config);
+    } catch {
+      // bundle unavailable — init continues; needs_action names the gap
+    }
+  }
   saveConfig(home, config);
 
   const identity = buildIdentity();
@@ -129,7 +148,9 @@ export function runInit(home: string, args: string[], json: boolean): number {
   if (!existsSync(join(home, ".git"))) {
     git(home, ["init", "-b", "main"]);
   }
-  writeFileSync(join(home, ".gitignore"), "rollups/\n", "utf8");
+  // Derived caches and transient runtime state (the capture queue and the
+  // miner lock inside it) stay out of the append-only audit history.
+  writeFileSync(join(home, ".gitignore"), "rollups/\npending-sessions/\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);
@@ -139,6 +160,15 @@ export function runInit(home: string, args: string[], json: boolean): number {
 
   const retention = checkRetention(claudeSettings);
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
+  // "Bundled vs custom" in the configured line is decided by version match,
+  // not by whether THIS run imported — a re-init after an earlier bundled
+  // import must not relabel the same rates as custom.
+  let bundledPricingVersion: string | null = null;
+  try {
+    bundledPricingVersion = loadPricingBundle().last_updated;
+  } catch {
+    // bundle unavailable — label falls back to "custom"
+  }
 
   const configured: string[] = [
     "ledger (git-backed, append-only)",
@@ -147,7 +177,8 @@ export function runInit(home: string, args: string[], json: boolean): number {
     pricing && pricing.imported.length > 0
       ? `pricing (${pricing.imported.length} bundled Anthropic model(s), version ${pricing.version})`
       : config.pricing.version !== null
-        ? `pricing (custom, version ${config.pricing.version})`
+        ? `pricing (${config.pricing.version === bundledPricingVersion ? "bundled Anthropic rates" : "custom"}, ` +
+          `version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s))`
         : null,
     retention.warning === null && retention.recommendation === null
       ? `transcript retention (${retention.effective})`

@@ -6,6 +6,8 @@ import {
   SCHEMA_VERSION,
   type AmbiguityEvent,
   type ExceptionEvent,
+  type LedgerEvent,
+  type PinEntry,
   type ResolutionEvent,
   type SessionEvent,
 } from "../core/events.ts";
@@ -105,18 +107,31 @@ export function runResolve(home: string, args: string[], json: boolean): number 
   appendEvents(home, "exceptions", [resolution]);
 
   if (durablePin) {
-    const pin = finalizeEvent("ledger", {
+    // A session has one whole-session pin: a later pin supersedes any
+    // earlier one instead of siring conflicting siblings that would
+    // degrade every turn to weaker resolver rules on the next re-meter.
+    const priorPins = authoritative(readEvents<LedgerEvent>(home, "ledger"))
+      .filter(
+        (e): e is PinEntry =>
+          e.kind === "pin" && e.session_id === ambiguity.session_id && e.range === null,
+      )
+      .sort((a, b) => (a.ts < b.ts ? -1 : 1));
+    const pinBody = {
       ts,
       kind: "pin" as const,
       schema_version: SCHEMA_VERSION,
-      supersedes: null,
+      supersedes: null as string | null,
       session_id: ambiguity.session_id,
       account,
       tracker_key: account.startsWith("story:") ? account.slice(6) : null,
       range: null,
       notes: `resolve: from inbox item ${ambiguityId}`,
-    });
-    appendEvents(home, "ledger", [pin]);
+    };
+    const pins =
+      priorPins.length === 0
+        ? [finalizeEvent("ledger", pinBody)]
+        : priorPins.map((prior) => finalizeEvent("ledger", { ...pinBody, supersedes: prior.id }));
+    appendEvents(home, "ledger", pins);
   }
   if (repoDefault) {
     const config = loadConfig(home);
@@ -127,8 +142,27 @@ export function runResolve(home: string, args: string[], json: boolean): number 
   // Re-meter the session under the new attribution inputs — the resolution
   // itself is a resolver input (rule 0), so this applies durable and
   // one-tap resolutions alike. Force: the transcript hasn't grown.
+  // The pause switch holds here too: while metering is disabled nothing is
+  // recorded, so the re-meter waits for re-enable (the stale fingerprint
+  // then applies the resolution automatically).
   let remetered = false;
   let corrected = 0;
+  if (loadConfig(home).metering.enabled === false) {
+    process.stderr.write(
+      "waybill resolve: metering is paused — the resolution is recorded and applies " +
+        "automatically when metering is re-enabled and the session is next metered\n",
+    );
+    commitLedger(home, `resolve: inbox item filed to ${account}`);
+    const openNow = countOpenAmbiguities(readEvents<ExceptionEvent>(home, "exceptions"));
+    if (json) {
+      process.stdout.write(
+        JSON.stringify({ resolved: ambiguityId, account, durable, remetered: false, corrected_events: 0, inbox_open: openNow, paused: true }) + "\n",
+      );
+    } else {
+      process.stdout.write(`filed to ${account} (metering paused — applies on re-enable); ${openNow} left in the inbox\n`);
+    }
+    return 0;
+  }
   const checkpoint = loadState(home).sessions[ambiguity.session_id];
   const transcriptPath =
     checkpoint?.transcript_path ??

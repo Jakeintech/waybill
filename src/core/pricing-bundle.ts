@@ -47,6 +47,11 @@ export function loadPricingBundle(): PricingBundle {
  * Resolves an exact model id, a bundled alias (e.g. "claude-sonnet-4" →
  * "claude-sonnet-4-6"), or a family alias to a key that actually exists in
  * the bundle's `models` map. Returns null when nothing matches.
+ *
+ * Aliases are IMPORT-TIME conveniences only (`pricing import --model
+ * claude-sonnet-4`) and may deliberately point at a newer family member.
+ * Price-time lookup (core/pricing-resolve) never uses them and never
+ * crosses families — an alias can be generous, a metered cost cannot.
  */
 export function resolveBundledModel(bundle: PricingBundle, nameOrAlias: string): string | null {
   if (nameOrAlias in bundle.models) return nameOrAlias;

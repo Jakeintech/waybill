@@ -22,7 +22,7 @@ test("jira adapter: bare array of acli view outputs normalizes like a search env
 
   // Own-data scoping drops the colleague's PLAT-491 even though the
   // composed file contains it.
-  assert.deepEqual(items.map((i) => i.key), ["PLAT-482", "PLAT-490"]);
+  assert.deepEqual(items.map((i) => i.key), ["PLAT-482", "PLAT-490", "PLAT-495"]);
 
   const done = items[0]!;
   assert.equal(done.done, true);
@@ -38,6 +38,14 @@ test("jira adapter: bare array of acli view outputs normalizes like a search env
   assert.equal(open.done, false);
   assert.equal(open.resolved_at, null);
   assert.equal(open.points, null); // never invented
+
+  // Company-managed-project shapes: epic via customfield_10014/10011 (no
+  // parent), sprint as the legacy "…name=Sprint 17,…" serialized string.
+  const legacy = items[2]!;
+  assert.equal(legacy.epic_key, "PLAT-400");
+  assert.equal(legacy.epic_name, "Checkout reliability");
+  assert.equal(legacy.sprint, "Sprint 17");
+  assert.equal(legacy.points, 3);
 });
 
 test("jira adapter: acli-composed payload passes the conformance kit", () => {

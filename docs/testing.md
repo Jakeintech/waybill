@@ -22,7 +22,7 @@ The engine's promises, in the order they'd hurt if broken:
 ## 2. Automated suites (run on every push)
 
 All in `tests/unit/`, executed by `node --test` (native type-stripped TS,
-Node ≥ 24). **107 tests** at 1.1.x. One command:
+Node ≥ 24). **150+ tests** as of 1.5.0 (the count grows with each release; `npm test` prints the live number). One command:
 
 ```bash
 npm ci && npm run check     # typecheck + tests + build + bin-diff
@@ -77,7 +77,7 @@ independently proves the committed engine matches `src/`.
 | validate | `scripts/validate-plugin.sh` |
 | shellcheck | shell lint over scripts + shell tests |
 | hook | `tests/test-capture-session.sh` |
-| engine | Node 24: `npm ci` → typecheck → 107 tests → rebuild + zero-diff |
+| engine | Node 24: `npm ci` → typecheck → full unit suite → rebuild + zero-diff |
 | trigger-evals | *opt-in*: `claude plugin eval waybill@waybill --threshold 0.8`; only when repo variable `RUN_TRIGGER_EVALS=true`, push events only (fork PRs lack the secret) |
 
 ## 5. Manual / environment tests (release-blocking where marked)

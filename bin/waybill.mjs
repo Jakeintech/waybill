@@ -150,7 +150,7 @@ function listShards(home, stream) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter((f) => /^\d{4}-\d{2}\.jsonl$/.test(f)).sort().map((f) => f.replace(/\.jsonl$/, ""));
 }
-function readStream(home, stream) {
+function readStream(home, stream, onBadLine) {
   const out = [];
   for (const shard of listShards(home, stream)) {
     const raw = readFileSync(shardPath(home, stream, shard), "utf8");
@@ -158,7 +158,11 @@ function readStream(home, stream) {
     for (const line of raw.split("\n")) {
       lineNo += 1;
       if (line.trim() === "") continue;
-      out.push({ event: JSON.parse(line), shard, lineNo });
+      try {
+        out.push({ event: JSON.parse(line), shard, lineNo });
+      } catch {
+        onBadLine?.(shard, lineNo, line);
+      }
     }
   }
   return out;
@@ -175,7 +179,7 @@ function authoritative(events) {
 // src/verify/verify.ts
 var STREAMS = ["ledger", "usage", "sessions", "exceptions"];
 function isIsoUtc(ts) {
-  return typeof ts === "string" && !Number.isNaN(Date.parse(ts));
+  return typeof ts === "string" && /^\d{4}-\d{2}-\d{2}T/.test(ts) && !Number.isNaN(Date.parse(ts));
 }
 function zeroTotals() {
   return { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
@@ -196,7 +200,15 @@ function verifyHome(home) {
   for (const stream of STREAMS) {
     let lines;
     try {
-      lines = readStream(home, stream);
+      lines = readStream(home, stream, (shard, lineNo) => {
+        findings.push({
+          check: "envelope",
+          stream,
+          shard,
+          id: null,
+          message: `${stream}/${shard}.jsonl:${lineNo}: unparseable line (torn write?)`
+        });
+      });
     } catch (err) {
       findings.push({
         check: "envelope",
@@ -266,8 +278,10 @@ function verifyHome(home) {
   for (const stream of STREAMS) {
     const events = byStream.get(stream) ?? [];
     const ids = new Set(events.map((e) => e.id));
+    const supersededBy = /* @__PURE__ */ new Map();
     for (const e of events) {
-      if (e.supersedes !== null && !ids.has(e.supersedes)) {
+      if (e.supersedes === null) continue;
+      if (!ids.has(e.supersedes)) {
         findings.push({
           check: "supersedes",
           stream,
@@ -275,6 +289,18 @@ function verifyHome(home) {
           id: e.id,
           message: `supersedes ${e.supersedes}, which does not exist in stream "${stream}"`
         });
+      }
+      const prior = supersededBy.get(e.supersedes);
+      if (prior !== void 0) {
+        findings.push({
+          check: "supersedes",
+          stream,
+          shard: shardFor(e.ts),
+          id: e.id,
+          message: `supersedes ${e.supersedes}, already superseded by ${prior} \u2014 forked chain`
+        });
+      } else {
+        supersededBy.set(e.supersedes, e.id);
       }
     }
   }
@@ -294,7 +320,15 @@ function verifyHome(home) {
       }
     }
     const est = e.estimate_without_claude_hours;
-    if (est && est.pre_registered && Date.parse(est.logged_at) > Date.parse(e.ts)) {
+    if (est && est.pre_registered && Number.isNaN(Date.parse(est.logged_at))) {
+      findings.push({
+        check: "pre_registration",
+        stream: "ledger",
+        shard: shardFor(e.ts),
+        id: e.id,
+        message: `pre_registered estimate has no parseable logged_at (${String(est.logged_at)})`
+      });
+    } else if (est && est.pre_registered && Date.parse(est.logged_at) > Date.parse(e.ts)) {
       findings.push({
         check: "pre_registration",
         stream: "ledger",
@@ -453,6 +487,10 @@ function runAppend(home, args, json) {
       const keyOrTitle = body["tracker_key"] ?? body["title"];
       body["escrow"] = sealEstimate(keyOrTitle, est);
     }
+    if (est && est.pre_registered === true && Number.isNaN(Date.parse(est.logged_at))) {
+      process.stderr.write("waybill append: a pre_registered estimate needs an ISO logged_at\n");
+      return 1;
+    }
     if (est && est.pre_registered === true && Date.parse(est.logged_at) > Date.parse(body["ts"])) {
       process.stderr.write("waybill append: refusing a pre_registered estimate logged after the entry ts\n");
       return 1;
@@ -610,7 +648,7 @@ function isPlausibleTrackerKey(key, projectKeys) {
 import { existsSync as existsSync3 } from "node:fs";
 var FIELD_SEP = "";
 var RECORD_SEP = "";
-function gitLogRaw(path, sinceIso) {
+function gitLogRaw(path, sinceIso, untilIso) {
   return execFileSync2(
     "git",
     [
@@ -618,8 +656,9 @@ function gitLogRaw(path, sinceIso) {
       path,
       "log",
       `--since=${sinceIso}`,
+      ...untilIso !== void 0 ? [`--until=${untilIso}`] : [],
       "--date=iso-strict",
-      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%P%x1f%D%x1f%s%x1f%b%x1e"
+      "--pretty=format:%H%x1f%ae%x1f%ad%x1f%cd%x1f%P%x1f%D%x1f%s%x1f%b%x1e"
     ],
     { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3e4, maxBuffer: 64 * 1024 * 1024 }
   );
@@ -631,11 +670,17 @@ function parseGitLog(raw) {
     if (line.trim() === "") continue;
     const parts = line.split(FIELD_SEP);
     if (parts.length < 6) continue;
-    const [sha, email, date, parents, refs, subject, ...body] = parts;
+    const hasCommitterDate = /^\d{4}-\d{2}-\d{2}T/.test(parts[3] ?? "");
+    const [sha, email, adate] = parts;
+    const cdate = hasCommitterDate ? parts[3] : "";
+    const rest = hasCommitterDate ? parts.slice(4) : parts.slice(3);
+    const [parents, refs, subject, ...body] = rest;
+    if (parents === void 0 || refs === void 0 || subject === void 0) continue;
     out.push({
       sha,
       author_email: email,
-      author_date: date,
+      author_date: adate,
+      committer_date: cdate,
       parents: parents.trim() === "" ? 0 : parents.trim().split(" ").length,
       refs: refs.split(",").map((r) => r.trim()).filter((r) => r !== ""),
       subject,
@@ -778,8 +823,9 @@ function normalizeModelId(id) {
   return id.replace(/-\d{8}$/, "");
 }
 function resolveRate(pricing, model) {
-  const exact = pricing.models[model];
-  if (exact) return { rate_model: model, rates: exact };
+  if (Object.hasOwn(pricing.models, model)) {
+    return { rate_model: model, rates: pricing.models[model] };
+  }
   const wanted = normalizeModelId(model);
   let best = null;
   for (const key of Object.keys(pricing.models)) {
@@ -848,13 +894,13 @@ function isPromptLine(line) {
   const content = msg.content;
   if (typeof content === "string") return content.trim() !== "";
   if (Array.isArray(content)) {
-    let hasText = false;
+    let hasContent = false;
     for (const item of content) {
       const t = item.type;
       if (t === "tool_result") return false;
-      if (t === "text") hasText = true;
+      if (t === "text" || t === "image" || t === "document") hasContent = true;
     }
-    return hasText;
+    return hasContent;
   }
   return false;
 }
@@ -1070,7 +1116,7 @@ function priceTokens(config, model, tokens) {
   const version = config.pricing.version;
   const rates = resolveRate(config.pricing, model)?.rates;
   if (!version || !rates) return null;
-  const cc5m = tokens.cache_creation_5m === 0 && tokens.cache_creation_1h === 0 ? tokens.cache_creation : tokens.cache_creation_5m;
+  const cc5m = tokens.cache_creation_5m === 0 && tokens.cache_creation_1h === 0 ? tokens.cache_creation : Math.max(tokens.cache_creation - tokens.cache_creation_1h, 0);
   const e4 = (r) => Math.round(r * 1e4);
   const exact = [
     rates.input_per_mtok,
@@ -1295,7 +1341,7 @@ function sortRecord(record) {
 }
 
 // src/meter/state.ts
-import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4, renameSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join4 } from "node:path";
 function statePath(home) {
   return join4(home, "meter_state.json");
@@ -1305,7 +1351,12 @@ function loadState(home) {
   if (!existsSync4(p)) {
     return { schema_version: 2, sessions: {} };
   }
-  const raw = JSON.parse(readFileSync4(p, "utf8"));
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync4(p, "utf8"));
+  } catch {
+    return { schema_version: 2, sessions: {} };
+  }
   const sessions = {};
   for (const [id, cp] of Object.entries(raw.sessions ?? {})) {
     const legacy = cp;
@@ -1319,6 +1370,7 @@ function loadState(home) {
       // Absent on pre-1.5 checkpoints: stale, forcing one clean re-meter
       // (which re-prices dated model ids under the resolution rules).
       meter_version: legacy.meter_version ?? "",
+      pricing_digest: legacy.pricing_digest ?? "",
       pricing_version: legacy.pricing_version ?? null,
       attribution_inputs: legacy.attribution_inputs ?? null
     };
@@ -1326,12 +1378,14 @@ function loadState(home) {
   return { schema_version: 2, sessions };
 }
 function saveState(home, state) {
-  writeFileSync2(statePath(home), JSON.stringify(state, null, 2) + "\n", "utf8");
+  const p = statePath(home);
+  writeFileSync2(`${p}.tmp`, JSON.stringify(state, null, 2) + "\n", "utf8");
+  renameSync(`${p}.tmp`, p);
 }
-function isCurrent(state, sessionId, fileBytes, pricingVersion, attributionInputs) {
-  const cp = state.sessions[sessionId];
+function isCurrent(state, sessionId, fileBytes, pricingDigest, attributionInputs) {
+  const cp = Object.hasOwn(state.sessions, sessionId) ? state.sessions[sessionId] : void 0;
   if (cp === void 0) return false;
-  return cp.file_bytes === fileBytes && cp.rules_version === RULES_VERSION && cp.meter_version === METER_LOGIC_VERSION && cp.pricing_version === pricingVersion && cp.attribution_inputs === attributionInputs;
+  return cp.file_bytes === fileBytes && cp.rules_version === RULES_VERSION && cp.meter_version === METER_LOGIC_VERSION && cp.pricing_digest === pricingDigest && cp.attribution_inputs === attributionInputs;
 }
 
 // src/meter/run.ts
@@ -1402,36 +1456,55 @@ function turnOverridesFor(sessionId, exceptionEvents) {
   return overrides;
 }
 function probeSessionId(raw) {
-  const nl = raw.indexOf("\n");
-  const first = nl === -1 ? raw : raw.slice(0, nl);
-  try {
-    const line = JSON.parse(first);
-    return typeof line.sessionId === "string" ? line.sessionId : null;
-  } catch {
-    return null;
+  let start = 0;
+  for (let i = 0; i < 8 && start < raw.length; i++) {
+    const nl = raw.indexOf("\n", start);
+    const line = nl === -1 ? raw.slice(start) : raw.slice(start, nl);
+    start = nl === -1 ? raw.length : nl + 1;
+    try {
+      const parsed = JSON.parse(line);
+      if (typeof parsed.sessionId === "string") return parsed.sessionId;
+    } catch {
+    }
   }
+  return null;
 }
 function meterFile(home, transcriptPath, repoHint, force = false) {
   const config = loadConfig(home);
   const state = loadState(home);
-  const raw = readFileSync5(transcriptPath, "utf8");
   const fileBytes = statSync(transcriptPath).size;
+  const raw = readFileSync5(transcriptPath, "utf8");
+  const pricingDigest = sha256Hex(canonicalJson(config.pricing));
   const ledgerEvents = readEvents(home, "ledger");
   const existingExceptions = readEvents(home, "exceptions");
   const fingerprint = attributionFingerprint(ledgerEvents, existingExceptions, config);
+  const duplicateOf = (sid) => {
+    const cp = Object.hasOwn(state.sessions, sid) ? state.sessions[sid] : void 0;
+    if (!cp || cp.transcript_path === transcriptPath) return false;
+    if (!existsSync5(cp.transcript_path)) return false;
+    try {
+      return statSync(cp.transcript_path).size >= fileBytes;
+    } catch {
+      return false;
+    }
+  };
   const probedId = probeSessionId(raw);
-  if (!force && probedId !== null && isCurrent(state, probedId, fileBytes, config.pricing.version, fingerprint)) {
-    return { session_id: probedId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+  if (!force && probedId !== null) {
+    if (isCurrent(state, probedId, fileBytes, pricingDigest, fingerprint) || duplicateOf(probedId)) {
+      return { session_id: probedId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+    }
   }
   const probe = parseTranscript(raw, {
     branchKeyPattern: config.metering.branch_key_pattern,
     projectKeys: config.tracker.project_keys
   });
   const sessionId = probe.sessionId;
-  if (!force && sessionId !== null && sessionId !== probedId && isCurrent(state, sessionId, fileBytes, config.pricing.version, fingerprint)) {
-    return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+  if (!force && sessionId !== null && sessionId !== probedId) {
+    if (isCurrent(state, sessionId, fileBytes, pricingDigest, fingerprint) || duplicateOf(sessionId)) {
+      return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
+    }
   }
-  const hadCheckpoint = sessionId !== null && state.sessions[sessionId] !== void 0;
+  const hadCheckpoint = sessionId !== null && Object.hasOwn(state.sessions, sessionId);
   const repo = repoHint ?? repoFromCwd(probe.cwd);
   const existingUsage = readEvents(home, "usage");
   const existingSessions = readEvents(home, "sessions");
@@ -1459,6 +1532,7 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
       metered_through_ts: out.transcript.lastTs,
       rules_version: RULES_VERSION,
       meter_version: METER_LOGIC_VERSION,
+      pricing_digest: pricingDigest,
       pricing_version: config.pricing.version,
       attribution_inputs: fingerprint
     };
@@ -1531,9 +1605,9 @@ function renderReceipt(d) {
   out.push("RANGES NOT MIDPOINTS \xB7 NOTHING PADDED \xB7 UNATTRIBUTED SHOWN");
   return out.join("\n");
 }
-function collectTokens(home, sinceIso) {
+function collectTokens(home, sinceIso, untilIso) {
   const usage = authoritative(readEvents(home, "usage")).filter(
-    (u) => u.kind === "usage" && u.ts >= sinceIso
+    (u) => u.kind === "usage" && u.ts >= sinceIso && (untilIso === void 0 || u.ts <= untilIso)
   );
   if (usage.length === 0) return null;
   const sessions = /* @__PURE__ */ new Set();
@@ -1583,10 +1657,12 @@ function runBootstrap(home, args, json) {
     process.stderr.write("waybill bootstrap: --from/--to must be dates\n");
     return 2;
   }
-  const now = toIso ? new Date(toIso) : nowIso2 ? new Date(nowIso2) : /* @__PURE__ */ new Date();
+  const toInflated = toIso && /^\d{4}-\d{2}-\d{2}$/.test(toIso) ? `${toIso}T23:59:59.999Z` : toIso;
+  const now = toInflated ? new Date(toInflated) : nowIso2 ? new Date(nowIso2) : /* @__PURE__ */ new Date();
   const since = fromIso ? new Date(fromIso) : new Date(now.getTime() - days * 864e5);
   if (fromIso) days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 864e5));
   const sinceIso = since.toISOString().slice(0, 19) + "Z";
+  const untilIso = toInflated ? new Date(toInflated).toISOString() : void 0;
   if (repoPaths.length === 0 && isGitRepo(process.cwd())) repoPaths.push(process.cwd());
   const repos = [];
   for (const path of repoPaths) {
@@ -1596,7 +1672,7 @@ function runBootstrap(home, args, json) {
       continue;
     }
     const name = repoFromCwd(path) ?? path;
-    const commits = parseGitLog(gitLogRaw(path, sinceIso));
+    const commits = parseGitLog(gitLogRaw(path, sinceIso, untilIso));
     repos.push(summarizeRepo(name, path, commits, emails, config.metering.branch_key_pattern, config.tracker.project_keys));
   }
   const data = {
@@ -1605,7 +1681,7 @@ function runBootstrap(home, args, json) {
     until: now.toISOString().slice(0, 10),
     emails,
     repos,
-    tokens: collectTokens(home, sinceIso)
+    tokens: collectTokens(home, sinceIso, untilIso)
   };
   if (json) {
     process.stdout.write(JSON.stringify(data, null, 2) + "\n");
@@ -1854,12 +1930,19 @@ function tryExec(cmd, args) {
 }
 function checkRetention(claudeSettingsPath) {
   let days = null;
-  if (existsSync7(claudeSettingsPath)) {
+  const readDays = (path) => {
+    if (!existsSync7(path)) return null;
     try {
-      const settings = JSON.parse(readFileSync7(claudeSettingsPath, "utf8"));
-      if (typeof settings["cleanupPeriodDays"] === "number") days = settings["cleanupPeriodDays"];
+      const settings = JSON.parse(readFileSync7(path, "utf8"));
+      return typeof settings["cleanupPeriodDays"] === "number" ? settings["cleanupPeriodDays"] : null;
     } catch {
+      return null;
     }
+  };
+  days = readDays(claudeSettingsPath);
+  if (claudeSettingsPath.endsWith("settings.json")) {
+    const local = readDays(claudeSettingsPath.replace(/settings\.json$/, "settings.local.json"));
+    if (local !== null) days = local;
   }
   if (days === 0) {
     return {
@@ -1919,14 +2002,20 @@ function runInit(home, args, json) {
   const config = freshConfig ? defaultConfig() : loadConfig(home);
   const cwdRepo = repoFromCwd(process.cwd());
   if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
-  const pricing = Object.keys(config.pricing.models).length === 0 ? applyBundledPricing(config) : null;
+  let pricing = null;
+  if (Object.keys(config.pricing.models).length === 0) {
+    try {
+      pricing = applyBundledPricing(config);
+    } catch {
+    }
+  }
   saveConfig(home, config);
   const identity = buildIdentity();
   saveIdentity(home, identity);
   if (!existsSync7(join7(home, ".git"))) {
     git(home, ["init", "-b", "main"]);
   }
-  writeFileSync3(join7(home, ".gitignore"), "rollups/\n", "utf8");
+  writeFileSync3(join7(home, ".gitignore"), "rollups/\npending-sessions/\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);
@@ -1934,11 +2023,16 @@ function runInit(home, args, json) {
   }
   const retention = checkRetention(claudeSettings);
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
+  let bundledPricingVersion = null;
+  try {
+    bundledPricingVersion = loadPricingBundle().last_updated;
+  } catch {
+  }
   const configured = [
     "ledger (git-backed, append-only)",
     identity.git_emails.length > 0 ? `identity (${identity.git_emails.join(", ")})` : null,
     config.git.repos.length > 0 ? `repo scope (${config.git.repos.join(", ")})` : null,
-    pricing && pricing.imported.length > 0 ? `pricing (${pricing.imported.length} bundled Anthropic model(s), version ${pricing.version})` : config.pricing.version !== null ? `pricing (custom, version ${config.pricing.version})` : null,
+    pricing && pricing.imported.length > 0 ? `pricing (${pricing.imported.length} bundled Anthropic model(s), version ${pricing.version})` : config.pricing.version !== null ? `pricing (${config.pricing.version === bundledPricingVersion ? "bundled Anthropic rates" : "custom"}, version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s))` : null,
     retention.warning === null && retention.recommendation === null ? `transcript retention (${retention.effective})` : null,
     githubPatSet ? "GitHub MCP (GITHUB_MCP_PAT set)" : null
   ].filter((line) => line !== null);
@@ -2005,7 +2099,7 @@ function runInit(home, args, json) {
 import { readFileSync as readFileSync9 } from "node:fs";
 
 // src/meter/lock.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync8, renameSync, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync8, renameSync as renameSync2, rmSync, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join8 } from "node:path";
 function lockPath(home) {
   return join8(home, "pending-sessions", ".miner.lock");
@@ -2029,7 +2123,7 @@ function acquireLock(home) {
       }
       const claim = `${p}.reap.${process.pid}`;
       try {
-        renameSync(p, claim);
+        renameSync2(p, claim);
         unlinkSync(claim);
       } catch {
         return false;
@@ -2505,11 +2599,12 @@ function runMine(home, args, json) {
 }
 
 // src/projections/queries.ts
+var ISO_BOUND_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 function normalizeWindow(from, to) {
   const check = (v, name) => {
     if (v === null) return null;
-    if (Number.isNaN(Date.parse(v))) {
-      throw new Error(`--${name} is not a date: ${v}`);
+    if (!ISO_BOUND_RE.test(v) || Number.isNaN(Date.parse(v))) {
+      throw new Error(`--${name} must be an ISO date (YYYY-MM-DD or full ISO timestamp): ${v}`);
     }
     return v;
   };
@@ -2601,11 +2696,13 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
     const sess = accountSessions.get(u.attribution.account) ?? /* @__PURE__ */ new Set();
     sess.add(u.session_id);
     accountSessions.set(u.attribution.account, sess);
-    const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false };
+    const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false, unpriced: 0 };
     m.tokens += t;
     if (u.cost_usd) {
       m.cost = Math.round((m.cost + u.cost_usd.value) * 1e4) / 1e4;
       m.priced = true;
+    } else {
+      m.unpriced += t;
     }
     models.set(u.model, m);
     weeks.set(isoWeek(u.ts), (weeks.get(isoWeek(u.ts)) ?? 0) + t);
@@ -2626,7 +2723,7 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
     accounts: [...accounts.values()].sort(
       (a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1)
     ),
-    by_model: [...models.entries()].map(([model, m]) => ({ model, tokens: m.tokens, cost_usd: m.priced ? m.cost : null })).sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
+    by_model: [...models.entries()].map(([model, m]) => ({ model, tokens: m.tokens, cost_usd: m.priced ? m.cost : null, unpriced_tokens: m.unpriced })).sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
     by_week: [...weeks.entries()].map(([week, tokens]) => ({ week, tokens })).sort((a, b) => a.week < b.week ? -1 : 1),
     total_tokens: total,
     unattributed_tokens: unattributed,
@@ -2641,7 +2738,7 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
       priced_tokens: pricedTokens,
       unpriced_tokens: total - pricedTokens,
       priced_pct: total > 0 ? Math.round(pricedTokens / total * 1e3) / 10 : 0,
-      unpriced_models: [...unpricedByModel].sort()
+      unpriced_event_models: [...unpricedByModel].sort()
     }
   };
 }
@@ -2892,9 +2989,16 @@ function runExport(home, args, json) {
         return 2;
       }
       format = v;
-    } else if (a === "--from") from = args[++i] ?? null;
-    else if (a === "--to") to = args[++i] ?? null;
-    else if (a === "--audience") {
+    } else if (a === "--from" || a === "--to") {
+      const v = args[++i];
+      if (v === void 0) {
+        process.stderr.write(`waybill export: ${a} needs a value
+`);
+        return 2;
+      }
+      if (a === "--from") from = v;
+      else to = v;
+    } else if (a === "--audience") {
       const v = args[++i];
       if (v !== "self" && v !== "internal" && v !== "external") {
         process.stderr.write("waybill export: --audience must be self, internal, or external\n");
@@ -3148,6 +3252,11 @@ function runPace(home, args, json) {
 `);
       return 2;
     }
+  }
+  if (Number.isNaN(Date.parse(nowIso2))) {
+    process.stderr.write(`waybill pace: --now is not a date: ${nowIso2}
+`);
+    return 2;
   }
   const config = loadConfig(home);
   const ledger = readEvents(home, "ledger");
@@ -3434,17 +3543,24 @@ function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, 
     if (u.ts > acc.last_ts) acc.last_ts = u.ts;
     byAccount.set(u.attribution.account, acc);
   }
+  const allShippedKeys = new Set(
+    effectiveShipped(ledgerEvents).map((s) => s.entry.tracker_key).filter((k) => k !== null)
+  );
   const progressed = [...byAccount.entries()].filter(([account]) => {
     if (account === "unattributed") return false;
     const key = account.startsWith("story:") ? account.slice(6) : null;
     return key === null || !shippedKeys.has(key);
-  }).map(([account, a]) => ({
-    account,
-    title: account.startsWith("story:") ? titleByKey.get(account.slice(6)) ?? null : null,
-    tokens: a.tokens,
-    sessions: a.sessions.size,
-    last_ts: a.last_ts
-  })).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
+  }).map(([account, a]) => {
+    const key = account.startsWith("story:") ? account.slice(6) : null;
+    return {
+      account,
+      title: key !== null ? titleByKey.get(key) ?? null : null,
+      tokens: a.tokens,
+      sessions: a.sessions.size,
+      last_ts: a.last_ts,
+      shipped_earlier: key !== null && allShippedKeys.has(key)
+    };
+  }).sort((a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1));
   const opened = authoritative(ledgerEvents).filter((e) => e.kind === "opened" && inWindow2(e.ts, window)).map((e) => ({
     tracker_key: e.tracker_key,
     title: e.title,
@@ -3524,7 +3640,11 @@ function resolveStandupWindow(args, now) {
     throw new Error(`--date must be yesterday, today, or YYYY-MM-DD (got: ${date})`);
   }
   const [y, m, d] = date.split("-").map(Number);
-  const w = localDayWindow(new Date(y, m - 1, d), 0);
+  const base = new Date(y, m - 1, d);
+  if (base.getFullYear() !== y || base.getMonth() !== m - 1 || base.getDate() !== d) {
+    throw new Error(`--date is not a real calendar date: ${date}`);
+  }
+  const w = localDayWindow(base, 0);
   return { window: w, label: date };
 }
 
@@ -3541,14 +3661,28 @@ function runQuery(home, args) {
   let audience = null;
   let detail = null;
   const positional = [];
+  const need = (i, flag) => {
+    const v = rest[i];
+    if (v === void 0) {
+      process.stderr.write(`waybill query: ${flag} needs a value
+`);
+      return null;
+    }
+    return v;
+  };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (a === "--from") from = rest[++i] ?? null;
-    else if (a === "--to") to = rest[++i] ?? null;
-    else if (a === "--date") date = rest[++i] ?? null;
-    else if (a === "--days") days = rest[++i] ?? null;
-    else if (a === "--now") now = rest[++i] ?? null;
-    else if (a === "--audience") {
+    if (a === "--from") {
+      if ((from = need(++i, a)) === null) return 2;
+    } else if (a === "--to") {
+      if ((to = need(++i, a)) === null) return 2;
+    } else if (a === "--date") {
+      if ((date = need(++i, a)) === null) return 2;
+    } else if (a === "--days") {
+      if ((days = need(++i, a)) === null) return 2;
+    } else if (a === "--now") {
+      if ((now = need(++i, a)) === null) return 2;
+    } else if (a === "--audience") {
       const v = rest[++i];
       if (!v || !AUDIENCES.includes(v)) {
         process.stderr.write(`waybill query: --audience must be one of ${AUDIENCES.join(", ")}
@@ -3564,6 +3698,10 @@ function runQuery(home, args) {
         return 2;
       }
       detail = v;
+    } else if (a.startsWith("--")) {
+      process.stderr.write(`waybill query: unknown option ${a}
+`);
+      return 2;
     } else positional.push(a);
   }
   if (what !== "standup" && (date !== null || days !== null || now !== null)) {
@@ -3737,7 +3875,10 @@ function runResolve(home, args, json) {
   });
   appendEvents(home, "exceptions", [resolution]);
   if (durablePin) {
-    const pin = finalizeEvent("ledger", {
+    const priorPins = authoritative(readEvents(home, "ledger")).filter(
+      (e) => e.kind === "pin" && e.session_id === ambiguity.session_id && e.range === null
+    ).sort((a, b) => a.ts < b.ts ? -1 : 1);
+    const pinBody = {
       ts,
       kind: "pin",
       schema_version: SCHEMA_VERSION,
@@ -3747,8 +3888,9 @@ function runResolve(home, args, json) {
       tracker_key: account.startsWith("story:") ? account.slice(6) : null,
       range: null,
       notes: `resolve: from inbox item ${ambiguityId}`
-    });
-    appendEvents(home, "ledger", [pin]);
+    };
+    const pins = priorPins.length === 0 ? [finalizeEvent("ledger", pinBody)] : priorPins.map((prior) => finalizeEvent("ledger", { ...pinBody, supersedes: prior.id }));
+    appendEvents(home, "ledger", pins);
   }
   if (repoDefault) {
     const config = loadConfig(home);
@@ -3757,6 +3899,22 @@ function runResolve(home, args, json) {
   }
   let remetered = false;
   let corrected = 0;
+  if (loadConfig(home).metering.enabled === false) {
+    process.stderr.write(
+      "waybill resolve: metering is paused \u2014 the resolution is recorded and applies automatically when metering is re-enabled and the session is next metered\n"
+    );
+    commitLedger2(home, `resolve: inbox item filed to ${account}`);
+    const openNow = countOpenAmbiguities(readEvents(home, "exceptions"));
+    if (json) {
+      process.stdout.write(
+        JSON.stringify({ resolved: ambiguityId, account, durable, remetered: false, corrected_events: 0, inbox_open: openNow, paused: true }) + "\n"
+      );
+    } else {
+      process.stdout.write(`filed to ${account} (metering paused \u2014 applies on re-enable); ${openNow} left in the inbox
+`);
+    }
+    return 0;
+  }
   const checkpoint = loadState(home).sessions[ambiguity.session_id];
   const transcriptPath = checkpoint?.transcript_path ?? authoritative(readEvents(home, "sessions")).find((s) => s.kind === "session" && s.session_id === ambiguity.session_id)?.transcript_path ?? null;
   if (transcriptPath && existsSync11(transcriptPath)) {
@@ -3805,6 +3963,8 @@ function defaultContext(partial = {}) {
     identityEmails: [],
     githubLogin: null,
     jiraAccountId: null,
+    gitlabUsername: null,
+    linearUserId: null,
     projectKeys: [],
     pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
     sprintFields: ["customfield_10020", "customfield_10010"],
@@ -3834,7 +3994,7 @@ function sortItems(items) {
 }
 function sortChanges(changes) {
   return [...changes].sort(
-    (a, b) => (a.merged_at < b.merged_at ? -1 : a.merged_at > b.merged_at ? 1 : 0) || ((a.url ?? "") < (b.url ?? "") ? -1 : 1)
+    (a, b) => (a.merged_at < b.merged_at ? -1 : a.merged_at > b.merged_at ? 1 : 0) || ((a.url ?? "") < (b.url ?? "") ? -1 : (a.url ?? "") > (b.url ?? "") ? 1 : 0)
   );
 }
 
@@ -3957,6 +4117,8 @@ var linearAdapter = {
     for (const issue of nodes) {
       const key = str2(issue.identifier);
       if (!key || !keyRe.test(key)) continue;
+      const assignee = str2(issue.assignee?.id);
+      if (ctx.linearUserId && assignee && assignee !== ctx.linearUserId) continue;
       const stateType = str2(issue.state?.type);
       if (stateType === "canceled") continue;
       const completedAt = str2(issue.completedAt);
@@ -4115,7 +4277,10 @@ ${c.body}`, repo);
         title: `${c.subject} (${c.sha.slice(0, 10)})`,
         repo,
         branch: null,
-        merged_at: c.author_date,
+        // Merge semantics want the committer date: a squash-merged branch
+        // keeps an author date days older than the merge itself. Older
+        // captured logs without %cd fall back to the author date.
+        merged_at: c.committer_date !== "" ? c.committer_date : c.author_date,
         keys: extractKeys(c.subject, ctx.keyPattern, ctx.projectKeys),
         closes
       });
@@ -4151,6 +4316,8 @@ var gitlabAdapter = {
       const url = str5(mr.web_url);
       const repo = repoOf2(mr);
       if (!mergedAt || !url || !repo) continue;
+      const author = str5(mr.author?.username);
+      if (ctx.gitlabUsername && author && author !== ctx.gitlabUsername) continue;
       const title = str5(mr.title) ?? url;
       const branch = str5(mr.source_branch);
       out.push({
@@ -4203,7 +4370,12 @@ function shippedBody(entry, item, changes, now) {
   const prUrls = changes.map((c) => c.url).filter((u) => u !== null).sort();
   const commitShas = changes.filter((c) => c.url === null).map((c) => /\(([0-9a-f]{7,40})\)$/.exec(c.title)?.[1]).filter((s) => s !== void 0).sort();
   const tsCandidates = [item.resolved_at ?? "", ...changes.map((c) => c.merged_at)].filter((t) => t !== "");
-  const ts = tsCandidates.length > 0 ? tsCandidates.sort()[tsCandidates.length - 1] : now;
+  const ts = tsCandidates.length > 0 ? tsCandidates.sort((a, b) => {
+    const pa = Date.parse(a);
+    const pb = Date.parse(b);
+    if (!Number.isNaN(pa) && !Number.isNaN(pb) && pa !== pb) return pa - pb;
+    return a < b ? -1 : a > b ? 1 : 0;
+  })[tsCandidates.length - 1] : now;
   return {
     ts,
     kind: "shipped",
@@ -4428,7 +4600,9 @@ function runSyncPlan(home, args) {
     const events = [];
     for (const body of bodies) {
       const event = finalizeEvent("ledger", body);
-      if (!existing.has(event.id)) events.push(event);
+      if (existing.has(event.id)) continue;
+      existing.add(event.id);
+      events.push(event);
     }
     appendEvents(home, "ledger", events);
     if (plan2.baseline) {
@@ -4458,6 +4632,8 @@ function runSyncPlan(home, args) {
     identityEmails: identity?.git_emails ?? [],
     githubLogin: identity?.github_login ?? null,
     jiraAccountId: identity?.jira_account_id ?? null,
+    gitlabUsername: identity?.gitlab_username ?? null,
+    linearUserId: identity?.linear_user_id ?? null,
     projectKeys: config.tracker.project_keys
   });
   let items = [];

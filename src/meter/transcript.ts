@@ -119,13 +119,15 @@ export function isPromptLine(line: RawLine): boolean {
   const content = msg.content;
   if (typeof content === "string") return content.trim() !== "";
   if (Array.isArray(content)) {
-    let hasText = false;
+    // Any real user content is a turn boundary — an image-only or
+    // document-only paste starts a turn exactly like typed text does.
+    let hasContent = false;
     for (const item of content) {
       const t = (item as { type?: string }).type;
       if (t === "tool_result") return false;
-      if (t === "text") hasText = true;
+      if (t === "text" || t === "image" || t === "document") hasContent = true;
     }
-    return hasText;
+    return hasContent;
   }
   return false;
 }

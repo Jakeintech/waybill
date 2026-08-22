@@ -53,6 +53,10 @@ export const gitlabAdapter: GitHostAdapter = {
       const url = str(mr.web_url);
       const repo = repoOf(mr);
       if (!mergedAt || !url || !repo) continue;
+      // Own data only (methodology §6): an MR naming another author is
+      // dropped even if a mis-scoped query fetched it.
+      const author = str(mr.author?.username);
+      if (ctx.gitlabUsername && author && author !== ctx.gitlabUsername) continue;
       const title = str(mr.title) ?? url;
       const branch = str(mr.source_branch);
       out.push({

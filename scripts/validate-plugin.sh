@@ -35,6 +35,18 @@ else
   fail ".claude-plugin/plugin.json missing or invalid JSON"
 fi
 
+# The bundle's ENGINE_VERSION stamp comes from package.json; the plugin
+# manifest must agree, or `waybill --version` and the marketplace disagree.
+if [ -f package.json ] && [ -f .claude-plugin/plugin.json ]; then
+  pkg_ver=$(jq -r '.version // ""' package.json 2>/dev/null)
+  plug_ver=$(jq -r '.version // ""' .claude-plugin/plugin.json 2>/dev/null)
+  if [ -n "$pkg_ver" ] && [ "$pkg_ver" = "$plug_ver" ]; then
+    ok "plugin.json and package.json agree on version $pkg_ver"
+  else
+    fail "version mismatch: package.json=$pkg_ver plugin.json=$plug_ver"
+  fi
+fi
+
 if [ -f .claude-plugin/marketplace.json ]; then
   if jq -e '.plugins | type == "array" and length > 0' .claude-plugin/marketplace.json >/dev/null 2>&1; then
     ok ".claude-plugin/marketplace.json is valid with a plugins array"

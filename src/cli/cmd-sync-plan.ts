@@ -64,7 +64,12 @@ export function runSyncPlan(home: string, args: string[]): number {
     const events: LedgerEntry[] = [];
     for (const body of bodies) {
       const event = finalizeEvent("ledger", body as EntryBody & Omit<Envelope, "id">) as LedgerEntry;
-      if (!existing.has(event.id)) events.push(event);
+      // Dedupe within the batch too: a payload carrying the same issue
+      // twice must not append two identical-id events to an append-only
+      // stream (verify would flag the duplicate forever).
+      if (existing.has(event.id)) continue;
+      existing.add(event.id);
+      events.push(event);
     }
     appendEvents(home, "ledger", events);
     if (plan.baseline) {
@@ -96,6 +101,8 @@ export function runSyncPlan(home: string, args: string[]): number {
     identityEmails: identity?.git_emails ?? [],
     githubLogin: identity?.github_login ?? null,
     jiraAccountId: identity?.jira_account_id ?? null,
+    gitlabUsername: identity?.gitlab_username ?? null,
+    linearUserId: identity?.linear_user_id ?? null,
     projectKeys: config.tracker.project_keys,
   });
 

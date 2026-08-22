@@ -30,8 +30,11 @@ actually read out in standup — short, concrete, artifact-linked.
 ## Resolve the window
 
 - Default (no window words): `--date yesterday`.
-- **Monday standup**: "yesterday" would miss the weekend — use `--days 3`
-  (Friday through Sunday) and say which days the digest covers.
+- **Monday standup**: "yesterday" would miss the weekend. `--days <n>`
+  covers the last n days **ending today**, so use `--days 4` (Friday
+  through today) — or explicit `--from <Friday> --to <Sunday>` to exclude
+  today. Always say which days the digest covers, from the returned
+  `.data.window`.
 - "this week" / "weekly digest": `--days 7`.
 - A named day ("what did I do Tuesday"): `--date <YYYY-MM-DD>`.
 - Day math is local-calendar (the engine's `--date`/`--days` handle it);
@@ -45,9 +48,11 @@ Work from the returned `.data`:
    `KEY — title (points, PR links)`. These are the strongest lines; lead
    with them.
 2. **In progress** (`.data.progressed`) — items with metered spend that
-   did not ship in the window: `KEY — title (n sessions)`. Mention token
-   counts only if the user asks or the audience is themselves — teammates
-   want the work, not the meter.
+   did not ship in the window: `KEY — title (n sessions)`. Rows with
+   `shipped_earlier: true` are follow-up on an already-shipped item —
+   say "follow-up on KEY", not "in progress". Mention token counts only
+   if the user asks or the audience is themselves — teammates want the
+   work, not the meter.
 3. **Started** (`.data.opened`) — newly opened entries, with
    "estimate pre-registered" noted where true.
 4. **Blockers / attention** — only from `.data.attention`: open
@@ -58,8 +63,10 @@ Work from the returned `.data`:
 Close with one summary line when useful:
 `n sessions · n turns · N tokens` (add `$X (rates <pricing_version>)` only
 when `.data.tokens.cost_usd` is present). If `.data.tokens.unpriced_tokens`
-is non-zero, say so and point at `waybill pricing import` +
-`waybill meter --all` — costs are never silently partial.
+is non-zero, say so and relay the fix `waybill status` prints — `pricing
+import` covers Anthropic models; a model outside the bundle needs
+`pricing set <model-id> ...`; either way `waybill meter --all` re-prices.
+Costs are never silently partial.
 
 Empty window: "Nothing recorded for <window>. The ledger doesn't pad." —
 then offer the likely fixes (were sessions mined? `waybill status`).

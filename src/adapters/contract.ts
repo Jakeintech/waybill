@@ -43,6 +43,8 @@ export interface AdapterContext {
    * dropped even if a mis-scoped query fetched them. */
   githubLogin: string | null;
   jiraAccountId: string | null;
+  gitlabUsername: string | null;
+  linearUserId: string | null;
   /** config.tracker.project_keys — gates key extraction (core/keys). */
   projectKeys: string[];
   /** Candidate custom field ids for story points (Jira instances vary). */
@@ -57,6 +59,8 @@ export function defaultContext(partial: Partial<AdapterContext> = {}): AdapterCo
     identityEmails: [],
     githubLogin: null,
     jiraAccountId: null,
+    gitlabUsername: null,
+    linearUserId: null,
     projectKeys: [],
     pointsFields: ["customfield_10016", "customfield_10026", "customfield_10002"],
     sprintFields: ["customfield_10020", "customfield_10010"],
@@ -131,6 +135,6 @@ export function sortChanges(changes: MergedChange[]): MergedChange[] {
   return [...changes].sort(
     (a, b) =>
       (a.merged_at < b.merged_at ? -1 : a.merged_at > b.merged_at ? 1 : 0) ||
-      ((a.url ?? "") < (b.url ?? "") ? -1 : 1),
+      ((a.url ?? "") < (b.url ?? "") ? -1 : (a.url ?? "") > (b.url ?? "") ? 1 : 0),
   );
 }

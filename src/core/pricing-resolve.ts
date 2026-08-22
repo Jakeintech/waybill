@@ -30,8 +30,11 @@ export function resolveRate(
   pricing: Config["pricing"],
   model: string,
 ): RateResolution | null {
-  const exact = pricing.models[model];
-  if (exact) return { rate_model: model, rates: exact };
+  // Own-property check: transcripts are untrusted input, and a model id
+  // like "constructor" must not resolve to an Object.prototype member.
+  if (Object.hasOwn(pricing.models, model)) {
+    return { rate_model: model, rates: pricing.models[model]! };
+  }
   const wanted = normalizeModelId(model);
   let best: string | null = null;
   for (const key of Object.keys(pricing.models)) {

@@ -32,9 +32,16 @@ export function runExport(home: string, args: string[], json: boolean): number {
         return 2;
       }
       format = v;
-    } else if (a === "--from") from = args[++i] ?? null;
-    else if (a === "--to") to = args[++i] ?? null;
-    else if (a === "--audience") {
+    } else if (a === "--from" || a === "--to") {
+      // A forgotten value must not silently widen the export to all history.
+      const v = args[++i];
+      if (v === undefined) {
+        process.stderr.write(`waybill export: ${a} needs a value\n`);
+        return 2;
+      }
+      if (a === "--from") from = v;
+      else to = v;
+    } else if (a === "--audience") {
       const v = args[++i];
       if (v !== "self" && v !== "internal" && v !== "external") {
         process.stderr.write("waybill export: --audience must be self, internal, or external\n");

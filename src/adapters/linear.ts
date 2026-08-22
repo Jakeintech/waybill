@@ -64,6 +64,10 @@ export const linearAdapter: TrackerAdapter = {
     for (const issue of nodes) {
       const key = str(issue.identifier);
       if (!key || !keyRe.test(key)) continue;
+      // Own data only (methodology §6): an issue assigned to someone else
+      // is dropped even if a mis-scoped query fetched it.
+      const assignee = str(issue.assignee?.id);
+      if (ctx.linearUserId && assignee && assignee !== ctx.linearUserId) continue;
       const stateType = str(issue.state?.type);
       if (stateType === "canceled") continue; // cancelled work is not shipped value
       const completedAt = str(issue.completedAt);

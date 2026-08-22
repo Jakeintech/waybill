@@ -34,7 +34,10 @@ export const gitLocalAdapter: GitHostAdapter = {
         title: `${c.subject} (${c.sha.slice(0, 10)})`,
         repo,
         branch: null,
-        merged_at: c.author_date,
+        // Merge semantics want the committer date: a squash-merged branch
+        // keeps an author date days older than the merge itself. Older
+        // captured logs without %cd fall back to the author date.
+        merged_at: c.committer_date !== "" ? c.committer_date : c.author_date,
         keys: extractKeys(c.subject, ctx.keyPattern, ctx.projectKeys),
         closes,
       });

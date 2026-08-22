@@ -159,7 +159,9 @@ test("bootstrap: --from/--to align the receipt window with query windows", () =>
     appendEvents(home, "usage", [makeUsage({ ts: "2026-08-11T10:00:00Z" })]);
     const r = cli(home, ["bootstrap", "--from", "2026-08-01", "--to", "2026-08-16", "--repo-path", "/nonexistent"]);
     assert.equal(r.code, 0, r.stdout);
-    assert.match(r.stdout, /WINDOW    2026-08-01 → 2026-08-16 \(15 days\)/);
+    // 16: a date-only --to is inclusive of that day (1.5.0), so 08-01
+    // through 08-16 is sixteen calendar days, and the bound is applied.
+    assert.match(r.stdout, /WINDOW    2026-08-01 → 2026-08-16 \(16 days\)/);
     assert.match(r.stdout, /1 metered session\(s\)/); // the in-window usage shows up
     const bad = cli(home, ["bootstrap", "--from", "whenever"]);
     assert.equal(bad.code, 2);

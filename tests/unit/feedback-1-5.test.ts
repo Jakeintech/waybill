@@ -138,10 +138,10 @@ test("pricing show surfaces metered-but-unpriced models (text and --json)", () =
   }
 });
 
-test("meter_version: pre-1.5 checkpoints are stale, current ones are not", () => {
+test("meter_version + pricing_digest: pre-1.5 checkpoints are stale, current ones are not, torn state loads empty", () => {
   const home = tempHome();
   try {
-    // A legacy checkpoint (no meter_version) loads as stale.
+    // A legacy checkpoint (no meter_version/pricing_digest) loads as stale.
     mkdirSync(home, { recursive: true });
     writeFileSync(
       join(home, "meter_state.json"),
@@ -162,9 +162,10 @@ test("meter_version: pre-1.5 checkpoints are stale, current ones are not", () =>
       }),
     );
     const legacy = loadState(home);
-    assert.equal(isCurrent(legacy, "sess-1", 100, "2026-08-17", "fp"), false);
+    assert.equal(isCurrent(legacy, "sess-1", 100, "digest-a", "fp"), false);
 
-    // A checkpoint written by this engine is current.
+    // A checkpoint written by this engine is current — until the pricing
+    // table's content digest changes, version string or not.
     const state: MeterState = {
       schema_version: 2,
       sessions: {
@@ -176,13 +177,21 @@ test("meter_version: pre-1.5 checkpoints are stale, current ones are not", () =>
           metered_through_ts: "2026-08-20T10:00:00Z",
           rules_version: RULES_VERSION,
           meter_version: METER_LOGIC_VERSION,
+          pricing_digest: "digest-a",
           pricing_version: "2026-08-17",
           attribution_inputs: "fp",
         },
       },
     };
     saveState(home, state);
-    assert.equal(isCurrent(loadState(home), "sess-1", 100, "2026-08-17", "fp"), true);
+    assert.equal(isCurrent(loadState(home), "sess-1", 100, "digest-a", "fp"), true);
+    assert.equal(isCurrent(loadState(home), "sess-1", 100, "digest-b", "fp"), false);
+    // Session ids come from untrusted transcripts: prototype names miss.
+    assert.equal(isCurrent(loadState(home), "constructor", 100, "digest-a", "fp"), false);
+
+    // A torn state file is a cache, not a wall: loadState returns empty.
+    writeFileSync(join(home, "meter_state.json"), '{"schema_version": 2, "sessions": {');
+    assert.deepEqual(loadState(home), { schema_version: 2, sessions: {} });
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -201,5 +210,9 @@ test("spendData: pricing_coverage reports priced share and unpriced models", asy
   assert.equal(spend.pricing_coverage.priced_tokens, 750);
   assert.equal(spend.pricing_coverage.unpriced_tokens, 250);
   assert.equal(spend.pricing_coverage.priced_pct, 75);
-  assert.deepEqual(spend.pricing_coverage.unpriced_models, ["mystery-model-9"]);
+  assert.deepEqual(spend.pricing_coverage.unpriced_event_models, ["mystery-model-9"]);
+  // Per-model coverage: a partially priced model says how much it misses.
+  const mystery = spend.by_model.find((m) => m.model === "mystery-model-9")!;
+  assert.equal(mystery.cost_usd, null);
+  assert.equal(mystery.unpriced_tokens, 250);
 });

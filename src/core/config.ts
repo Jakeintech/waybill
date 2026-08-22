@@ -122,6 +122,10 @@ export interface Identity {
   git_names: string[];
   github_login: string | null;
   jira_account_id: string | null;
+  /** Optional (additive): set by hand or by a sync flow — enables the
+   * GitLab/Linear adapters' own-data defense-in-depth. */
+  gitlab_username?: string | null;
+  linear_user_id?: string | null;
 }
 
 export function identityPath(home: string): string {

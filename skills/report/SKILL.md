@@ -8,11 +8,13 @@ description: >
   help me ship this month", "show my impact", "help me with my performance
   review", "draft my promo packet", "what did I accomplish this quarter", or
   "give me a bootstrap report". Use it even when they don't say "report" —
-  any request to summarize their own shipped work should go through the
-  ledger. (Pure spend questions — "where did my tokens go", "what did
-  PLAT-123 cost" — belong to the spend skill; this one builds the
-  narrative report around those numbers.) Produces a one-page,
-  receipt-backed report; never invents numbers.
+  a request to summarize their own shipped work as a formal artifact
+  should go through the ledger. (Pure spend questions — "where did my
+  tokens go", "what did PLAT-123 cost" — belong to the spend skill;
+  quick "what did I do yesterday / this week" digests belong to the
+  standup skill; this one builds formal one-page artifacts around those
+  numbers.) Produces a one-page, receipt-backed report; never invents
+  numbers.
 metadata:
   version: "1.5.0"
 ---

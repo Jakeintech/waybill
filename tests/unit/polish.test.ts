@@ -139,7 +139,7 @@ test("finding 5/7: date-only --to is inclusive; garbage bounds are rejected", ()
   const usage = [makeUsage({ ts: "2026-08-11T10:00:00Z" })];
   const spend = spendData(usage, [], [], defaultConfig(), w);
   assert.equal(spend.total_tokens, 6500, "event on the --to day must be inside the window");
-  assert.throws(() => normalizeWindow("yesterday", null), /not a date/);
+  assert.throws(() => normalizeWindow("yesterday", null), /ISO date/);
 });
 
 test("finding 6: story query returns the authoritative (corrected) view", () => {

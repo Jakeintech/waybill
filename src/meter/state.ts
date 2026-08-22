@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { RULES_VERSION } from "../attribution/resolver.ts";
 import { METER_LOGIC_VERSION } from "./meter.ts";
@@ -13,6 +13,10 @@ export interface SessionCheckpoint {
    * so a version bump re-meters every stale session, not just the first. */
   rules_version: string;
   meter_version: string;
+  /** Digest of the whole pricing table at meter time: a rate added or
+   * changed under an unchanged version string (pricing set without
+   * --version) still invalidates the fast path and re-prices. */
+  pricing_digest: string;
   pricing_version: string | null;
   /** Fingerprint of the attribution inputs (pins, open entries, repo
    * defaults, inbox resolutions) at meter time. Pinning or resolving after
@@ -35,10 +39,16 @@ export function loadState(home: string): MeterState {
   if (!existsSync(p)) {
     return { schema_version: 2, sessions: {} };
   }
-  const raw = JSON.parse(readFileSync(p, "utf8")) as MeterState & {
-    rules_version?: string;
-    pricing_version?: string | null;
-  };
+  // The state file is only a cache: a torn or corrupt write (crash,
+  // ENOSPC) must never stall metering forever. Unreadable state = empty
+  // state = one clean re-meter, which is safe by design.
+  type RawState = MeterState & { rules_version?: string; pricing_version?: string | null };
+  let raw: RawState;
+  try {
+    raw = JSON.parse(readFileSync(p, "utf8")) as RawState;
+  } catch {
+    return { schema_version: 2, sessions: {} };
+  }
   // Migrate pre-0.4 state (global version markers): drop the globals and
   // leave sessions without per-session versions — isCurrent treats those
   // checkpoints as stale, forcing one clean re-meter. Events are
@@ -56,6 +66,7 @@ export function loadState(home: string): MeterState {
       // Absent on pre-1.5 checkpoints: stale, forcing one clean re-meter
       // (which re-prices dated model ids under the resolution rules).
       meter_version: legacy.meter_version ?? "",
+      pricing_digest: legacy.pricing_digest ?? "",
       pricing_version: legacy.pricing_version ?? null,
       attribution_inputs: legacy.attribution_inputs ?? null,
     };
@@ -64,24 +75,29 @@ export function loadState(home: string): MeterState {
 }
 
 export function saveState(home: string, state: MeterState): void {
-  writeFileSync(statePath(home), JSON.stringify(state, null, 2) + "\n", "utf8");
+  // Atomic replace: a crash mid-write must never leave torn JSON behind.
+  const p = statePath(home);
+  writeFileSync(`${p}.tmp`, JSON.stringify(state, null, 2) + "\n", "utf8");
+  renameSync(`${p}.tmp`, p);
 }
 
-/** Fast-path: nothing to do when size, versions, and attribution inputs are all unchanged. */
+/** Fast-path: nothing to do when size, versions, pricing content, and
+ * attribution inputs are all unchanged. */
 export function isCurrent(
   state: MeterState,
   sessionId: string,
   fileBytes: number,
-  pricingVersion: string | null,
+  pricingDigest: string,
   attributionInputs: string,
 ): boolean {
-  const cp = state.sessions[sessionId];
+  // Own-property check: session ids come from untrusted transcript lines.
+  const cp = Object.hasOwn(state.sessions, sessionId) ? state.sessions[sessionId] : undefined;
   if (cp === undefined) return false;
   return (
     cp.file_bytes === fileBytes &&
     cp.rules_version === RULES_VERSION &&
     cp.meter_version === METER_LOGIC_VERSION &&
-    cp.pricing_version === pricingVersion &&
+    cp.pricing_digest === pricingDigest &&
     cp.attribution_inputs === attributionInputs
   );
 }

@@ -82,6 +82,13 @@ export function runAppend(home: string, args: string[], json: boolean): number {
       const keyOrTitle = (body["tracker_key"] as string | null) ?? (body["title"] as string);
       body["escrow"] = sealEstimate(keyOrTitle, est);
     }
+    // A pre-registered claim needs a real logged_at: Date.parse(undefined)
+    // is NaN and NaN > x is false, which would wave through a timestamp-less
+    // estimate arriving with an externally built escrow.
+    if (est && est.pre_registered === true && Number.isNaN(Date.parse(est.logged_at))) {
+      process.stderr.write("waybill append: a pre_registered estimate needs an ISO logged_at\n");
+      return 1;
+    }
     if (est && est.pre_registered === true && Date.parse(est.logged_at) > Date.parse(body["ts"] as string)) {
       process.stderr.write("waybill append: refusing a pre_registered estimate logged after the entry ts\n");
       return 1;

@@ -19,9 +19,13 @@ places:
    items into `WorkItem`s, a git-host adapter into `MergedChange`s. The
    normalizers are pure, deterministic functions with fixture tests; a
    **conformance kit** (`src/adapters/conformance.ts`) runs any adapter
-   against the contract's invariants (own-data scoping, opaque keys, no
-   invented points, stable ordering, determinism). Bundled adapters — Jira,
-   Linear, GitHub, GitLab, git-local — all pass the same kit, and CI runs it.
+   against the contract's invariants (no fabricated keys/points/URLs,
+   stable ordering, determinism). Own-data scoping lives in the adapters
+   themselves — each drops records naming someone else when the matching
+   `identity.json` field is set (GitHub login, Jira accountId, GitLab
+   username, Linear user id) — and is covered by fixture tests. Bundled
+   adapters — Jira, Linear, GitHub, GitLab, git-local — all pass the same
+   kit, and CI runs it.
 4. **The `sync` skill's query examples** — JQL for Jira, search syntax for
    GitHub. The skill treats these as examples; with a different server
    connected, Claude adapts to that server's tools, but tested guidance makes

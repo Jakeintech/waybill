@@ -17,13 +17,19 @@ export interface Window {
 /**
  * Normalize user-supplied bounds: a bare date means the whole day (a
  * date-only `to` is inclusive of that day, not a midnight cutoff), and
- * unparseable bounds are an error rather than a silently empty window.
+ * bad bounds are an error rather than a silently empty window. Bounds must
+ * be ISO-shaped: window filtering compares timestamps lexicographically,
+ * so a merely Date.parse-able format ("8/20/2026") would be accepted and
+ * then silently match nothing.
  */
+const ISO_BOUND_RE =
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
 export function normalizeWindow(from: string | null, to: string | null): Window {
   const check = (v: string | null, name: string): string | null => {
     if (v === null) return null;
-    if (Number.isNaN(Date.parse(v))) {
-      throw new Error(`--${name} is not a date: ${v}`);
+    if (!ISO_BOUND_RE.test(v) || Number.isNaN(Date.parse(v))) {
+      throw new Error(`--${name} must be an ISO date (YYYY-MM-DD or full ISO timestamp): ${v}`);
     }
     return v;
   };
@@ -95,7 +101,9 @@ export interface AccountSpend {
 export interface SpendData {
   window: Window;
   accounts: AccountSpend[];
-  by_model: Array<{ model: string; tokens: number; cost_usd: number | null }>;
+  /** `unpriced_tokens` > 0 marks a model whose cost_usd covers only part
+   * of its tokens (events metered before a rate existed, or no rate). */
+  by_model: Array<{ model: string; tokens: number; cost_usd: number | null; unpriced_tokens: number }>;
   by_week: Array<{ week: string; tokens: number }>;
   total_tokens: number;
   unattributed_tokens: number;
@@ -107,12 +115,15 @@ export interface SpendData {
   };
   pricing_version: string | null;
   /** How much of the window's tokens the USD figures actually cover — a
-   * dollar total that silently omits unpriced events is not a receipt. */
+   * dollar total that silently omits unpriced events is not a receipt.
+   * `unpriced_event_models` = models with at least one costless event in
+   * the window (distinct from status's "no resolvable rate now" list —
+   * an event metered before its rate existed lands here until re-metered). */
   pricing_coverage: {
     priced_tokens: number;
     unpriced_tokens: number;
     priced_pct: number;
-    unpriced_models: string[];
+    unpriced_event_models: string[];
   };
 }
 
@@ -138,7 +149,7 @@ export function spendData(
     (u) => u.kind === "usage" && inWindow(u.ts, window) && totalTokens(u) > 0,
   );
   const accounts = new Map<string, AccountSpend>();
-  const models = new Map<string, { tokens: number; cost: number; priced: boolean }>();
+  const models = new Map<string, { tokens: number; cost: number; priced: boolean; unpriced: number }>();
   const weeks = new Map<string, number>();
   const accountSessions = new Map<string, Set<string>>();
   let total = 0;
@@ -176,11 +187,13 @@ export function spendData(
     sess.add(u.session_id);
     accountSessions.set(u.attribution.account, sess);
 
-    const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false };
+    const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false, unpriced: 0 };
     m.tokens += t;
     if (u.cost_usd) {
       m.cost = Math.round((m.cost + u.cost_usd.value) * 10000) / 10000;
       m.priced = true;
+    } else {
+      m.unpriced += t;
     }
     models.set(u.model, m);
     weeks.set(isoWeek(u.ts), (weeks.get(isoWeek(u.ts)) ?? 0) + t);
@@ -213,7 +226,7 @@ export function spendData(
       (a, b) => b.tokens - a.tokens || (a.account < b.account ? -1 : 1),
     ),
     by_model: [...models.entries()]
-      .map(([model, m]) => ({ model, tokens: m.tokens, cost_usd: m.priced ? m.cost : null }))
+      .map(([model, m]) => ({ model, tokens: m.tokens, cost_usd: m.priced ? m.cost : null, unpriced_tokens: m.unpriced }))
       .sort((a, b) => b.tokens - a.tokens || (a.model < b.model ? -1 : 1)),
     by_week: [...weeks.entries()].map(([week, tokens]) => ({ week, tokens })).sort((a, b) => (a.week < b.week ? -1 : 1)),
     total_tokens: total,
@@ -229,7 +242,7 @@ export function spendData(
       priced_tokens: pricedTokens,
       unpriced_tokens: total - pricedTokens,
       priced_pct: total > 0 ? Math.round((pricedTokens / total) * 1000) / 10 : 0,
-      unpriced_models: [...unpricedByModel].sort(),
+      unpriced_event_models: [...unpricedByModel].sort(),
     },
   };
 }

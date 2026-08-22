@@ -272,6 +272,8 @@ work, never anyone else's:
       "transcript_version": "2.1.229",
       "metered_through_ts": "2026-08-17T10:15:03Z",
       "rules_version": "1",
+      "meter_version": "2",
+      "pricing_digest": "3b1c88…",
       "pricing_version": "2026-08-01",
       "attribution_inputs": "9d24f5…"
     }
@@ -281,15 +283,18 @@ work, never anyone else's:
 
 Checkpoints make the meter incremental and idempotent. A session is skipped
 only when **all** of these are unchanged: the transcript's byte size, the
-`rules_version` and `pricing_version` it was last metered under (compared
-per session, so a version bump re-meters every stale session), and
-`attribution_inputs` — a fingerprint of the pins, open entries, repo
+`rules_version` and `meter_version` it was last metered under (compared
+per session, so a version bump re-meters every stale session),
+`pricing_digest` — a hash of the whole pricing table, so a rate added or
+changed even under an unchanged `pricing_version` string still re-prices —
+and `attribution_inputs` — a fingerprint of the pins, open entries, repo
 defaults, and applied inbox resolutions. Pinning or resolving after a
 session ends changes the fingerprint, so the next meter run emits
 superseding corrected events. A stale session is fully re-parsed;
 unchanged events recompute to identical ids and are skipped, changed ones
 supersede. A full re-run from empty state reproduces the identical fact
-stream (the determinism harness asserts this in CI).
+stream (the determinism harness asserts this in CI). The file is a cache:
+deleting it (or a torn write) costs one clean re-meter, never data.
 
 ## Pending-session capture shape
 

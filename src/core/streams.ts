@@ -52,6 +52,7 @@ export function listShards(home: string, stream: StreamName): string[] {
 export function readStream<T extends Envelope = Envelope>(
   home: string,
   stream: StreamName,
+  onBadLine?: (shard: string, lineNo: number, line: string) => void,
 ): Array<StreamLine<T>> {
   const out: Array<StreamLine<T>> = [];
   for (const shard of listShards(home, stream)) {
@@ -60,7 +61,13 @@ export function readStream<T extends Envelope = Envelope>(
     for (const line of raw.split("\n")) {
       lineNo += 1;
       if (line.trim() === "") continue;
-      out.push({ event: JSON.parse(line) as T, shard, lineNo });
+      // One torn line (a crash mid-append) must not make the whole stream
+      // unreadable for every command: skip it, let verify report it.
+      try {
+        out.push({ event: JSON.parse(line) as T, shard, lineNo });
+      } catch {
+        onBadLine?.(shard, lineNo, line);
+      }
     }
   }
   return out;

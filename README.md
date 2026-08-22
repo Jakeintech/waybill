@@ -176,7 +176,7 @@ it. The full exit path, from turning it down to walking away:
 
 **Can I use this for performance reviews if my company doesn't ration tokens?** Yes — that's the `perf-review` preset. The token pitch is one output of the ledger, not the point of it.
 
-**Is my data private?** Local JSONL under your home directory; the only network calls are the MCP calls you authorize, scoped to your own items.
+**Is my data private?** Local JSONL under your home directory. The engine itself makes no network calls; syncs go through the CLIs (`acli`, `gh`) or MCP servers you authorize, scoped to your own items, and `init`/`status` may invoke your locally authenticated `gh`/`acli` to read who you are — nothing of yours is ever sent anywhere you didn't point it.
 
 **Why won't it compare me to teammates?** Story points aren't comparable across people, scraping colleagues reads as surveillance, and your own trajectory is stronger evidence anyway. ([methodology §6](skills/ledger/references/methodology.md))
 

@@ -56,7 +56,8 @@ own data.
    acli jira workitem search --json --limit 200 --fields key \
      --jql 'assignee = currentUser() AND project IN (<keys>) AND updated >= "<date>"' \
      > /tmp/waybill-keys.json
-   jq -r '(.issues // .) | .[].key' /tmp/waybill-keys.json | while read -r KEY; do
+   # .issues? (with ?) also handles a bare-array payload without erroring:
+   jq -r '(.issues? // .) | .[].key' /tmp/waybill-keys.json | while read -r KEY; do
      acli jira workitem view "$KEY" --json --fields \
        "summary,status,resolutiondate,created,updated,issuetype,parent,assignee,customfield_10016,customfield_10026,customfield_10002,customfield_10020,customfield_10010,customfield_10014,customfield_10011"
    done | jq -s '.' > /tmp/waybill-items.json
@@ -68,12 +69,17 @@ own data.
    common story-points/sprint/epic candidates; if this site rejects one,
    drop it from `--fields` and continue — points and sprint stay null
    rather than guessed. `currentUser()` in the JQL scopes the fetch to the
-   user's own items at the source.
+   user's own items at the source. This is one `view` call per item: fine
+   for a routine sync window (a handful of updated items), slow for a big
+   backfill — past ~50 items, prefer the MCP fallback's single search for
+   that one run.
 
    **Atlassian MCP — fallback (no acli):** search issues assigned to the
    current user in the configured projects, updated since `last_sync` —
    the same JQL. Request fields: summary, status, resolutiondate, created,
-   updated, issuetype, parent, story points and sprint custom fields. Save
+   updated, issuetype, parent, **assignee** (the adapter's own-data check
+   reads its accountId), and the points/sprint/epic custom fields
+   (10016/10026/10002, 10020/10010, 10014/10011 are the common ids). Save
    the raw JSON response verbatim to `/tmp/waybill-items.json`.
 
    **GitHub Issues as the tracker** (`tracker.kind: "github-issues"`):
@@ -81,6 +87,7 @@ own data.
 
    ```bash
    gh issue list -R <org/name> --state all --limit 200 \
+     --search "assignee:@me" \
      --json number,title,state,stateReason,closedAt,createdAt,updatedAt,labels,milestone,assignees,url \
      > /tmp/waybill-items.json
    ```
@@ -88,7 +95,10 @@ own data.
    Save exactly what the command returns — never edit or annotate the
    payload; the adapter derives `owner/repo#number` keys from the issue
    URLs itself, and the conformance contract depends on the payload being
-   raw. The REST `/issues` shape works too.
+   raw. The REST `/issues` shape works too. The `assignee:@me` scoping
+   matters on shared repos — the adapter keeps unassigned issues on the
+   assumption the query is scoped, so drop the `--search` filter only on
+   a repo where the user is the sole author.
 3. **Git host — GitHub.** Prefer an authenticated gh CLI (`gh auth
    status`): one command, exactly the fields the adapter needs —
 

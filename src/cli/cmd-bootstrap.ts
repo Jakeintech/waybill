@@ -75,9 +75,9 @@ export function renderReceipt(d: BootstrapData): string {
   return out.join("\n");
 }
 
-export function collectTokens(home: string, sinceIso: string): BootstrapData["tokens"] {
+export function collectTokens(home: string, sinceIso: string, untilIso?: string): BootstrapData["tokens"] {
   const usage = authoritative(readEvents<UsageEvent>(home, "usage")).filter(
-    (u) => u.kind === "usage" && u.ts >= sinceIso,
+    (u) => u.kind === "usage" && u.ts >= sinceIso && (untilIso === undefined || u.ts <= untilIso),
   );
   if (usage.length === 0) return null;
   const sessions = new Set<string>();
@@ -131,10 +131,15 @@ export function runBootstrap(home: string, args: string[], json: boolean): numbe
     process.stderr.write("waybill bootstrap: --from/--to must be dates\n");
     return 2;
   }
-  const now = toIso ? new Date(toIso) : nowIso ? new Date(nowIso) : new Date();
+  // A date-only --to is inclusive of that day (same rule as query
+  // windows), and the bound is APPLIED — the WINDOW header must state
+  // exactly what was counted, or "NOTHING PADDED" is a false footer.
+  const toInflated = toIso && /^\d{4}-\d{2}-\d{2}$/.test(toIso) ? `${toIso}T23:59:59.999Z` : toIso;
+  const now = toInflated ? new Date(toInflated) : nowIso ? new Date(nowIso) : new Date();
   const since = fromIso ? new Date(fromIso) : new Date(now.getTime() - days * 86400_000);
   if (fromIso) days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 86400_000));
   const sinceIso = since.toISOString().slice(0, 19) + "Z";
+  const untilIso = toInflated ? new Date(toInflated).toISOString() : undefined;
 
   if (repoPaths.length === 0 && isGitRepo(process.cwd())) repoPaths.push(process.cwd());
 
@@ -145,7 +150,7 @@ export function runBootstrap(home: string, args: string[], json: boolean): numbe
       continue;
     }
     const name = repoFromCwd(path) ?? path;
-    const commits = parseGitLog(gitLogRaw(path, sinceIso));
+    const commits = parseGitLog(gitLogRaw(path, sinceIso, untilIso));
     repos.push(summarizeRepo(name, path, commits, emails, config.metering.branch_key_pattern, config.tracker.project_keys));
   }
 
@@ -155,7 +160,7 @@ export function runBootstrap(home: string, args: string[], json: boolean): numbe
     until: now.toISOString().slice(0, 10),
     emails,
     repos,
-    tokens: collectTokens(home, sinceIso),
+    tokens: collectTokens(home, sinceIso, untilIso),
   };
 
   if (json) {

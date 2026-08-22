@@ -31,7 +31,14 @@ export interface Finding {
 const STREAMS: StreamName[] = ["ledger", "usage", "sessions", "exceptions"];
 
 function isIsoUtc(ts: unknown): boolean {
-  return typeof ts === "string" && !Number.isNaN(Date.parse(ts));
+  // ISO shape required, not just parseability: shardFor and window
+  // filtering depend on the YYYY-MM prefix, so a merely parseable ts
+  // ("8/20/2026") is corruption to report, not a value to crash on.
+  return (
+    typeof ts === "string" &&
+    /^\d{4}-\d{2}-\d{2}T/.test(ts) &&
+    !Number.isNaN(Date.parse(ts))
+  );
 }
 
 export function zeroTotals(): TokenCounts {
@@ -62,7 +69,12 @@ export function verifyHome(home: string): Finding[] {
   for (const stream of STREAMS) {
     let lines;
     try {
-      lines = readStream(home, stream);
+      lines = readStream(home, stream, (shard, lineNo) => {
+        findings.push({
+          check: "envelope", stream, shard, id: null,
+          message: `${stream}/${shard}.jsonl:${lineNo}: unparseable line (torn write?)`,
+        });
+      });
     } catch (err) {
       findings.push({
         check: "envelope", stream, shard: null, id: null,
@@ -123,12 +135,25 @@ export function verifyHome(home: string): Finding[] {
   for (const stream of STREAMS) {
     const events = byStream.get(stream) ?? [];
     const ids = new Set(events.map((e) => e.id));
+    const supersededBy = new Map<string, string>();
     for (const e of events) {
-      if (e.supersedes !== null && !ids.has(e.supersedes)) {
+      if (e.supersedes === null) continue;
+      if (!ids.has(e.supersedes)) {
         findings.push({
           check: "supersedes", stream, shard: shardFor(e.ts), id: e.id,
           message: `supersedes ${e.supersedes}, which does not exist in stream "${stream}"`,
         });
+      }
+      // Forked supersession: two successors over one target would both
+      // count as authoritative — double-counting hidden behind green.
+      const prior = supersededBy.get(e.supersedes);
+      if (prior !== undefined) {
+        findings.push({
+          check: "supersedes", stream, shard: shardFor(e.ts), id: e.id,
+          message: `supersedes ${e.supersedes}, already superseded by ${prior} — forked chain`,
+        });
+      } else {
+        supersededBy.set(e.supersedes, e.id);
       }
     }
   }
@@ -146,7 +171,12 @@ export function verifyHome(home: string): Finding[] {
       }
     }
     const est = e.estimate_without_claude_hours;
-    if (est && est.pre_registered && Date.parse(est.logged_at) > Date.parse(e.ts)) {
+    if (est && est.pre_registered && Number.isNaN(Date.parse(est.logged_at))) {
+      findings.push({
+        check: "pre_registration", stream: "ledger", shard: shardFor(e.ts), id: e.id,
+        message: `pre_registered estimate has no parseable logged_at (${String(est.logged_at)})`,
+      });
+    } else if (est && est.pre_registered && Date.parse(est.logged_at) > Date.parse(e.ts)) {
       findings.push({
         check: "pre_registration", stream: "ledger", shard: shardFor(e.ts), id: e.id,
         message: `pre_registered estimate logged_at ${est.logged_at} is after entry ts ${e.ts}`,

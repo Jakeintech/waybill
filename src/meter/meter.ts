@@ -54,11 +54,14 @@ export function priceTokens(
   // no match still means tokens_only — a rate is never guessed.
   const rates = resolveRate(config.pricing, model)?.rates;
   if (!version || !rates) return null;
-  // Legacy sources without the 5m/1h split: price all cache writes at the 5m rate.
+  // Legacy sources without the 5m/1h split price all cache writes at the
+  // 5m rate — and when a split is present but does not sum to
+  // cache_creation, the unsplit remainder is priced at 5m too rather than
+  // silently priced at zero (every counted token gets a priced bucket).
   const cc5m =
     tokens.cache_creation_5m === 0 && tokens.cache_creation_1h === 0
       ? tokens.cache_creation
-      : tokens.cache_creation_5m;
+      : Math.max(tokens.cache_creation - tokens.cache_creation_1h, 0);
   // Exact fixed-point arithmetic: rates in e4 (1/10000 USD) per mtok, so
   // token × rate products are integers and rounding is auditable — no float
   // half-case wobble. Rates with more than 4 decimals fall back to floats.
