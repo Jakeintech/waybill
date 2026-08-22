@@ -677,3 +677,30 @@ away). The two adapters follow the same honesty pattern as Linear and
 GitLab before them: conformance-tested on realistic fixtures, own-data
 verified, and the adapters table says plainly that live end-to-end runs
 are still welcome contributions.
+
+## 2026-08-22 — Releasing is declarative: a manifest on main, reconciled server-side (post-2.0)
+
+**Question.** The environment that builds releases can push branches but
+not tags (proxy policy), and cannot dispatch workflows. How do tags and
+GitHub releases get published without a human running git commands?
+
+**Choice.** `.github/releases.txt` — one `<tag> <sha>` line per
+release — and a reconciler workflow that runs on every change to it (or
+to itself) on main. Per entry it re-verifies the release's claims at the
+target sha (tag matches package.json; a CHANGELOG section exists — it
+becomes the release body), creates the tag and release server-side via
+the Actions token, never moves a published tag, pins the manifest's
+highest semver as latest, and falls back to staging a draft when a
+protected-tag rule refuses creation. Releasing = append a line, push
+main. A non-converged manifest keeps the run red on purpose — the
+reconciler's job is convergence, and a green run over unpublished
+entries would be a false receipt.
+
+**Rationale.** Same shape as everything else in this project: the
+desired state written down and checkable, the mechanism idempotent, the
+failure mode loud. It also survives the next constrained environment —
+any contributor who can land a commit on main can cut a release that
+still cannot dodge the version/CHANGELOG checks. Observed limit,
+recorded honestly: name-scoped tag rules bind the Actions token too
+(v1.x refused, v2.0.0 published), so backfilled tags under a protected
+pattern need the rule relaxed or an owner-side publish.
