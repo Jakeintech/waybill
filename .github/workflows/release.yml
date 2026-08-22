@@ -42,6 +42,7 @@ jobs:
           [ -n "$entries" ] || { echo "manifest is empty — nothing to reconcile"; exit 0; }
           maxtag="$(printf '%s\n' "$entries" | awk '{print $1}' | sort -V | tail -1)"
           fails=0
+          drafts=0
           while read -r tag sha _; do
             echo "── $tag @ $sha"
             case "$tag" in
@@ -66,9 +67,16 @@ jobs:
             if [ -n "$existing" ] && [ "$existing" != "$sha" ]; then
               echo "::error::$tag: already exists at $existing — published tags never move"; fails=$((fails+1)); continue
             fi
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # Drafts have no tag yet, so probe the releases list, not the tag.
+            state="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+              --jq ".[] | select(.tag_name==\"$tag\") | if .draft then \"draft\" else \"published\" end" 2>/dev/null | head -1)" || state=""
+            if [ "$state" = "published" ]; then
               echo "   release exists — untouched"
               continue
+            fi
+            if [ "$state" = "draft" ]; then
+              echo "::warning::$tag: draft already staged — publish it from the Releases UI (publishing creates the tag under your identity)"
+              drafts=$((drafts+1)); continue
             fi
             awk -v v="$version" '
               $0 ~ "^## \\[" v "\\]" { on=1; next }
@@ -79,10 +87,7 @@ jobs:
               "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" >> /tmp/body.md
             # One call creates the tag (at --target, when absent) AND the
             # release; guarded so one refusal never aborts the other
-            # entries. No --latest here: make_latest:"false" in the POST
-            # 403s for the Actions token (observed), so entries are
-            # created with server defaults and the manifest's max entry
-            # is pinned as latest once, after the loop.
+            # entries. Latest is pinned once, after the loop.
             target_flag=""
             [ -z "$existing" ] && target_flag="--target=$sha"
             if out="$(gh release create "$tag" \
@@ -92,9 +97,24 @@ jobs:
               $target_flag 2>&1)"; then
               echo "   release published: $out"
             else
-              echo "::error::$tag: release creation failed — $out"
-              echo "::notice::if this is 'Resource not accessible by integration', a repo setting is capping GITHUB_TOKEN: Settings → Actions → General → Workflow permissions → 'Read and write permissions' (or a tag ruleset needs an Actions bypass)"
-              fails=$((fails+1)); continue
+              # A 403 here is usually a protected-tag rule the Actions
+              # token can't satisfy. Fall back to a DRAFT: drafts create
+              # no tag, and publishing one from the UI creates the tag
+              # under the publisher's (admin) identity, which bypasses
+              # the protection. One click finishes it.
+              echo "   direct publish refused ($out) — staging a draft"
+              if out2="$(gh release create "$tag" \
+                --repo "$GITHUB_REPOSITORY" \
+                --draft \
+                --title "waybill $version" \
+                --notes-file /tmp/body.md \
+                --target "$sha" 2>&1)"; then
+                echo "::warning::$tag: staged as a DRAFT ($out2) — publish it from the Releases UI to create the tag"
+                drafts=$((drafts+1))
+              else
+                echo "::error::$tag: release creation failed — $out — and draft fallback failed — $out2"
+                fails=$((fails+1)); continue
+              fi
             fi
           done <<EOF_ENTRIES
           $entries
@@ -107,4 +127,5 @@ jobs:
               fails=$((fails+1))
             fi
           fi
+          [ "$drafts" -gt 0 ] && echo "::warning::$drafts release(s) staged as drafts — publish them from the Releases UI to finish"
           exit "$fails"
