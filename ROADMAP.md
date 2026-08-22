@@ -51,81 +51,112 @@ small payloads; MCP fallback kept), and a recorded architecture review
 The sections below record the original plan; the
 [CHANGELOG](CHANGELOG.md) records what shipped.
 
-## Foundation — 0.2.x (scaffold)
+## The committed path to complete
 
-- Core loop: pre-registered `log`, SessionEnd capture + transcript
-  mining, Jira/GitHub `sync`, `report` (token-pitch, perf-review,
-  sprint-recap, quarterly), `forecast`.
-- **Bootstrap report**: a facts-only report from ~90 days of tracker/git
-  history on first sync, so the first five minutes deliver value before any
-  habit change.
-- Gold-star repo baseline: CI, validator, tests, community health files.
+Recorded 2026-08-22, after the v1.5.0 release and its architecture review
+([docs/architecture.md](docs/architecture.md)). The completion thesis: a
+real waybill serves everyone who touches the shipment — the performance
+review is *one* reader of the receipts, not the product. The scope test
+above is unchanged; every item below passes it.
 
-## Next — 0.3 "Believable + Metered" (spec M0 + M1)
+### v1.6 "Salvage" — untracked AI work becomes first-class
 
-- **Trust scaffolding (M0)**: identity map, ledger init as a git repo with
-  monthly-sharded streams, transcript-retention check, git-local adapter +
-  bootstrap receipt (< 60 s, zero auth, zero config), SessionEnd hook with a
-  detached dependency-free miner, SHA-256 pre-registration escrow.
-- **Deterministic metering engine (M1)** (`bin/waybill.mjs meter`): exact
-  token counts from local session records, incremental with checkpoints,
-  retroactive ~90-day bootstrap, conservation check enforced in CI with
-  fixture transcripts.
-- **Attribution engine**: spend assigned to Jira stories/epics via the
-  pin → active-entry → transcript-evidence → branch → repo-default resolver
-  chain, confidence on every event, and an attribution inbox for ambiguity.
-- **Schema v2**: `usage.jsonl` fact stream, config pricing table, budgets
-  (additive — minor release).
+- **Salvage**: `waybill query untracked` deterministically clusters
+  unattributed sessions, branch-only spend, and adhoc accounts (repo +
+  branch affinity + time adjacency), each cluster carrying its receipts;
+  a `salvage` skill has Claude propose a title per cluster **from the
+  receipts only** and one tap appends reconstructed `opened→shipped`
+  entries marked as reconstructed. Pre-registration is never backfilled —
+  salvage produces facts, not fake tier-3 estimates.
+- **Conventions**: `waybill conventions` prints a receipt-friendly
+  CLAUDE.md block (key-prefixed branches/commits, closing keywords in PR
+  bodies, the "log it" habit) and a `commit-msg` hook template — resolver
+  confidence rises because the inputs improve. Salvage fixes the past;
+  this prevents the future.
+- **The zero-token dashboard**: `waybill dashboard` templates a
+  self-contained static page into `rollups/dashboard.html` (spend,
+  pacing, open-work manifest, 7-day standup), refreshed by the detached
+  miner — reading your own numbers costs no tokens, ever.
+- **Manifest & demurrage**: `query manifest` shows what's still on the
+  truck (open entries, open spend, age); an item sitting too long earns
+  one factual line in `status`.
+- **The lightweight doctrine**: the meter tags turns that invoke the
+  waybill binary itself, so `spend` can print the receipt that proves the
+  plugin's near-zero overhead — the accountant bills for its own hours,
+  itemized.
+- **One strict timestamp module** — the architecture review's top
+  recommendation, retiring the duplicate-window-logic failure class.
 
-## Then — 0.4 "Answerable" (spec M2)
+### v1.7 "Bill of lading" — arm the recipient
 
-- **`spend` skill**: "where am I spending", "what did PLAT-482 cost",
-  "how's my burn", one-tap attribution-exception resolution.
-- **Budgets & pacing** against the allocation and optional per-epic
-  envelopes, surfaced without nagging.
-- **Spend ledger** section in the token pitch; **metered rates** in the
-  forecast (manual token entry becomes an override, not a requirement).
-- **OpenTelemetry as secondary source** for sessions without transcripts.
-- **Confluence publisher** (opt-in) and the **first community adapter**
-  (Linear or GitLab), with a tested-config table in `docs/adapters.md`.
+- **Verification pack**: `export --pack` bundles a report with the event
+  lines it cites and a one-command check, so the *recipient* of a pitch
+  or review packet re-runs conservation and escrow themselves.
+- **Cache economics** (what cache reads saved vs. uncached list price,
+  labeled derived) and **model mix** (tokens-per-shipped-point by model,
+  own history only).
+- **Estimate calibration** (pre-registered ranges vs. actuals over time)
+  and a **retro skill** rendering the honest sprint-retro pack.
+- **Multi-machine ledger**: documented private-remote sync for the ledger
+  home; `status` reports configured/ahead/behind.
+- **Own-data loop closed**: a conformance-kit identity-scoping check plus
+  a test running the sync skill's exact documented fetch shapes through
+  the adapters.
 
-## Later — 1.0 "Trustworthy at scale" (spec M3)
+### v1.8 "Many readers" — the same receipts, new audiences
 
-- **Skill trigger evals in CI**: scripted `claude -p` checks that each
-  skill's description actually triggers on its canonical phrases (skills
-  chronically undertrigger; descriptions are the UI).
-- **Per-account waste diagnostics**: deterministic detection of retry loops
-  and duplicate reads over tool-call patterns, rolled up per story — what
-  this story's tokens bought, and what they wasted.
-- **Rework/reopen tracking** on Claude-assisted items (quality
-  counterevidence — the "but is the code good?" answer).
-- **Allocation-cycle automation**: a scheduled reminder flow that drafts the
-  pitch N days before each grant renewal recorded in `config.json`.
-- **Export packs**: perf-review output as Markdown from the report skill;
-  spend ledger as CSV/JSON via `waybill export`. *(Shipped 1.0/1.1.)*
-- **Schema freeze** and a documented migration policy.
+Rendering presets over data the engine already holds: **invoice pack**
+(freelancers/agencies: shipped items + hour ranges + AI costs as
+client-billable line items), **expense receipt** (personal-key tokens
+priced monthly, CSV for finance), **AI-disclosure register** (per shipped
+item: claude_role, sessions, token share — the "was AI used here?"
+answer, owned by the IC and handed over per item), **maintainer grant
+report** (what the sponsorship shipped), **portable career ledger**
+(externally-redacted full export that follows your career), and an
+**incident-receipts recipe** (a windowed report over the incident
+timeframe).
 
-## Exploring (not committed)
+### v2.0 "Delivered" — the free side complete
 
-- **Team mode, opt-in only**: individuals *choose* to publish their ledgers
-  to a shared warehouse; semantic views (e.g. Snowflake) bridge tracker +
-  git + usage domains for org-level AI ROI analytics. Ships only with an
-  explicit consent model — aggregation must be a gift from ICs, never a tap
-  on them. This is where the original "semantic analytics over Snowflake
-  semantic layers" idea lives.
+- Coverage matrix filled: Azure DevOps and Bitbucket adapters
+  (conformance-tested), a Windows story for the hooks, the OTel
+  live-export recipe.
+- The distribution checklist below executed in full.
+- The remaining architecture-review recommendations closed; the release
+  gate self-verifying (test counts, doc links, eval criteria).
+- After v2.0 the OSS project is **complete**: changes are upkeep, not
+  construction.
+
+## Beyond the free side (not part of the OSS project)
+
+**Waybill Premium** — the org-side product the receipts make possible,
+grown from the old "team mode, opt-in only" exploration: a consent
+warehouse (individuals *choose* to publish redacted ledgers — aggregation
+is a gift from ICs, never a tap on them), org rate cards replacing
+list-price equivalence, a budget desk for account managers (allocations,
+renewal calendars, pitch inboxes arriving as verification packs),
+showback and procurement views, and compliance roll-ups with SSO and
+retention. Built against the frozen receipt schema as a separate product,
+so the free side stays whole and finished without it. The rule that makes
+both sides work: **premium never sees a number an individual didn't
+publish, and free never loses a feature to upsell.**
+
 
 ## Non-goals
 
-Permanent, by design — these are the product's promises:
+Permanent, by design — these are the OSS product's promises. A premium
+org-side product (above) never weakens them: its views exist only over
+ledgers individuals chose to publish.
 
 - No manager dashboards, surveillance, or activity monitoring.
 - No individual peer comparison or ranking, ever.
 - No hosted service, accounts, or telemetry; data stays local.
 - No time tracking (outcomes and estimates, not keystrokes).
 - No support for backfilling `pre_registered: true` — the tier system is
-  only worth something if it cannot be gamed.
+  only worth something if it cannot be gamed. Salvage (v1.6) reconstructs
+  facts; it never forges estimates.
 
-## Distribution checklist (0.2 launch)
+## Distribution checklist (executed at v2.0)
 
 - [ ] GitHub repo description starts with "Claude Code plugin"; topics set:
       `claude`, `claude-code`, `claude-plugin`, `mcp`, `jira`, `github`,
