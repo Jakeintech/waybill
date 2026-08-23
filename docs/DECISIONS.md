@@ -5,6 +5,115 @@ brief conflicts with the scaffold the brief wins; where neither resolves a
 question, the choice that best preserves checkability and local-first privacy
 wins. Format: date, question, choice, rationale.
 
+## 2026-08-23 — Subagent transcripts: composite session ids, no version bump (2.1.0)
+
+**Question.** Subagent transcripts carry the parent's sessionId on every
+line; metering them verbatim would collide checkpoints, receipts, and
+per-(turn, model) usage grains with the parent's. Fold them into the
+parent's receipt, or meter them as sessions of their own?
+
+**Choice.** Sessions of their own under `<parent>:agent-<agentId>`, the
+agentId adopted only from the same line that supplies sessionId (so a
+main transcript's inline sidechains never re-identify the file). No
+`METER_LOGIC_VERSION` bump: subagent files are newly discovered
+transcripts with fresh checkpoints, and no existing session's events
+change. A whole-session pin on the parent also matches its subagents —
+a no-op for every plain id, which is why `RULES_VERSION` stays "2".
+User-facing session counts group by root id; packs include sessions
+whole together with their subagent events.
+
+**Rationale.** Folding would have required the parent's meter run to
+read sibling files (breaking one-file-one-checkpoint incrementality)
+and re-derive receipts as subagents grow. Composite identity keeps
+conservation per file, upgrade cost at zero, and recorded pin intent
+intact — the alternative silently unattributes pinned sessions' newly
+discovered spend.
+
+## 2026-08-23 — Verify gains a warnings channel (2.1.0)
+
+**Question.** E-01's write-time-lag disclosure, E-11's meter gaps, and
+E-14's multi-repo sessions all need verify to *say* something that is
+not an integrity failure — and packs must not become unbuildable over
+disclosures.
+
+**Choice.** `Finding.severity?: "warning"`: absent means error (exit 1,
+packs refuse); warning means disclosed — rendered by `verify` and
+`status`, exit 0, packs build and carry the disclosure to the
+recipient, where their own `verify` re-surfaces it.
+
+**Rationale.** The alternative was overloading errors (green becomes
+unreachable for legitimate ledgers) or silence (green quietly means
+"minus whatever is missing"). A disclosure channel is the product's own
+posture — unattributed is shown, never hidden — applied to verify.
+
+## 2026-08-23 — appended_at is engine-stamped; idempotency by content-minus-stamp (2.1.0)
+
+**Question.** A wall-clock witness on ledger entries changes the bytes
+of otherwise-identical appends, breaking the append path's
+duplicate-by-id idempotency; and a caller-supplied stamp is worthless
+as a witness.
+
+**Choice.** `waybill append` refuses `appended_at` in the body, stamps
+it itself (`--now` injectable at the CLI edge), and detects duplicates
+by canonical content with the stamp (and id) stripped, reporting the
+id already on disk. Client-side id prediction is explicitly not a
+supported flow — skills read the id append returns.
+
+**Rationale.** The stamp is only evidence if the write path owns it;
+retried appends staying no-ops is a behavior tests and skills rely on;
+and ids remaining full-content hashes keeps `verify`'s id determinism
+untouched.
+
+## 2026-08-23 — SessionStart precomputes instead of detaching (2.1.0)
+
+**Question.** E-12 asked for a bare `&` on the SessionStart hook so
+"neither hook blocks" becomes true — but a detached hook's stdout never
+reaches the session, which would silently kill the notice feature.
+
+**Choice.** The miner (already detached at SessionEnd) computes the
+notice and queues it to `rollups/next-notice`; the hook becomes pure
+shell (serve, consume, exit) and owns only the static not-initialized
+nudge. Notice timing is unchanged: thresholds cross when tokens land,
+which is mine time.
+
+**Rationale.** The instruction's goal (session start never taxed with
+engine work) is met without the instruction's mechanism (which would
+have broken the feature it was protecting). Recorded because it is a
+deliberate deviation from the written fix.
+
+## 2026-08-23 — De-slop ships .mailmap; history rewrite stays human-only (2.1.0)
+
+**Question.** E-06 asks for `git filter-repo --mailmap` over the
+tool-default "Claude" commit authorship — a push-rewriting action.
+
+**Choice.** Commit `.mailmap` (fixes shortlog/blame/log display
+immediately, no history rewrite); propose the one-time `filter-repo`
+run in the release handoff as a repo-owner action. New commits are
+authored under the maintainer identity with Claude disclosed via
+Co-Authored-By trailers.
+
+**Rationale.** History rewrites are irreversible and owner-gated by the
+work order's own checkpoint; `.mailmap` delivers the visible outcome
+now without touching published history.
+
+## 2026-08-23 — positioning.md may name competitors; brand rule narrowed (2.1.0)
+
+**Question.** brand.md said competing tools are never named in
+repo-facing material; the 2.1.0 positioning work requires a dated,
+evidence-tiered survey that names them precisely so the claim stays
+falsifiable.
+
+**Choice.** The category-only rule now governs promotional surfaces
+(README, launch posts, submission blurbs); docs/positioning.md is the
+recorded exception — a reference document whose competitor rows are
+labeled third-party claims as of their date, Judgment tier until
+re-checked.
+
+**Rationale.** An unfalsifiable claim is what got the old positioning
+into trouble; naming names with dates and tier labels is the honest
+form of the comparison, and honesty outranks the style rule that
+existed to prevent cheap shots.
+
 ## 2026-08-16 — Brief §4–§12 detail reconstructed
 
 **Question.** The dispatched copy of the FINALPASS brief abbreviates §4–§12

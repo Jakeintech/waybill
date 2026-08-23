@@ -5978,7 +5978,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "2.0.0" : "dev";
+var ENGINE_VERSION = true ? "2.1.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]

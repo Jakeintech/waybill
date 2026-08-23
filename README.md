@@ -32,26 +32,28 @@ IDENTITY  info@jakeawilliams.com
 
 REPO      Jakeintech/waybill
 ITEMS
-  COMMITS                  30
+  COMMITS                  43
   MERGES                    0
   ACTIVE DAYS               3
   FIRST → LAST    2026-08-16 → 2026-08-23
+  TRACKER KEYS    WB-05 ×1
 
-SUBTOTAL  30 commit(s) across 1 repo(s)
+SUBTOTAL  43 commit(s) across 1 repo(s)
 TOKENS    1 metered session(s)
-  INPUT                       326
-  OUTPUT                  126,373
-  CACHE READ           37,285,083
-  CACHE WRITE             370,267
-  unattributed         37,782,049
+  INPUT                       608
+  OUTPUT                  255,071
+  CACHE READ          102,428,828
+  CACHE WRITE             604,563
+  unattributed        103,289,070
 ────────────────────────────────────────
 EVIDENCE TIER: FACTS (LOCAL GIT LOG · METERED TRANSCRIPTS)
 RANGES NOT MIDPOINTS · NOTHING PADDED · UNATTRIBUTED SHOWN
 ```
 
-Look at the shape of that spend before the claims: **98.7% of this
-session's tokens were cache reads** — billed at a tenth of the input
-rate, invisible in a "tokens used" headline. Receipts change what you
+Look at the shape of that spend before the claims: **99.2% of this
+session's tokens were cache reads** (`query cache` on the same ledger)
+— billed at a tenth of the input rate, invisible in a "tokens used"
+headline. Receipts change what you
 even think to ask. And the unattributed line is the point: nothing is
 hidden, and the [attribution ladder](docs/architecture.md) plus one-tap
 pins move spend onto the stories it served as you work.

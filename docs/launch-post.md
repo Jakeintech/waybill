@@ -38,20 +38,20 @@ release 2.1.0:
 
 ```json
 "tokens": {
-  "input": 562,
-  "output": 228680,
-  "cache_read": 89397106,
-  "cache_creation": 567392,
+  "input": 608,
+  "output": 255071,
+  "cache_read": 102428828,
+  "cache_creation": 604563,
   "cache_creation_5m": 19028,
-  "cache_creation_1h": 548364
+  "cache_creation_1h": 585535
 },
-"total_tokens": 90193740,
-"cache_read_pct": 99.1,
+"total_tokens": 103289070,
+"cache_read_pct": 99.2,
 "billed": {
-  "effective_usd": 111.8021,
-  "list_equivalent_usd": 910.7393,
-  "saved_usd": 798.9373,
-  "cache_read_share_of_billed_pct": 79.9,
+  "effective_usd": 126.8972,
+  "list_equivalent_usd": 1042.7483,
+  "saved_usd": 915.8511,
+  "cache_read_share_of_billed_pct": 80.7,
   "covered_pct": 100,
   "basis": "list_price_equivalent_derived"
 },
@@ -60,12 +60,12 @@ release 2.1.0:
 
 Three things I did not expect to be *this* pronounced:
 
-1. **99.1% of the tokens were cache reads.** "90 million tokens" sounds
-   alarming until the receipt shows the shape: 89.4M of them were cache
-   reads billed at a tenth of the input rate. Actual typed input across
-   the whole build: 562 tokens. The headline number everyone quotes —
+1. **99.2% of the tokens were cache reads.** "103 million tokens"
+   sounds alarming until the receipt shows the shape: 102.4M of them
+   were cache reads billed at a tenth of the input rate. Actual typed
+   input across the whole build: 608 tokens. The headline number everyone quotes —
    "tokens used" — is almost entirely the cheapest class.
-2. **The effective bill was $111.80 against a $910.74 list-equivalent**
+2. **The effective bill was $126.90 against a $1,042.75 list-equivalent**
    for the same volume uncached — a derived figure, computed from the
    current rate table and labeled so (`basis:
    "list_price_equivalent_derived"`), write premiums (1.25× for

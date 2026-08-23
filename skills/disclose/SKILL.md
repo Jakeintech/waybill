@@ -11,7 +11,7 @@ description: >
   share, evidence line. Owned by the individual and handed over per item —
   never a surveillance feed.
 metadata:
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Disclose

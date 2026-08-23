@@ -1,15 +1,52 @@
-# Validation — FINALPASS gate (v2.0.0; earlier release evidence retained below)
+# Validation — release gate (v2.1.0; earlier release evidence retained below)
 
-## Gate results (2026-08-22, Linux/Node 22 dev container; CI mirrors on Ubuntu/Node 24)
+## Gate results (2026-08-23, Linux/Node 22 remote container; CI mirrors on Ubuntu/Node 24)
 
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict) | clean |
-| `node --test` full suite | **224 / 224 pass** (2.1 batch so far: subagent-transcript metering with exact-sum fixtures, append clock check + verify warnings, demo static-render pins, init-time metering, shared-walk stream cache equivalence, meter-gap disclosure, precomputed session notices, multi-repo warnings, the cache projection's exact-arithmetic fixtures; v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
+| `node --test` full suite | **224 / 224 pass** (2.1 batch: subagent-transcript metering with exact-sum fixtures, append clock check + verify warnings, demo static-render pins, init-time metering, shared-walk stream cache equivalence, meter-gap disclosure, precomputed session notices, multi-repo warnings, the cache projection's exact-arithmetic fixtures; v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
 | Reproducible build + zero bin diff | pass |
 | `scripts/validate-plugin.sh` | pass |
+| `claude plugin validate --strict`, both manifests (root = marketplace; tree minus marketplace.json = plugin) | pass / pass |
 | `scripts/release-gate.sh` (`npm run gate` — the release's claims about itself, checked mechanically) | pass |
 | Hook suite | 7 / 7 pass |
+| shellcheck over `scripts/*.sh` + the hook test | clean |
+
+## 2.1.0 DoD — launch-readiness
+
+- Subagent metering is pinned by an exact-sum fixture tree (main + two
+  agent files, streamed duplicates deduped, sidecar meta ignored): every
+  usage event counted once, per-session conservation green with
+  composite ids, the duplicate-session guard never swallows an agent
+  file, fast-path skips on re-walk, and a parent pin covers agents
+  (tests/unit/meter-subagents.test.ts). Shared-walk stream reads are
+  byte-identical to per-file reloads (meter-cache.test.ts).
+- The clock check is tested at both edges: a future-dated
+  pre-registration exits 2; a >48h logged_at→appended_at lag warns and
+  never fails; backfilled facts entries and pre-2.1 events cannot trip
+  it; retried appends stay idempotent by content-minus-stamp
+  (append-clock.test.ts).
+- Meter gaps and multi-repo sessions surface as verify warnings and
+  travel in packs (meter-gap.test.ts, multi-repo.test.ts); packs build
+  over warnings and disclose gap counts.
+- The demo's static-render, hold-final-frame, cold-open, and
+  no-external-request properties are pinned (demo-asset.test.ts);
+  init-time metering with progress, --json purity, and quiet-when-empty
+  are pinned (init-meter.test.ts); the precomputed-notice path is
+  exercised end to end including the pure-shell hook
+  (session-notice.test.ts).
+- `query cache` arithmetic is hand-derivable against the golden rates
+  (0.1× read, 1.25×/2× writes), null-not-$0 on unpriced models and
+  empty tables, honesty fields on the envelope (cache.test.ts).
+- Every number in README's receipt block and docs/launch-post.md is
+  raw engine output with the generating command recorded (bootstrap,
+  query cache, query spend) — none retyped, none adjusted.
+- Deferred with evidence: trigger evals for the new phrasings exist but
+  run only where an authenticated `claude plugin eval` is available
+  (CI/RUN_TRIGGER_EVALS or the maintainer's machine); GitHub-side
+  actions (label rename, issue filing, social-preview upload,
+  filter-repo) are listed in the 2.1.0 release handoff.
 
 ## 2.0.0 DoD — "Delivered"
 

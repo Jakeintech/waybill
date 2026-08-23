@@ -5,7 +5,105 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
-## [2.0.0] - 2026-08-22
+## [2.1.0] - 2026-08-23
+
+The launch-readiness release: the meter now sees everything Claude Code
+writes, the security prose says exactly what the mechanisms do, and the
+launch numbers come from the engine metering the session that built this
+release. Minor per the [migration policy](docs/migration.md): every
+schema change is an additive optional field; no existing event re-derives
+differently; no migration.
+
+**Historical totals will grow on upgrade — that is the fix working.**
+Subagent transcripts were previously invisible to the meter (on one
+measured real session, 28.6M of 41.8M tokens went uncounted). The next
+`mine`/`meter --all` discovers them as new sessions with their own
+checkpoints — no blanket re-meter, no `METER_LOGIC_VERSION` bump, and
+your existing sessions' events are untouched.
+
+### Fixed
+- **Subagent transcripts metered** (E-02) — the walk, the SessionEnd
+  queue path, and `--transcript` now discover
+  `projects/<proj>/<session>/subagents/*.jsonl`. Each meters as a
+  session of its own under a composite id (`<parent>:agent-<id>`), with
+  its own receipt, checkpoint, and conservation check; a whole-session
+  pin on the parent covers its subagents; user-facing session counts
+  group by root session; packs include a session whole together with
+  its subagent events.
+- **Three overclaiming sentences rewritten to the mechanisms** (E-01) —
+  the pack README no longer claims a backdated estimate "fails the
+  seal" (the seal proves no edits since a copy was shared, not when the
+  estimate was written); the README states conservation is an
+  internal-consistency guarantee that cannot detect undercounting at
+  the source; the architecture doc describes the escrow payload order
+  as a field-shift/delimiter-injection defense, not "structurally
+  impossible". Write-time ordering is now enforced where a wall clock
+  exists: append refuses a future-dated `logged_at` (5-minute skew),
+  stamps ledger entries with an additive `appended_at` witness, and
+  `verify` discloses — as a warning, never a failure — a pre-registered
+  estimate written more than 48h after its claimed `logged_at`.
+  Backfilled sync facts entries carry no estimate and no stamp, so they
+  cannot trip it. External time anchoring is roadmap, recorded.
+- **The demo renders everywhere** (E-03) — base opacity 1, so renderers
+  that don't run CSS animation in `<img>` (Firefox on GitHub, previews)
+  show the complete static transcript; animated playback cold-opens on
+  the payoff frame and holds the finished transcript instead of fading
+  to nothing.
+- **Meter gaps reach verify and every pack** (E-11) — sessions whose
+  transcripts were pruned or unreadable before metering are disclosed
+  as verify warnings and travel in packs (`gap_sessions` in pack.json,
+  a "what the totals do not contain" line in the pack README) instead
+  of being silently absent behind green.
+- **SessionStart runs no engine work** (E-12) — the miner precomputes
+  the pacing/renewal/first-run notice at mine time (which is when
+  thresholds actually cross) into `rollups/next-notice`; the hook is
+  pure shell: serve the file, consume it, exit. The not-initialized
+  nudge is owned by the hook itself. `pace --notice` is unchanged.
+- **First receipt contains tokens** (E-04) — `init` meters every
+  existing transcript (subagents included) with a progress line, so
+  months of history are visible immediately; the README shows the real
+  receipt this produced for this very repo (E-05), and the install
+  block says to restart Claude Code (E-07).
+- **PAT guidance unified on fine-grained read-only** (E-13); the
+  `waybill`-not-on-PATH answer documented (E-08); `good first issue`
+  labeling fixed (E-09); bug intake asks nothing users can't do (E-16).
+
+### Added
+- **`query cache` + the `cache` skill** (S-04) — what the bill is
+  actually made of: volume by class with the 5m/1h write split, the
+  cache-read share, per-model rows, and a derived effective-vs-list
+  cost view (labeled `list_price_equivalent_derived`, net of write
+  premiums, coverage disclosed). Triggers on "why is my bill like
+  this"; trigger + negative evals included.
+- **Multi-repo session disclosure** (E-14, warn-only) — receipts record
+  every working directory seen (additive `cwds`, present only when >1);
+  `verify` warns that such a session's spend is attributed via the
+  first cwd only. The per-turn split is future work, tracked.
+- **A warnings channel in verify** — findings can carry
+  `severity: "warning"`: disclosed by `verify` and `status`, never
+  fatal, never blocking packs. Used by the write-time-lag, meter-gap,
+  and multi-repo disclosures.
+- **Evidence-tier mix in `status`** (S-05) — one line: points shipped,
+  points with pre-registered estimates, points facts-only.
+- **Capability phrasing** (E-15) — "what can waybill do", "waybill
+  help", "show me my dashboard" trigger the right skills, with evals.
+
+### Changed
+- **Positioning reframed to the defensible claim** (S-01) — receipts,
+  not estimates; the absolute "unserved / no tooling" language is gone
+  repo-wide. The dated, evidence-tiered field survey lives in
+  [docs/positioning.md](docs/positioning.md); the README first screen
+  leads with the install unit, the real receipt, and the cache-read
+  share (S-02). The launch post carries only engine-generated numbers,
+  unattributed share included (S-03).
+- **Walks share one stream read** (E-10) — `mine`, `meter --all`, and
+  init's first-run pass load the four streams once per walk instead of
+  once per transcript (byte-identical output, tested).
+- ROADMAP, DECISIONS, and VALIDATION moved under `docs/`; the
+  pre-2.0 changelog folded into a details block; `.mailmap` normalizes
+  tool-default commit authorship (E-06).
+
+
 
 "Delivered": the free side complete — the final release of the committed
 path ([ROADMAP](docs/ROADMAP.md)). The major version marks scope completion,

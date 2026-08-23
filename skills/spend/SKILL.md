@@ -10,7 +10,7 @@ description: >
   usage by model, week, epic, or story. Answers come from the local
   metered ledger — deterministic numbers, never estimates.
 metadata:
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Spend

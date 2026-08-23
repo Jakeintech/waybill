@@ -22,6 +22,23 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](product-spec.md).
 
+## Shipped — 2.1.0 (2026-08)
+
+The launch-readiness release: subagent transcripts metered (the largest
+single correctness fix the meter has had — previously invisible spend
+now counts, as newly discovered sessions, no re-meter), verification
+prose aligned with what each mechanism actually proves (plus a
+write-time clock check and a verify warnings channel), meter gaps and
+multi-repo sessions disclosed in verify and packs, `init` metering
+history so the first receipt carries tokens, the `cache` skill and
+`query cache` ("why is my bill like this" — the launch statistic's
+engine), the SessionStart hook reduced to pure shell over a
+miner-precomputed notice, positioning reframed to the defensible
+receipts-not-estimates claim with a dated field survey
+([positioning](positioning.md)), and four future directions written
+down as design docs (`docs/design/`) instead of code. Full detail:
+[CHANGELOG](../CHANGELOG.md).
+
 ## Shipped — 2.0.0 (2026-08)
 
 0.3 "Believable + Metered" (M0+M1), 0.4 "Answerable" (M2), and 1.0
