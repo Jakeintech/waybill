@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <!-- waybill social preview (WB-05): the card is simply a receipt —
+       paper cream, ink black, one audit-highlighter accent (the honesty
+       line), the demo's final (post-E-03) frame as the itemized record.
+       1280x640; upload in repo Settings -> Social preview (human step). -->
+  <rect width="1280" height="640" fill="#F7F2E7"/>
+  <circle cx="28" cy="0" r="6" fill="#EFE9DA"/><circle cx="52" cy="0" r="6" fill="#EFE9DA"/><circle cx="76" cy="0" r="6" fill="#EFE9DA"/><circle cx="100" cy="0" r="6" fill="#EFE9DA"/><circle cx="124" cy="0" r="6" fill="#EFE9DA"/><circle cx="148" cy="0" r="6" fill="#EFE9DA"/><circle cx="172" cy="0" r="6" fill="#EFE9DA"/><circle cx="196" cy="0" r="6" fill="#EFE9DA"/><circle cx="220" cy="0" r="6" fill="#EFE9DA"/><circle cx="244" cy="0" r="6" fill="#EFE9DA"/><circle cx="268" cy="0" r="6" fill="#EFE9DA"/><circle cx="292" cy="0" r="6" fill="#EFE9DA"/><circle cx="316" cy="0" r="6" fill="#EFE9DA"/><circle cx="340" cy="0" r="6" fill="#EFE9DA"/><circle cx="364" cy="0" r="6" fill="#EFE9DA"/><circle cx="388" cy="0" r="6" fill="#EFE9DA"/><circle cx="412" cy="0" r="6" fill="#EFE9DA"/><circle cx="436" cy="0" r="6" fill="#EFE9DA"/><circle cx="460" cy="0" r="6" fill="#EFE9DA"/><circle cx="484" cy="0" r="6" fill="#EFE9DA"/><circle cx="508" cy="0" r="6" fill="#EFE9DA"/><circle cx="532" cy="0" r="6" fill="#EFE9DA"/><circle cx="556" cy="0" r="6" fill="#EFE9DA"/><circle cx="580" cy="0" r="6" fill="#EFE9DA"/><circle cx="604" cy="0" r="6" fill="#EFE9DA"/><circle cx="628" cy="0" r="6" fill="#EFE9DA"/><circle cx="652" cy="0" r="6" fill="#EFE9DA"/><circle cx="676" cy="0" r="6" fill="#EFE9DA"/><circle cx="700" cy="0" r="6" fill="#EFE9DA"/><circle cx="724" cy="0" r="6" fill="#EFE9DA"/><circle cx="748" cy="0" r="6" fill="#EFE9DA"/><circle cx="772" cy="0" r="6" fill="#EFE9DA"/><circle cx="796" cy="0" r="6" fill="#EFE9DA"/><circle cx="820" cy="0" r="6" fill="#EFE9DA"/><circle cx="844" cy="0" r="6" fill="#EFE9DA"/><circle cx="868" cy="0" r="6" fill="#EFE9DA"/><circle cx="892" cy="0" r="6" fill="#EFE9DA"/><circle cx="916" cy="0" r="6" fill="#EFE9DA"/><circle cx="940" cy="0" r="6" fill="#EFE9DA"/><circle cx="964" cy="0" r="6" fill="#EFE9DA"/><circle cx="988" cy="0" r="6" fill="#EFE9DA"/><circle cx="1012" cy="0" r="6" fill="#EFE9DA"/><circle cx="1036" cy="0" r="6" fill="#EFE9DA"/><circle cx="1060" cy="0" r="6" fill="#EFE9DA"/><circle cx="1084" cy="0" r="6" fill="#EFE9DA"/><circle cx="1108" cy="0" r="6" fill="#EFE9DA"/><circle cx="1132" cy="0" r="6" fill="#EFE9DA"/><circle cx="1156" cy="0" r="6" fill="#EFE9DA"/><circle cx="1180" cy="0" r="6" fill="#EFE9DA"/><circle cx="1204" cy="0" r="6" fill="#EFE9DA"/><circle cx="1228" cy="0" r="6" fill="#EFE9DA"/><circle cx="1252" cy="0" r="6" fill="#EFE9DA"/><circle cx="1276" cy="0" r="6" fill="#EFE9DA"/>
+  <circle cx="28" cy="640" r="6" fill="#EFE9DA"/><circle cx="52" cy="640" r="6" fill="#EFE9DA"/><circle cx="76" cy="640" r="6" fill="#EFE9DA"/><circle cx="100" cy="640" r="6" fill="#EFE9DA"/><circle cx="124" cy="640" r="6" fill="#EFE9DA"/><circle cx="148" cy="640" r="6" fill="#EFE9DA"/><circle cx="172" cy="640" r="6" fill="#EFE9DA"/><circle cx="196" cy="640" r="6" fill="#EFE9DA"/><circle cx="220" cy="640" r="6" fill="#EFE9DA"/><circle cx="244" cy="640" r="6" fill="#EFE9DA"/><circle cx="268" cy="640" r="6" fill="#EFE9DA"/><circle cx="292" cy="640" r="6" fill="#EFE9DA"/><circle cx="316" cy="640" r="6" fill="#EFE9DA"/><circle cx="340" cy="640" r="6" fill="#EFE9DA"/><circle cx="364" cy="640" r="6" fill="#EFE9DA"/><circle cx="388" cy="640" r="6" fill="#EFE9DA"/><circle cx="412" cy="640" r="6" fill="#EFE9DA"/><circle cx="436" cy="640" r="6" fill="#EFE9DA"/><circle cx="460" cy="640" r="6" fill="#EFE9DA"/><circle cx="484" cy="640" r="6" fill="#EFE9DA"/><circle cx="508" cy="640" r="6" fill="#EFE9DA"/><circle cx="532" cy="640" r="6" fill="#EFE9DA"/><circle cx="556" cy="640" r="6" fill="#EFE9DA"/><circle cx="580" cy="640" r="6" fill="#EFE9DA"/><circle cx="604" cy="640" r="6" fill="#EFE9DA"/><circle cx="628" cy="640" r="6" fill="#EFE9DA"/><circle cx="652" cy="640" r="6" fill="#EFE9DA"/><circle cx="676" cy="640" r="6" fill="#EFE9DA"/><circle cx="700" cy="640" r="6" fill="#EFE9DA"/><circle cx="724" cy="640" r="6" fill="#EFE9DA"/><circle cx="748" cy="640" r="6" fill="#EFE9DA"/><circle cx="772" cy="640" r="6" fill="#EFE9DA"/><circle cx="796" cy="640" r="6" fill="#EFE9DA"/><circle cx="820" cy="640" r="6" fill="#EFE9DA"/><circle cx="844" cy="640" r="6" fill="#EFE9DA"/><circle cx="868" cy="640" r="6" fill="#EFE9DA"/><circle cx="892" cy="640" r="6" fill="#EFE9DA"/><circle cx="916" cy="640" r="6" fill="#EFE9DA"/><circle cx="940" cy="640" r="6" fill="#EFE9DA"/><circle cx="964" cy="640" r="6" fill="#EFE9DA"/><circle cx="988" cy="640" r="6" fill="#EFE9DA"/><circle cx="1012" cy="640" r="6" fill="#EFE9DA"/><circle cx="1036" cy="640" r="6" fill="#EFE9DA"/><circle cx="1060" cy="640" r="6" fill="#EFE9DA"/><circle cx="1084" cy="640" r="6" fill="#EFE9DA"/><circle cx="1108" cy="640" r="6" fill="#EFE9DA"/><circle cx="1132" cy="640" r="6" fill="#EFE9DA"/><circle cx="1156" cy="640" r="6" fill="#EFE9DA"/><circle cx="1180" cy="640" r="6" fill="#EFE9DA"/><circle cx="1204" cy="640" r="6" fill="#EFE9DA"/><circle cx="1228" cy="640" r="6" fill="#EFE9DA"/><circle cx="1252" cy="640" r="6" fill="#EFE9DA"/><circle cx="1276" cy="640" r="6" fill="#EFE9DA"/>
+  <text x="64" y="86" font-size="42" font-weight="700" fill="#161514">waybill</text>
+  <text x="64" y="120" font-size="20" fill="#6B655A">token accounting</text>
+  <text x="64" y="146" font-size="20" fill="#6B655A">for AI-assisted work</text>
+  <text x="64" y="196" font-size="19" fill="#161514">ITEMS</text>
+  <text x="64" y="228" font-size="16" fill="#3A362F">metering      deterministic</text>
+  <text x="64" y="254" font-size="16" fill="#3A362F">attribution   per story, conf. shown</text>
+  <text x="64" y="280" font-size="16" fill="#3A362F">verification  offline, recipient-run</text>
+  <text x="64" y="332" font-size="19" fill="#161514">SUBTOTAL</text>
+  <rect x="58" y="346" width="248" height="30" fill="#F0C674"/>
+  <text x="64" y="368" font-size="17" font-weight="700" fill="#161514">unattributed: shown</text>
+  <text x="64" y="430" font-size="14" fill="#6B655A">EVIDENCE TIER: FACTS</text>
+  <text x="64" y="454" font-size="14" fill="#6B655A">RANGES NOT MIDPOINTS</text>
+  <text x="64" y="478" font-size="14" fill="#6B655A">NOTHING PADDED</text>
+  <text x="64" y="556" font-size="16" fill="#161514">github.com/Jakeintech/waybill</text>
+  <text x="64" y="582" font-size="14" fill="#6B655A">MIT · local-first · no telemetry</text>
+  <g transform="translate(490, 104) scale(0.9)">
+    <svg width="800" height="484" viewBox="0 0 800 484" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13">
+  <!-- waybill demo: sync → standup → token pitch → verify. Pure SVG/CSS,
+       no scripts, no external requests; demo data. 36s loop.
+       Base opacity is 1 (E-03): wherever CSS animation doesn't run
+       (Firefox <img>, previews, thumbnails), the full static transcript
+       renders. Animated playback cold-opens on the payoff frame (the
+       token-pitch numbers, visible from 0s), clears into the story, and
+       holds the finished transcript instead of fading to nothing — the
+       payoff groups stay lit across the loop boundary. -->
+  <style>
+    .l { fill: #E6E8EF; }
+    .p { fill: #7ED8A0; font-weight: 600; }
+    .u { fill: #7B89E4; font-weight: 600; }
+    .d { fill: #8A93A6; }
+    .a { fill: #F0C674; }
+    .g { opacity: 1;  }
+    .g1  { animation-name: k1; }  @keyframes k1  { 0%,11% { opacity:0 } 13% { opacity:1 } 100% { opacity:1 } }
+    .g2  { animation-name: k2;  } @keyframes k2  { 0%,16% { opacity:0 } 18% { opacity:1 } 100% { opacity:1 } }
+    .g3  { animation-name: k3;  } @keyframes k3  { 0%,22% { opacity:0 } 24% { opacity:1 } 100% { opacity:1 } }
+    .g4  { animation-name: k4;  } @keyframes k4  { 0%,26% { opacity:0 } 28% { opacity:1 } 100% { opacity:1 } }
+    .g5  { animation-name: k5;  } @keyframes k5  { 0%,33% { opacity:0 } 35% { opacity:1 } 100% { opacity:1 } }
+    .g6  { animation-name: k6;  } @keyframes k6  { 0%,40% { opacity:0 } 42% { opacity:1 } 100% { opacity:1 } }
+    .g7  { animation-name: k7;  } @keyframes k7  { 0%,44% { opacity:0 } 46% { opacity:1 } 100% { opacity:1 } }
+    .g8  { animation-name: k8;  } @keyframes k8  { 0% { opacity:1 } 8% { opacity:1 } 10%,55% { opacity:0 } 57% { opacity:1 } 100% { opacity:1 } }
+    .g9  { animation-name: k9;  } @keyframes k9  { 0% { opacity:1 } 8% { opacity:1 } 10%,60% { opacity:0 } 62% { opacity:1 } 100% { opacity:1 } }
+    .g10 { animation-name: k10; } @keyframes k10 { 0%,70% { opacity:0 } 72% { opacity:1 } 100% { opacity:1 } }
+    .g11 { animation-name: k11; } @keyframes k11 { 0%,74% { opacity:0 } 76% { opacity:1 } 100% { opacity:1 } }
+    .g12 { animation-name: k12; } @keyframes k12 { 0%,84% { opacity:0 } 86% { opacity:1 } 100% { opacity:1 } }
+  </style>
+
+  <rect width="800" height="484" rx="10" fill="#1B2129"/>
+  <rect width="800" height="34" rx="10" fill="#232A35"/>
+  <rect y="24" width="800" height="10" fill="#232A35"/>
+  <circle cx="22" cy="17" r="5.5" fill="#FF5F57"/>
+  <circle cx="42" cy="17" r="5.5" fill="#FEBC2E"/>
+  <circle cx="62" cy="17" r="5.5" fill="#28C840"/>
+  <text x="400" y="21" text-anchor="middle" class="d" font-size="12">waybill — token accounting for AI-assisted work (demo data)</text>
+
+  <g class="g g1">
+    <text x="24" y="62" class="p">❯ claude</text>
+    <text x="24" y="82"><tspan class="d">&gt; </tspan><tspan class="u">initialize my waybill ledger</tspan></text>
+  </g>
+  <g class="g g2">
+    <text x="24" y="102" class="l">Initialized ~/.waybill (git repo, append-only streams)</text>
+    <text x="24" y="120" class="l">Pricing: 10 bundled Anthropic models imported — costs appear from day one</text>
+  </g>
+
+  <g class="g g3">
+    <text x="24" y="146"><tspan class="d">&gt; </tspan><tspan class="u">sync my ledger</tspan></text>
+  </g>
+  <g class="g g4">
+    <text x="24" y="166" class="l">12 shipped items reconciled from Jira + merged PRs · baseline derived</text>
+    <text x="24" y="184" class="d">(escrow-sealed estimates carried forward; 2 orphans surfaced, not hidden)</text>
+  </g>
+
+  <g class="g g5">
+    <text x="24" y="212" class="d">… a sprint of normal work; the SessionEnd miner meters every token,</text>
+    <text x="24" y="230" class="d">    deterministically, offline — no model calls, no network …</text>
+  </g>
+
+  <g class="g g6">
+    <text x="24" y="258"><tspan class="d">&gt; </tspan><tspan class="u">what did I do yesterday</tspan></text>
+  </g>
+  <g class="g g7">
+    <text x="24" y="278" class="l">• Shipped: PLAT-482 — Retry logic for checkout webhook (5 pts, PR #1932)</text>
+    <text x="24" y="296" class="l">• In progress: DATA-77 — Ingest dedupe (3 sessions)</text>
+    <text x="24" y="314" class="d">7 sessions · 41 turns · 3.2M tokens</text>
+  </g>
+
+  <g class="g g8">
+    <text x="24" y="342"><tspan class="d">&gt; </tspan><tspan class="u">build my token pitch</tspan></text>
+  </g>
+  <g class="g g9">
+    <text x="24" y="362" class="l">Since the July grant: 34 points shipped, 11 PRs merged &amp; deployed,</text>
+    <text x="24" y="380" class="l">31–58 hours saved (pre-registered basis), at 0.9M tokens per point.</text>
+    <text x="24" y="398" class="a">62% of grant spent · 8% unattributed — shown, never hidden</text>
+  </g>
+
+  <g class="g g10">
+    <text x="24" y="426" class="p">❯ waybill verify</text>
+  </g>
+  <g class="g g11">
+    <text x="24" y="446" class="l">All checks passed. Every escrow seal recomputes; every token is accounted for.</text>
+  </g>
+  <g class="g g12">
+    <text x="24" y="470" class="u">waybill — bring receipts.</text>
+    <text x="776" y="470" text-anchor="end" class="d" font-size="11">the recipient can re-run this: export --pack</text>
+  </g>
+</svg>
+  </g>
+</svg>

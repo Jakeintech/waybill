@@ -193,25 +193,33 @@ ledgers individuals chose to publish.
   only worth something if it cannot be gamed. Salvage (v1.6) reconstructs
   facts; it never forges estimates.
 
-## Distribution checklist (executed at v2.0)
+## Distribution checklist (owner-side; updated at 2.1)
 
-- [ ] GitHub repo description starts with "Claude Code plugin"; topics set:
+- [x] GitHub repo description starts with "Claude Code plugin"; topics set:
       `claude`, `claude-code`, `claude-plugin`, `mcp`, `jira`, `github`,
       `brag-document`, `performance-review`, `developer-productivity`,
       `ai-roi`, `engineering-metrics`.
 - [x] Demo at the top of the README: `assets/demo.svg` — an animated
-      terminal (pure SVG/CSS, no scripts, demo data labeled) walking
-      init → sync → standup → token pitch → verify. A screen recording
-      of a real session can replace it later; the slot is filled.
-- [ ] Social preview image set in repo settings.
-- [ ] Submit to the official plugin directory
-      ([anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official))
-      — it's available by default in every Claude Code install.
+      terminal (pure SVG/CSS, no scripts, demo data labeled) that
+      cold-opens on the payoff frame, holds the final frame, and
+      degrades to the full static transcript wherever animation doesn't
+      run (2.1). A screen recording of a real session can replace it
+      later; the slot is filled.
+- [ ] Social preview image set in repo settings — the asset is rendered
+      (`assets/social-preview.png`, 1280×640, from the demo's final
+      frame per [brand](brand.md)); uploading it in Settings → Social
+      preview is the one remaining owner click.
+- [ ] Submit to the **community marketplace** via
+      <https://platform.claude.com/plugins/submit> (pre-filled answers:
+      [directory-submission](directory-submission.md)). The official
+      marketplace has no application process — community listing is the
+      path.
 - [ ] PR to community lists (awesome-claude-code and plugin directories).
-- [ ] Launch write-up: *"I asked for a bigger Claude budget with receipts"* —
-      **drafted** at [docs/launch-post.md](launch-post.md) (swap in
-      your real `query report` render, then post to dev.to / r/ClaudeAI /
-      Hacker News / the Claude Discord — posting is the open half).
+- [ ] Launch write-up: *"I built a token meter, then ran it on the
+      session that built it"* — **drafted with engine-generated numbers
+      only** at [docs/launch-post.md](launch-post.md) (re-render from
+      your own ledger if you prefer, then post per the distribution
+      plan's rules — posting is the open half).
 - [x] Seed 4–6 `good first issue`s — five seeded (#16–#20): adapter
       live-run reports, native-Windows report, a dashboard
       cache-savings tile, a community-adapter recipe, and OTel-recipe

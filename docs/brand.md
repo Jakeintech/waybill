@@ -98,10 +98,15 @@ The receipt **is** the design system:
 
 ## Launch language
 
-- Launch post: *"I asked for a bigger Claude budget — with receipts."* End on
-  the real generated receipt image.
+- Launch post: *"I built a token meter, then ran it on the session that
+  built it."* End on the real generated receipt image
+  ([current draft](launch-post.md) — engine numbers only).
 - Talk title: *"Conservation of Tokens: accounting principles for AI
   engineering."*
-- Starter issues label: `good first receipt`.
-- Competing tools are referred to only as a category ("usage trackers",
-  "coding-agent dashboards") — never by name — in all repo-facing material.
+- Starter issues label: `good first issue` (GitHub special-cases the literal string for new contributors; the pun lives in issue bodies).
+- Competing tools are referred to as a category ("usage trackers",
+  "engineering-intelligence platforms") in promotional material — README,
+  launch posts, submission blurbs. The one exception is
+  [docs/positioning.md](positioning.md): a dated, evidence-tiered field
+  survey names names precisely so the claim stays falsifiable and honest;
+  it is a reference, not a pitch.

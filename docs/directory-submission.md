@@ -1,10 +1,29 @@
 # Plugin-directory submission — everything pre-filled
 
-The official directory ([anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official))
-takes external plugins through a **submission form**, not a PR:
-<https://clau.de/plugin-directory-submission>. Only the repo owner can
-submit. Everything the form is likely to ask is collected here —
-copy-paste and send.
+Submissions go to the **community marketplace** through
+<https://platform.claude.com/plugins/submit>. Only the repo owner can
+submit. The official marketplace (the plugins available by default in
+every Claude Code install) has **no application process** — there is
+nothing to apply to there; community listing is the path. Everything
+the form is likely to ask is collected here — copy-paste and send.
+
+> An earlier draft pointed at a `clau.de/plugin-directory-submission`
+> form; that URL is dead. If the submission surface moves again, the
+> pre-filled answers below still apply.
+
+## Validating before you submit (the two-manifest wrinkle)
+
+`claude plugin validate --strict` validates whichever manifest it finds
+first, and this repo carries **two** in `.claude-plugin/` — the
+marketplace manifest (`marketplace.json`) and the plugin manifest
+(`plugin.json`). Run it twice so both are actually checked:
+
+1. At the repo root: validates the **marketplace** manifest.
+2. Against a copy of the tree with `.claude-plugin/marketplace.json`
+   removed: validates the **plugin** manifest.
+
+Both must pass (CI's gate runs the suite; the second variant is the one
+a submission reviewer effectively sees).
 
 ## Form answers
 
