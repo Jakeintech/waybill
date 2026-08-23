@@ -6,8 +6,8 @@ body:
     id: version
     attributes:
       label: Plugin version
-      description: From `.claude-plugin/plugin.json` or `claude plugin list`
-      placeholder: "0.2.0"
+      description: From `claude plugin list`, or ask Claude "what waybill version am I running?"
+      placeholder: "2.1.0"
     validations:
       required: true
   - type: dropdown
@@ -42,5 +42,4 @@ body:
     attributes:
       label: Checks
       options:
-        - label: I ran `bash scripts/validate-plugin.sh` on my install and it passes
         - label: I searched existing issues

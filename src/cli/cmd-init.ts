@@ -7,8 +7,13 @@ import { loadPricingBundle } from "../core/pricing-bundle.ts";
 import { defaultProjectsDir, listTranscripts, meterAllQuiet, repoFromCwd } from "../meter/run.ts";
 import { applyBundledPricing, type PricingImportResult } from "./cmd-pricing.ts";
 
+// Fine-grained read-only is the whole posture (E-13): sync only ever
+// reads your own issues and PRs, so init must never ask for classic
+// write scope. README's upgrade path says the same.
 const GITHUB_PAT_MESSAGE =
-  "Export GITHUB_MCP_PAT in your shell profile. Create at https://github.com/settings/tokens with repo scope.";
+  "Export GITHUB_MCP_PAT in your shell profile (easiest: \"$(gh auth token)\"). " +
+  "Or mint a fine-grained read-only PAT (repository contents + pull requests, read-only) " +
+  "at https://github.com/settings/personal-access-tokens";
 
 function git(home: string, args: string[]): void {
   execFileSync("git", ["-C", home, ...args], {

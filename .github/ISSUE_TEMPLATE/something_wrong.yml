@@ -1,0 +1,11 @@
+name: Something's wrong
+description: The low-friction version — one box, no checklist. We'll ask for details if we need them.
+labels: ["triage"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What's wrong?
+      description: Whatever you can share — a sentence is fine. Never paste tokens or credentials.
+    validations:
+      required: true

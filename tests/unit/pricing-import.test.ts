@@ -130,7 +130,8 @@ test("waybill init: GITHUB_MCP_PAT guidance appears only when unset; summary lis
     const unset = cli(home1, ["init", "--projects-dir", "/nonexistent-projects"], { GITHUB_MCP_PAT: "" });
     assert.match(
       unset.stdout,
-      /Export GITHUB_MCP_PAT in your shell profile\. Create at https:\/\/github\.com\/settings\/tokens with repo scope\./,
+      // E-13: the ask is fine-grained read-only, never classic write scope.
+      /Export GITHUB_MCP_PAT in your shell profile.*fine-grained read-only PAT.*settings\/personal-access-tokens/,
     );
     assert.match(unset.stdout, /Needs action:/);
 

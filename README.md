@@ -222,6 +222,19 @@ it. The full exit path, from turning it down to walking away:
 
 **Does it work without Jira or GitHub?** Yes — that's the default. Git-only mode needs zero configuration and zero auth: metering, attribution by branch/pin, and the bootstrap receipt all run from local data. Connecting a tracker/git host upgrades the receipts; any of them with an MCP server can be swapped in ([adapters](docs/adapters.md)).
 
+**Why isn't `waybill` on my PATH?** The plugin never touches your PATH —
+inside Claude Code, skills invoke the bundled engine via
+`"${CLAUDE_PLUGIN_ROOT}/bin/waybill"`, and that is the supported surface.
+To poke at the CLI directly, run the dependency-free bundle from a clone
+of this repo (Node 20+, no install):
+
+```bash
+git clone https://github.com/Jakeintech/waybill && cd waybill
+node bin/waybill.mjs status
+```
+
+It reads the same `~/.waybill/` ledger your plugin writes.
+
 **Can I use this for performance reviews if my company doesn't ration tokens?** Yes — that's the `perf-review` preset. The token pitch is one output of the ledger, not the point of it.
 
 **Is my data private?** Local JSONL under your home directory. The engine itself makes no network calls; syncs go through the CLIs (`acli`, `gh`) or MCP servers you authorize, scoped to your own items, and `init`/`status` may invoke your locally authenticated `gh`/`acli` to read who you are — nothing of yours is ever sent anywhere you didn't point it.
@@ -232,7 +245,7 @@ it. The full exit path, from turning it down to walking away:
 
 ## Contributing
 
-Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), the [roadmap](docs/ROADMAP.md), and issues labeled `good first receipt`. Adapter configs for other trackers are the most-wanted contribution. Please read the [Code of Conduct](CODE_OF_CONDUCT.md); security reports go through [SECURITY.md](SECURITY.md).
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), the [roadmap](docs/ROADMAP.md), and issues labeled `good first issue` (GitHub special-cases that exact label for new contributors; the pun lives in the issue bodies). Adapter configs for other trackers are the most-wanted contribution. Please read the [Code of Conduct](CODE_OF_CONDUCT.md); security reports go through [SECURITY.md](SECURITY.md).
 
 ## License
 
