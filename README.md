@@ -173,7 +173,7 @@ with deterministic pseudonymization before anything leaves the org.
 - **No hosted service, no telemetry.** Everything lives in `~/.waybill/` (a local git repo you own).
 - **No time tracking.** It records outcomes and estimates, not keystrokes.
 
-These are commitments, not gaps. See [ROADMAP.md](ROADMAP.md#non-goals).
+These are commitments, not gaps. See [the roadmap](docs/ROADMAP.md#non-goals).
 
 ## Pausing, quieting, leaving
 
@@ -215,7 +215,7 @@ it. The full exit path, from turning it down to walking away:
 - **Tutorial**: this README's quickstart, above.
 - **How-to**: [swap Jira/GitHub for Linear, GitLab, Bitbucket, Azure DevOps…](docs/adapters.md) · [one ledger on several machines](docs/multi-machine.md) · [Windows](docs/windows.md) · [the OTel fallback](docs/otel.md)
 - **Reference**: [ledger entry & config schema](skills/ledger/references/schema.md) · [skill reference](docs/skills.md) · [test plan](docs/testing.md) — the docs Claude reads are the docs you read.
-- **Explanation**: [architecture & system design](docs/architecture.md) — how the pieces compose, the trust model, and the recorded 1.5.0 review · [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](ROADMAP.md) · [brand & voice](docs/brand.md) · [schema freeze & migration policy](docs/migration.md)
+- **Explanation**: [architecture & system design](docs/architecture.md) — how the pieces compose, the trust model, and the recorded 1.5.0 review · [value-measurement methodology](skills/ledger/references/methodology.md) · [roadmap & scope](docs/ROADMAP.md) · [brand & voice](docs/brand.md) · [schema freeze & migration policy](docs/migration.md)
 - **Spec**: [full product specification](docs/product-spec.md) — the normative design the shipped engine implements.
 
 ## FAQ
@@ -232,7 +232,7 @@ it. The full exit path, from turning it down to walking away:
 
 ## Contributing
 
-Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), the [roadmap](ROADMAP.md), and issues labeled `good first receipt`. Adapter configs for other trackers are the most-wanted contribution. Please read the [Code of Conduct](CODE_OF_CONDUCT.md); security reports go through [SECURITY.md](SECURITY.md).
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), the [roadmap](docs/ROADMAP.md), and issues labeled `good first receipt`. Adapter configs for other trackers are the most-wanted contribution. Please read the [Code of Conduct](CODE_OF_CONDUCT.md); security reports go through [SECURITY.md](SECURITY.md).
 
 ## License
 

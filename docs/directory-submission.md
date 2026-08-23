@@ -51,7 +51,7 @@ copy-paste and send.
   are local `git` invocations. MCP servers are optional upgrades used
   by the sync skill only.
 - Security posture details: `docs/architecture.md` (trust model + a
-  recorded 15-agent adversarial review), `VALIDATION.md` (release
+  recorded 15-agent adversarial review), `docs/VALIDATION.md` (release
   gates), `docs/testing.md` (invariant→suite map).
 
 ## Community-list PRs (same material)

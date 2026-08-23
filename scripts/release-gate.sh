@@ -23,7 +23,7 @@ fi
 test_out="$(npm test --silent 2>&1 | tail -20)"
 actual_pass="$(printf '%s\n' "$test_out" | sed -n 's/.*ℹ pass \([0-9]*\).*/\1/p' | head -1)"
 actual_fail="$(printf '%s\n' "$test_out" | sed -n 's/.*ℹ fail \([0-9]*\).*/\1/p' | head -1)"
-claimed="$(sed -n 's/.*\*\*\([0-9]*\) \/ [0-9]* pass\*\*.*/\1/p' VALIDATION.md | head -1)"
+claimed="$(sed -n 's/.*\*\*\([0-9]*\) \/ [0-9]* pass\*\*.*/\1/p' docs/VALIDATION.md | head -1)"
 if [ -z "$actual_pass" ]; then
   fail "could not read the test count from npm test"
 elif [ "${actual_fail:-1}" != "0" ]; then
@@ -57,7 +57,7 @@ check_links() {
   done
 }
 broken=""
-for f in README.md ROADMAP.md CHANGELOG.md VALIDATION.md DECISIONS.md docs/*.md skills/*/SKILL.md skills/*/references/*.md; do
+for f in README.md CHANGELOG.md CONTRIBUTING.md docs/*.md skills/*/SKILL.md skills/*/references/*.md; do
   [ -f "$f" ] || continue
   broken="$broken$(check_links "$f")"
 done
@@ -80,10 +80,10 @@ done
 
 # 5. The ROADMAP's Shipped heading tracks the released minor.
 minor="${version%.*}"
-if grep -q "^## Shipped — $minor" ROADMAP.md; then
-  ok "ROADMAP.md Shipped heading matches $minor"
+if grep -q "^## Shipped — $minor" docs/ROADMAP.md; then
+  ok "docs/ROADMAP.md Shipped heading matches $minor"
 else
-  fail "ROADMAP.md Shipped heading does not mention $minor"
+  fail "docs/ROADMAP.md Shipped heading does not mention $minor"
 fi
 
 echo

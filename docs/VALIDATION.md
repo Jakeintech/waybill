@@ -5,7 +5,7 @@
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict) | clean |
-| `node --test` full suite | **192 / 192 pass** (v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
+| `node --test` full suite | **211 / 211 pass** (2.1 batch so far: subagent-transcript metering with exact-sum fixtures, append clock check + verify warnings, demo static-render pins, init-time metering; v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
 | Reproducible build + zero bin diff | pass |
 | `scripts/validate-plugin.sh` | pass |
 | `scripts/release-gate.sh` (`npm run gate` — the release's claims about itself, checked mechanically) | pass |
@@ -133,7 +133,7 @@ dashboard headless render (Chromium: tiles, empty states, meta line) pass.
 ## 1.5.0 DoD — the tested-feedback batch
 
 - Adversarial architecture review, recorded in
-  [docs/architecture.md](docs/architecture.md): 15 agents (6 subsystem
+  [docs/architecture.md](architecture.md): 15 agents (6 subsystem
   reviewers + a release-diff reviewer, adversarial verification per scope,
   synthesis) over the full engine and plugin — 82 raw findings, 51
   confirmed; all 8 majors and the substantive minors fixed in-release,

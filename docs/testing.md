@@ -103,12 +103,12 @@ Every release runs, in order, from a clean tree:
 5. `shellcheck` + hook tests — clean.
 6. Real-machine retro (blocking row above) — `verify` green on real data.
 7. CHANGELOG entry, versions bumped everywhere (plugin.json, package.json,
-   lockfile, skill frontmatter), DECISIONS.md updated if any judgment call
+   lockfile, skill frontmatter), docs/DECISIONS.md updated if any judgment call
    was made.
 8. Tag `vX.Y.Z`, push, GitHub release, `claude plugin update` on a real
    machine, `waybill status` shows the new engine version.
 
-Evidence for each release's gate lives in [VALIDATION.md](../VALIDATION.md).
+Evidence for each release's gate lives in [VALIDATION.md](VALIDATION.md).
 
 ## 7. Adversarial review cadence
 

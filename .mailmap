@@ -1,0 +1,7 @@
+# Development happened through Claude Code sessions whose commits were
+# authored under the tool's default identity. The work is the maintainer's;
+# Claude's role is disclosed per-commit via Co-Authored-By trailers, not by
+# author fields. This mailmap normalizes display (shortlog, blame, log);
+# a one-time `git filter-repo --mailmap` by the repo owner can make it
+# permanent.
+Jakeintech <info@jakeawilliams.com> Claude <noreply@anthropic.com>

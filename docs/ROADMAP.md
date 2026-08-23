@@ -18,7 +18,7 @@ more checkable?** If it measures other people, adds a dashboard, or moves
 data off the user's machine, it fails the test (see Non-goals).
 
 The normative product specification — including the spend-attribution
-engine — lives in [docs/product-spec.md](docs/product-spec.md).
+engine — lives in [docs/product-spec.md](product-spec.md).
 
 ## Shipped — 2.0.0 (2026-08)
 
@@ -27,7 +27,7 @@ engine — lives in [docs/product-spec.md](docs/product-spec.md).
 attribution engine with conservation verification, escrow, the spend skill
 and attribution inbox, budgets/pacing with session-start notices, the OTel
 fallback, waste and rework diagnostics, trigger evals, and the schema v2
-freeze ([migration policy](docs/migration.md)).
+freeze ([migration policy](migration.md)).
 
 1.1.x added `waybill status`, `waybill export`, and `waybill pricing`.
 1.2.0 reversed D6: **bundled Anthropic list rates** auto-import on
@@ -46,7 +46,7 @@ rate resolution, empty-table auto-import for upgraders, unpriced models
 named by `status`/`pricing show`, `pricing_coverage` on every spend
 payload), **CLI-first Jira syncs** via Atlassian's acli (scoped fields,
 small payloads; MCP fallback kept), and a recorded architecture review
-([docs/architecture.md](docs/architecture.md)). 1.6.0 shipped the
+([docs/architecture.md](architecture.md)). 1.6.0 shipped the
 first leg of the committed path below: **salvage** (untracked work →
 receipts), **conventions**, the **zero-token dashboard**,
 **manifest/demurrage**, **overhead tagging** (waybill bills itself), and
@@ -62,10 +62,10 @@ the **invoice** and **disclose** skills, the **grant-report** and
 **incident** report presets, and the documented **portable career
 ledger**. 2.0.0 delivered the final leg: **Azure DevOps and Bitbucket
 adapters** (conformance- and own-data-tested), the **Windows story**
-([docs/windows.md](docs/windows.md)), the **OTel live-export recipe**
-([docs/otel.md](docs/otel.md)), every architecture-review
+([docs/windows.md](windows.md)), the **OTel live-export recipe**
+([docs/otel.md](otel.md)), every architecture-review
 recommendation **closed with a recorded disposition**
-([docs/architecture.md](docs/architecture.md)), and the
+([docs/architecture.md](architecture.md)), and the
 **self-verifying release gate** (`npm run gate`, run in CI). The OSS
 engineering scope is complete: changes from here are upkeep, not
 construction. The distribution checklist below remains the launch
@@ -73,12 +73,12 @@ to-do — its items are repo-settings and publishing actions only the
 repo owner can perform.
 
 The sections below record the original plan; the
-[CHANGELOG](CHANGELOG.md) records what shipped.
+[CHANGELOG](../CHANGELOG.md) records what shipped.
 
 ## The committed path to complete
 
 Recorded 2026-08-22, after the v1.5.0 release and its architecture review
-([docs/architecture.md](docs/architecture.md)). The completion thesis: a
+([docs/architecture.md](architecture.md)). The completion thesis: a
 real waybill serves everyone who touches the shipment — the performance
 review is *one* reader of the receipts, not the product. The scope test
 above is unchanged; every item below passes it.
@@ -207,7 +207,7 @@ ledgers individuals chose to publish.
       — it's available by default in every Claude Code install.
 - [ ] PR to community lists (awesome-claude-code and plugin directories).
 - [ ] Launch write-up: *"I asked for a bigger Claude budget with receipts"* —
-      **drafted** at [docs/launch-post.md](docs/launch-post.md) (swap in
+      **drafted** at [docs/launch-post.md](launch-post.md) (swap in
       your real `query report` render, then post to dev.to / r/ClaudeAI /
       Hacker News / the Claude Discord — posting is the open half).
 - [x] Seed 4–6 `good first issue`s — five seeded (#16–#20): adapter

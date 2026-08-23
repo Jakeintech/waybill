@@ -83,7 +83,7 @@ jobs:
               on && /^## \[/ { exit }
               on { print }
             ' /tmp/changelog.md > /tmp/body.md
-            printf '\n[CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md) · [VALIDATION](https://github.com/%s/blob/main/VALIDATION.md) · [DECISIONS](https://github.com/%s/blob/main/DECISIONS.md)\n' \
+            printf '\n[CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md) · [VALIDATION](https://github.com/%s/blob/main/docs/VALIDATION.md) · [DECISIONS](https://github.com/%s/blob/main/docs/DECISIONS.md)\n' \
               "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY" >> /tmp/body.md
             # One call creates the tag (at --target, when absent) AND the
             # release; guarded so one refusal never aborts the other

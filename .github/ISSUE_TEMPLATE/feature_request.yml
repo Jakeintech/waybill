@@ -20,7 +20,7 @@ body:
     attributes:
       label: Scope check
       description: >
-        The scope test (see ROADMAP.md): does this make an individual
+        The scope test (see docs/ROADMAP.md): does this make an individual
         engineer's claims more checkable? Features that measure other people,
         add dashboards, or move data off the user's machine are non-goals.
       options:
@@ -33,5 +33,5 @@ body:
     attributes:
       label: Checks
       options:
-        - label: I read ROADMAP.md, including the non-goals
+        - label: I read docs/ROADMAP.md, including the non-goals
         - label: This preserves the methodology invariants (pre-registration, ranges, append-only, no peer data)

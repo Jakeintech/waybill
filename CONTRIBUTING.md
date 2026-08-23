@@ -9,7 +9,7 @@ to flatter — evidence tiers, pre-registration, ranges, append-only history,
 no peer scraping. PRs that weaken those invariants (however well-intentioned:
 "let users backfill estimates", "add a teammates view") will be closed with a
 link to [the methodology](skills/ledger/references/methodology.md) and
-[ROADMAP non-goals](ROADMAP.md#non-goals). Everything else is negotiable.
+[ROADMAP non-goals](docs/ROADMAP.md#non-goals). Everything else is negotiable.
 
 ## Dev setup
 

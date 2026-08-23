@@ -8,7 +8,7 @@ compatibility surface.
 ## [2.0.0] - 2026-08-22
 
 "Delivered": the free side complete — the final release of the committed
-path ([ROADMAP](ROADMAP.md)). The major version marks scope completion,
+path ([ROADMAP](docs/ROADMAP.md)). The major version marks scope completion,
 not breakage: the event schema is unchanged (v2, frozen since 1.0), every
 addition is additive, and 1.x ledgers need no migration. From here,
 changes are upkeep, not construction.
@@ -71,10 +71,13 @@ changes are upkeep, not construction.
   that turned live inside the race window is restored via
   exclusive-create and the takeover yields.
 
+<details>
+<summary><strong>Earlier releases</strong> — 1.8.0 back to 0.1.0 (the 0.x build-out and the 1.x committed path, all 2026-08)</summary>
+
 ## [1.8.0] - 2026-08-22
 
 "Many readers": the same receipts, new audiences — the third release of
-the committed path to complete ([ROADMAP](ROADMAP.md)). Engine-side cost
+the committed path to complete ([ROADMAP](docs/ROADMAP.md)). Engine-side cost
 held to three additive fields; everything else is rendering, which is the
 completion thesis working as designed.
 
@@ -116,7 +119,7 @@ completion thesis working as designed.
 ## [1.7.0] - 2026-08-22
 
 "Bill of lading": arm the recipient — the second release of the committed
-path to complete ([ROADMAP](ROADMAP.md)).
+path to complete ([ROADMAP](docs/ROADMAP.md)).
 
 ### Added
 - **The verification pack** — `waybill export --pack [--out <dir>]
@@ -175,7 +178,7 @@ path to complete ([ROADMAP](ROADMAP.md)).
 
 "Salvage": untracked AI work becomes first-class, and routine reads become
 free — the first release of the committed path to complete
-([ROADMAP](ROADMAP.md)).
+([ROADMAP](docs/ROADMAP.md)).
 
 ### Added
 - **Salvage** — untracked work becomes receipts: `waybill query untracked`
@@ -728,3 +731,5 @@ metering/attribution path.
 [0.4.0]: https://github.com/Jakeintech/waybill/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Jakeintech/waybill/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Jakeintech/waybill/releases/tag/v0.2.1
+
+</details>
