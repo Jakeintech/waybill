@@ -28,14 +28,49 @@ claude plugin marketplace add Jakeintech/waybill
 claude plugin install waybill@waybill
 ```
 
-Then in a Claude Code session, say **"initialize my waybill ledger"**. That's
-the whole setup: no accounts, no tokens, no OAuth. Waybill seeds your
-identity from `git config`, imports Anthropic list-price rates so costs
-appear from day one (dated model ids resolve to their family rate, and
-`waybill status` names any model it can't price rather than showing a
-quietly partial total), checks your transcript-retention setting, and
-renders a **bootstrap receipt** from your local git history alone — your
-shipped work, itemized, in under a minute.
+**Restart Claude Code** — hooks and skills load at startup, so without the
+restart nothing is captured. Then in a session, say
+**"initialize my waybill ledger"**. That's the whole setup: no accounts,
+no tokens, no OAuth. Waybill seeds your identity from `git config`,
+imports Anthropic list-price rates so costs appear from day one (dated
+model ids resolve to their family rate, and `waybill status` names any
+model it can't price rather than showing a quietly partial total), checks
+your transcript-retention setting, meters your existing Claude Code
+transcripts — subagent transcripts included — and renders a **bootstrap
+receipt**: your shipped work and metered tokens, itemized, in under a
+minute.
+
+Real output — this repository's own development, metered by the engine
+(waybill on waybill; the session that built 2.1.0):
+
+```
+WAYBILL · BOOTSTRAP RECEIPT
+────────────────────────────────────────
+WINDOW    2026-05-25 → 2026-08-23 (90 days)
+IDENTITY  info@jakeawilliams.com
+
+REPO      Jakeintech/waybill
+ITEMS
+  COMMITS                  30
+  MERGES                    0
+  ACTIVE DAYS               3
+  FIRST → LAST    2026-08-16 → 2026-08-23
+
+SUBTOTAL  30 commit(s) across 1 repo(s)
+TOKENS    1 metered session(s)
+  INPUT                       326
+  OUTPUT                  126,373
+  CACHE READ           37,285,083
+  CACHE WRITE             370,267
+  unattributed         37,782,049
+────────────────────────────────────────
+EVIDENCE TIER: FACTS (LOCAL GIT LOG · METERED TRANSCRIPTS)
+RANGES NOT MIDPOINTS · NOTHING PADDED · UNATTRIBUTED SHOWN
+```
+
+That unattributed line is the point: nothing is hidden, and the
+[attribution ladder](docs/architecture.md) plus one-tap pins move spend
+onto the stories it served as you work.
 
 ### Updating
 
