@@ -106,7 +106,7 @@ test("meter: a duplicate transcript file for one sessionId is skipped, not flip-
   const home = tempHome();
   const dir = tempHome();
   try {
-    cli(home, ["init", "--claude-settings", "/nonexistent"]);
+    cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent"]);
     const src = join(ROOT, "tests", "fixtures", "transcripts", "v2.1", "basic.jsonl");
     const a = join(dir, "a.jsonl");
     const b = join(dir, "b.jsonl"); // a backup copy of the same session

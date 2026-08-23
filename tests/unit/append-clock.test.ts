@@ -101,7 +101,7 @@ test("verify warns — never fails — on a pre-registered estimate written long
       escrow: sealEstimate("PLAT-482", estimate),
       appended_at: "2026-08-14T09:12:00Z", // four days after the claimed logged_at
     };
-    const entry = finalizeEvent("ledger", body as Parameters<typeof finalizeEvent>[1]) as LedgerEntry;
+    const entry = finalizeEvent("ledger", body as unknown as Parameters<typeof finalizeEvent>[1]) as unknown as LedgerEntry;
     appendEvents(home, "ledger", [entry]);
 
     const findings = verifyHome(home);

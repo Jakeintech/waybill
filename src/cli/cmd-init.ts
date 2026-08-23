@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, loadConfig, saveConfig, saveIdentity, type Identity } from "../core/config.ts";
 import { loadPricingBundle } from "../core/pricing-bundle.ts";
-import { repoFromCwd } from "../meter/run.ts";
+import { defaultProjectsDir, listTranscripts, meterAllQuiet, repoFromCwd } from "../meter/run.ts";
 import { applyBundledPricing, type PricingImportResult } from "./cmd-pricing.ts";
 
 const GITHUB_PAT_MESSAGE =
@@ -108,9 +108,11 @@ export function buildIdentity(): Identity {
 
 export function runInit(home: string, args: string[], json: boolean): number {
   let claudeSettings = join(homedir(), ".claude", "settings.json");
+  let projectsDir = defaultProjectsDir();
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
+    else if (a === "--projects-dir") projectsDir = args[++i] ?? projectsDir;
     else {
       process.stderr.write(`waybill init: unknown option ${a}\n`);
       return 2;
@@ -164,6 +166,26 @@ export function runInit(home: string, args: string[], json: boolean): number {
     // nothing to commit is fine
   }
 
+  // E-04: the first receipt must contain tokens. Meter every existing
+  // transcript now — subagent transcripts included — instead of leaving
+  // months of history invisible until the first SessionEnd. Progress goes
+  // to stderr so --json stdout stays one parseable document; when there is
+  // nothing to meter (or metering is paused) init stays exactly as quiet
+  // as before.
+  let mined: import("../meter/run.ts").MeterAllResult | null = null;
+  const transcriptCount = config.metering.enabled === false ? 0 : listTranscripts(projectsDir).length;
+  if (transcriptCount > 0) {
+    process.stderr.write(
+      `Metering ${transcriptCount} existing transcript(s) (subagents included) — months of history can take a minute...\n`,
+    );
+    mined = meterAllQuiet(home, projectsDir, (p, err) =>
+      process.stderr.write(`waybill init: ${p}: ${err.message}\n`),
+    );
+    if (mined === null) {
+      process.stderr.write("another metering process is running — existing transcripts will be picked up by it\n");
+    }
+  }
+
   const retention = checkRetention(claudeSettings);
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
   // "Bundled vs custom" in the configured line is decided by version match,
@@ -178,6 +200,11 @@ export function runInit(home: string, args: string[], json: boolean): number {
 
   const configured: string[] = [
     "ledger (git-backed, append-only)",
+    mined !== null && mined.metered + mined.already_current > 0
+      ? `metered transcripts (${mined.metered} session(s) mined now, ${mined.already_current} already current` +
+        (mined.failures > 0 ? `, ${mined.failures} failed` : "") +
+        ")"
+      : null,
     identity.git_emails.length > 0 ? `identity (${identity.git_emails.join(", ")})` : null,
     config.git.repos.length > 0 ? `repo scope (${config.git.repos.join(", ")})` : null,
     pricing && pricing.imported.length > 0
@@ -206,6 +233,7 @@ export function runInit(home: string, args: string[], json: boolean): number {
   const result = {
     home,
     fresh: freshConfig,
+    mined,
     repos: config.git.repos,
     identity: { git_emails: identity.git_emails, github_login: identity.github_login },
     retention,

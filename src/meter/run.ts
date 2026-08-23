@@ -17,6 +17,7 @@ import type {
 import { subagentSessionId } from "../core/events.ts";
 import { appendEvents, authoritative, readEvents } from "../core/streams.ts";
 import { RULES_VERSION } from "../attribution/resolver.ts";
+import { acquireLock, releaseLock } from "./lock.ts";
 import { METER_LOGIC_VERSION, meterTranscript, selectOpenEntries } from "./meter.ts";
 import { parseTranscript } from "./transcript.ts";
 import { isCurrent, loadState, saveState } from "./state.ts";
@@ -288,6 +289,42 @@ export function meterFile(
     sessions: out.newSessions.length,
     exceptions: out.newExceptions.length,
   };
+}
+
+export interface MeterAllResult {
+  metered: number;
+  already_current: number;
+  failures: number;
+}
+
+/**
+ * Meter every transcript under projectsDir, quietly — no stdout, the
+ * caller reports. The init path runs this (E-04) so the FIRST receipt
+ * carries token totals instead of "no metered sessions". Takes the miner
+ * lock; returns null when another metering process holds it.
+ */
+export function meterAllQuiet(
+  home: string,
+  projectsDir: string,
+  onError?: (path: string, err: Error) => void,
+): MeterAllResult | null {
+  if (!acquireLock(home)) return null;
+  const result: MeterAllResult = { metered: 0, already_current: 0, failures: 0 };
+  try {
+    for (const p of listTranscripts(projectsDir)) {
+      try {
+        const r = meterFile(home, p, null);
+        if (r.skipped) result.already_current += 1;
+        else result.metered += 1;
+      } catch (err) {
+        result.failures += 1;
+        onError?.(p, err as Error);
+      }
+    }
+  } finally {
+    releaseLock(home);
+  }
+  return result;
 }
 
 /**

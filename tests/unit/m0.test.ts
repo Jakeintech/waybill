@@ -109,7 +109,7 @@ test("e2e M0: init → capture queue → mine → verify (zero auth, zero config
   const settingsDir = mkdtempSync(join(tmpdir(), "wb-m0-settings-"));
   try {
     writeFileSync(join(settingsDir, "settings.json"), JSON.stringify({ cleanupPeriodDays: 0 }), "utf8");
-    const init = cli(home, ["init", "--claude-settings", join(settingsDir, "settings.json")]);
+    const init = cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", join(settingsDir, "settings.json")]);
     assert.equal(init.code, 0);
     assert.match(init.stdout, /Initialized/);
     assert.match(init.stdout, /WARNING: cleanupPeriodDays is 0/);

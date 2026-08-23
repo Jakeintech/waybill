@@ -69,8 +69,12 @@ When the user asks to initialize or set up the ledger:
    `identity.json` from `git config` (plus `gh` login if already
    authenticated — never start an auth flow), seeds the repo scope from the
    current repo, auto-imports bundled Anthropic list-price rates (so USD
-   costs appear from day one), checks whether `GITHUB_MCP_PAT` is set, and
-   reports the transcript-retention setting.
+   costs appear from day one), checks whether `GITHUB_MCP_PAT` is set,
+   reports the transcript-retention setting, and meters every existing
+   Claude Code transcript — subagent transcripts included — so the first
+   receipt carries real token totals. Months of history can take a minute;
+   init prints its own progress line, so run it and wait rather than
+   re-running.
 2. Relay the setup summary faithfully — init prints a "Configured" /
    "Needs action" report. Pricing auto-imports whenever the rate table is
    empty (fresh install or an upgrade from a pre-rates version); it never

@@ -35,7 +35,7 @@ test("init on an existing rate-less ledger imports bundled pricing (upgrader pat
   const home = tempHome();
   try {
     writeFileSync(join(home, "config.json"), JSON.stringify({ schema_version: 2 }) + "\n");
-    const { stdout } = cli(home, ["init", "--claude-settings", "/nonexistent", "--json"]);
+    const { stdout } = cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent", "--json"]);
     const out = JSON.parse(stdout) as {
       fresh: boolean;
       pricing: { imported: string[]; version: string | null };
@@ -52,7 +52,7 @@ test("init on an existing rate-less ledger imports bundled pricing (upgrader pat
 test("init never clobbers a hand-set rate; the rest of the bundle is not merged in", () => {
   const home = tempHome();
   try {
-    cli(home, ["init", "--claude-settings", "/nonexistent"]);
+    cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent"]);
     cli(home, [
       "pricing", "set", "my-model", "--version", "2026-01-01",
       "--input", "7", "--output", "70", "--cache-read", "0.7", "--cache-5m", "8.75", "--cache-1h", "14",
@@ -67,7 +67,7 @@ test("init never clobbers a hand-set rate; the rest of the bundle is not merged 
     config.pricing.version = "2026-01-01";
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
-    const { stdout } = cli(home, ["init", "--claude-settings", "/nonexistent", "--json"]);
+    const { stdout } = cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent", "--json"]);
     const out = JSON.parse(stdout) as { pricing: { imported: string[] } };
     assert.deepEqual(out.pricing.imported, [], "a table holding any rate is never touched");
     const after = JSON.parse(execFileSync("cat", [configPath], { encoding: "utf8" })) as {
@@ -84,7 +84,7 @@ test("init never clobbers a hand-set rate; the rest of the bundle is not merged 
 test("fresh init reports missing pricing under needs_action only when the bundle import fails to price anything", () => {
   const home = tempHome();
   try {
-    const { stdout } = cli(home, ["init", "--claude-settings", "/nonexistent", "--json"]);
+    const { stdout } = cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent", "--json"]);
     const out = JSON.parse(stdout) as { needs_action: string[]; pricing: { imported: string[] } };
     // Bundle present → imported → no pricing line in needs_action.
     assert.ok(out.pricing.imported.length > 0);
@@ -97,7 +97,7 @@ test("fresh init reports missing pricing under needs_action only when the bundle
 test("status names metered models with no resolvable rate, with the exact fix", () => {
   const home = tempHome();
   try {
-    cli(home, ["init", "--claude-settings", "/nonexistent"]);
+    cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent"]);
     const priced = makeUsage({ ts: "2026-08-20T10:00:00Z", turnIndex: 1, model: "claude-opus-4-6" });
     const mystery = makeUsage({ ts: "2026-08-20T11:00:00Z", turnIndex: 2, model: "mystery-model-9" });
     appendEvents(home, "usage", [priced, mystery]);
@@ -123,7 +123,7 @@ test("status names metered models with no resolvable rate, with the exact fix", 
 test("pricing show surfaces metered-but-unpriced models (text and --json)", () => {
   const home = tempHome();
   try {
-    cli(home, ["init", "--claude-settings", "/nonexistent"]);
+    cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent"]);
     appendEvents(home, "usage", [
       makeUsage({ ts: "2026-08-20T10:00:00Z", turnIndex: 1, model: "mystery-model-9" }),
     ]);

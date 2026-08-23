@@ -90,7 +90,7 @@ test("waybill init: fresh install auto-imports bundled pricing; refresh never ov
   const home = mkdtempSync(join(tmpdir(), "wb-init-pricing-"));
   const settingsDir = mkdtempSync(join(tmpdir(), "wb-init-settings-"));
   try {
-    const init1 = cli(home, ["init", "--claude-settings", join(settingsDir, "missing.json")]);
+    const init1 = cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", join(settingsDir, "missing.json")]);
     assert.equal(init1.code, 0, init1.stdout);
     assert.match(init1.stdout, /Pricing: imported \d+ bundled Anthropic model/);
     let config = JSON.parse(readFileSync(join(home, "config.json"), "utf8")) as {
@@ -106,7 +106,7 @@ test("waybill init: fresh install auto-imports bundled pricing; refresh never ov
     ]);
 
     // Re-init (a refresh, not a fresh install) must never touch pricing.
-    const init2 = cli(home, ["init", "--claude-settings", join(settingsDir, "missing.json")]);
+    const init2 = cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", join(settingsDir, "missing.json")]);
     assert.equal(init2.code, 0, init2.stdout);
     assert.doesNotMatch(init2.stdout, /Pricing: imported/);
     config = JSON.parse(readFileSync(join(home, "config.json"), "utf8")) as {
@@ -127,19 +127,19 @@ test("waybill init: GITHUB_MCP_PAT guidance appears only when unset; summary lis
   const home1 = mkdtempSync(join(tmpdir(), "wb-init-pat-unset-"));
   const home2 = mkdtempSync(join(tmpdir(), "wb-init-pat-set-"));
   try {
-    const unset = cli(home1, ["init"], { GITHUB_MCP_PAT: "" });
+    const unset = cli(home1, ["init", "--projects-dir", "/nonexistent-projects"], { GITHUB_MCP_PAT: "" });
     assert.match(
       unset.stdout,
       /Export GITHUB_MCP_PAT in your shell profile\. Create at https:\/\/github\.com\/settings\/tokens with repo scope\./,
     );
     assert.match(unset.stdout, /Needs action:/);
 
-    const set = cli(home2, ["init"], { GITHUB_MCP_PAT: "ghp_test_token" });
+    const set = cli(home2, ["init", "--projects-dir", "/nonexistent-projects"], { GITHUB_MCP_PAT: "ghp_test_token" });
     assert.doesNotMatch(set.stdout, /Export GITHUB_MCP_PAT/);
     assert.match(set.stdout, /GitHub MCP \(GITHUB_MCP_PAT set\)/);
     assert.match(set.stdout, /Configured:/);
 
-    const json = JSON.parse(cli(home2, ["init", "--json"], { GITHUB_MCP_PAT: "ghp_test_token" }).stdout) as {
+    const json = JSON.parse(cli(home2, ["init", "--projects-dir", "/nonexistent-projects", "--json"], { GITHUB_MCP_PAT: "ghp_test_token" }).stdout) as {
       github_mcp_pat_set: boolean;
       configured: string[];
       needs_action: string[];
