@@ -6,8 +6,9 @@ description: >
   did my tokens go", "tokens by story", "what did PLAT-123 cost", "how's my
   burn", "spend report", "what's my open spend", "show my attribution
   inbox", "resolve my attribution inbox", "resolve attribution exceptions",
-  or asks about token usage by model, week, epic, or story. Answers come
-  from the local metered ledger — deterministic numbers, never estimates.
+  "show me my dashboard", "open my waybill dashboard", or asks about token
+  usage by model, week, epic, or story. Answers come from the local
+  metered ledger — deterministic numbers, never estimates.
 metadata:
   version: "2.0.0"
 ---
@@ -37,6 +38,7 @@ shown, never hidden).
 | What's my open spend? | `query spend` → `.data.open_spend` |
 | Attribution health? | `query spend` → `.data.attribution_health` |
 | Overall ledger health? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" status` |
+| Show me my dashboard | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" dashboard` — writes `rollups/dashboard.html` (spend, pacing, open work, last 7 days) and prints its path; tell the user to open that file. The miner keeps it fresh; reading it costs zero tokens. |
 | What's still in flight / sitting? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query manifest` |
 | What never got tracked? | `query untracked` — then hand off to the salvage skill |
 | Share the ledger as a file? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" export --format csv` (respects --audience) |

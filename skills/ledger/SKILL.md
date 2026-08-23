@@ -4,7 +4,8 @@ description: >
   This skill should be used for anything involving the waybill ledger's storage,
   entry schema, configuration, or integrity rules — when the user asks to
   "initialize my waybill ledger", "set up waybill", "what's in my ledger",
-  "what have I logged", "show my ledger", "verify my ledger", or whenever
+  "what have I logged", "show my ledger", "verify my ledger", "what can
+  waybill do", "waybill help", "how do I use waybill", or whenever
   another waybill skill (log, spend, sync, report, forecast) needs to read
   or write ledger data.
 metadata:
@@ -60,6 +61,18 @@ every event has a deterministic ULID `id` and `schema_version: 2`:
 Read `references/schema.md` (in this skill's directory) before constructing
 any entry, and `references/methodology.md` before making any claim about
 time saved or work "with vs. without Claude".
+
+## "What can waybill do?"
+
+When the user asks what Waybill can do (or for help with it), answer from
+the real surface, briefly: metering (every token from local transcripts,
+subagents included, attributed to the story it served), the receipts
+readers (standup, spend, report/token pitch, retro, invoice, disclose,
+salvage, forecast, sync), the zero-token dashboard, and the verification
+pack (`export --pack`). Offer the two highest-value next steps for their
+state — usually "initialize my waybill ledger" if uninitialized, else
+"sync my ledger" or "what did I do yesterday". Never invent features;
+the README's "How it works" table is the canonical list.
 
 ## Initialization
 

@@ -5,7 +5,7 @@
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict) | clean |
-| `node --test` full suite | **211 / 211 pass** (2.1 batch so far: subagent-transcript metering with exact-sum fixtures, append clock check + verify warnings, demo static-render pins, init-time metering; v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
+| `node --test` full suite | **221 / 221 pass** (2.1 batch so far: subagent-transcript metering with exact-sum fixtures, append clock check + verify warnings, demo static-render pins, init-time metering, shared-walk stream cache equivalence, meter-gap disclosure, precomputed session notices, multi-repo warnings; v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
 | Reproducible build + zero bin diff | pass |
 | `scripts/validate-plugin.sh` | pass |
 | `scripts/release-gate.sh` (`npm run gate` — the release's claims about itself, checked mechanically) | pass |
