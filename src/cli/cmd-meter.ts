@@ -4,7 +4,7 @@ import type { ExceptionEvent, LedgerEntry, PinEntry, SessionEvent, UsageEvent } 
 import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLockWait, releaseLock } from "../meter/lock.ts";
 import { meterOtel } from "../meter/otel.ts";
-import { defaultProjectsDir, listTranscripts, meterFile, meterFileWithSubagents, type MeterRunResult } from "../meter/run.ts";
+import { defaultProjectsDir, listTranscripts, loadMeterContext, meterFile, meterFileWithSubagents, type MeterRunResult } from "../meter/run.ts";
 
 export async function runMeter(home: string, args: string[], json: boolean): Promise<number> {
   let transcript: string | null = null;
@@ -96,10 +96,12 @@ export async function runMeter(home: string, args: string[], json: boolean): Pro
   let failures = 0;
   try {
     if (all) {
-      // listTranscripts already includes subagent transcripts (E-02).
+      // listTranscripts already includes subagent transcripts (E-02); one
+      // shared context spares re-reading the four streams per file (E-10).
+      const ctx = loadMeterContext(home);
       for (const p of listTranscripts(projectsDir)) {
         try {
-          results.push(meterFile(home, p, repo, force));
+          results.push(meterFile(home, p, repo, force, ctx));
         } catch (err) {
           failures += 1;
           process.stderr.write(`waybill meter: ${p}: ${(err as Error).message}\n`);

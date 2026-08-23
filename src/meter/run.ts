@@ -183,27 +183,67 @@ function probeSessionId(raw: string): string | null {
 }
 
 /**
+ * Everything meterFile reads from the home besides the transcript itself,
+ * loadable once and shared across a walk (E-10): without it, every file in
+ * a `--all` pass re-reads and re-parses all four streams — quadratic on
+ * exactly the path init now takes on first run. Events appended during the
+ * walk are pushed back into the arrays, so a shared context observes the
+ * same state a per-file reload would.
+ */
+export interface MeterContext {
+  config: Config;
+  pricingDigest: string;
+  ledgerEvents: Array<LedgerEntry | PinEntry>;
+  usage: UsageEvent[];
+  sessions: SessionEvent[];
+  exceptions: ExceptionEvent[];
+  fingerprint: string;
+}
+
+export function loadMeterContext(home: string): MeterContext {
+  const config = loadConfig(home);
+  const ledgerEvents = readEvents<LedgerEntry | PinEntry>(home, "ledger");
+  const exceptions = readEvents<ExceptionEvent>(home, "exceptions");
+  return {
+    config,
+    pricingDigest: sha256Hex(canonicalJson(config.pricing)),
+    ledgerEvents,
+    usage: readEvents<UsageEvent>(home, "usage"),
+    sessions: readEvents<SessionEvent>(home, "sessions"),
+    exceptions,
+    // Stable across a walk: metering appends ambiguities/gaps, never the
+    // resolutions, pins, or open entries the fingerprint is built from.
+    fingerprint: attributionFingerprint(ledgerEvents, exceptions, config),
+  };
+}
+
+/**
  * Meter one transcript into the home's streams. Deterministic given inputs;
  * idempotent by event id. Pass force=true to bypass the fast path outright.
+ * `ctx` shares the home's stream reads across a walk — behavior is
+ * identical with or without it.
  */
 export function meterFile(
   home: string,
   transcriptPath: string,
   repoHint: string | null,
   force = false,
+  ctx?: MeterContext,
 ): MeterRunResult {
-  const config = loadConfig(home);
+  const shared = ctx ?? null;
+  const config = shared?.config ?? loadConfig(home);
   const state = loadState(home);
   // Stat before read: bytes appended between the two calls then read as a
   // larger size next run (stale checkpoint → re-meter) instead of being
   // checkpointed as metered without ever being parsed.
   const fileBytes = statSync(transcriptPath).size;
   const raw = readFileSync(transcriptPath, "utf8");
-  const pricingDigest = sha256Hex(canonicalJson(config.pricing));
+  const pricingDigest = shared?.pricingDigest ?? sha256Hex(canonicalJson(config.pricing));
 
-  const ledgerEvents = readEvents<LedgerEntry | PinEntry>(home, "ledger");
-  const existingExceptions = readEvents<ExceptionEvent>(home, "exceptions");
-  const fingerprint = attributionFingerprint(ledgerEvents, existingExceptions, config);
+  const ledgerEvents = shared?.ledgerEvents ?? readEvents<LedgerEntry | PinEntry>(home, "ledger");
+  const existingExceptions = shared?.exceptions ?? readEvents<ExceptionEvent>(home, "exceptions");
+  const fingerprint =
+    shared?.fingerprint ?? attributionFingerprint(ledgerEvents, existingExceptions, config);
 
   // Duplicate-transcript guard: two on-disk files carrying one sessionId
   // (a copied project dir, a restored backup) must not take turns
@@ -244,8 +284,8 @@ export function meterFile(
 
   const hadCheckpoint = sessionId !== null && Object.hasOwn(state.sessions, sessionId);
   const repo = repoHint ?? repoFromCwd(probe.cwd);
-  const existingUsage = readEvents<UsageEvent>(home, "usage");
-  const existingSessions = readEvents<SessionEvent>(home, "sessions");
+  const existingUsage = shared?.usage ?? readEvents<UsageEvent>(home, "usage");
+  const existingSessions = shared?.sessions ?? readEvents<SessionEvent>(home, "sessions");
 
   const out = meterTranscript({
     transcriptPath,
@@ -262,6 +302,11 @@ export function meterFile(
   appendEvents(home, "usage", out.newUsage);
   appendEvents(home, "sessions", out.newSessions);
   appendEvents(home, "exceptions", out.newExceptions);
+  if (shared) {
+    shared.usage.push(...out.newUsage);
+    shared.sessions.push(...out.newSessions);
+    shared.exceptions.push(...out.newExceptions);
+  }
 
   if (out.sessionId !== null) {
     const lastTurn = out.transcript.turns[out.transcript.turns.length - 1];
@@ -311,9 +356,10 @@ export function meterAllQuiet(
   if (!acquireLock(home)) return null;
   const result: MeterAllResult = { metered: 0, already_current: 0, failures: 0 };
   try {
+    const ctx = loadMeterContext(home);
     for (const p of listTranscripts(projectsDir)) {
       try {
-        const r = meterFile(home, p, null);
+        const r = meterFile(home, p, null, false, ctx);
         if (r.skipped) result.already_current += 1;
         else result.metered += 1;
       } catch (err) {
@@ -340,11 +386,12 @@ export function meterFileWithSubagents(
   repoHint: string | null,
   force = false,
   onError?: (path: string, err: Error) => void,
+  ctx?: MeterContext,
 ): MeterRunResult[] {
   const results: MeterRunResult[] = [];
   for (const p of [transcriptPath, ...listSubagentTranscripts(transcriptPath)]) {
     try {
-      results.push(meterFile(home, p, repoHint, force));
+      results.push(meterFile(home, p, repoHint, force, ctx));
     } catch (err) {
       if (p === transcriptPath) throw err; // the named file keeps its contract
       onError?.(p, err as Error);

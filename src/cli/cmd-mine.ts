@@ -5,7 +5,7 @@ import { loadConfig } from "../core/config.ts";
 import { finalizeEvent, SCHEMA_VERSION, type ExceptionEvent, type MeterGapEvent } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLock, releaseLock } from "../meter/lock.ts";
-import { defaultProjectsDir, listTranscripts, meterFile, meterFileWithSubagents } from "../meter/run.ts";
+import { defaultProjectsDir, listTranscripts, loadMeterContext, meterFile, meterFileWithSubagents, type MeterContext } from "../meter/run.ts";
 import { refreshDashboardIfPresent } from "./cmd-dashboard.ts";
 
 interface Capture {
@@ -101,6 +101,8 @@ export function runMine(home: string, args: string[], json: boolean): number {
   let gaps = 0;
   let alreadyCurrent = 0;
   try {
+    // One shared read of the home's streams for the whole run (E-10).
+    const ctx: MeterContext = loadMeterContext(home);
     const files = readdirSync(queueDir)
       .filter((f) => f.endsWith(".json"))
       .sort();
@@ -132,6 +134,7 @@ export function runMine(home: string, args: string[], json: boolean): number {
           typeof capture.repo === "string" ? capture.repo : null,
           false,
           (p, err) => process.stderr.write(`waybill mine: ${p}: ${err.message}\n`),
+          ctx,
         );
         capture.mined = true;
         capture["mined_session_id"] = results[0]!.session_id;
@@ -151,7 +154,7 @@ export function runMine(home: string, args: string[], json: boolean): number {
     if (all) {
       for (const t of listTranscripts(projectsDir)) {
         try {
-          const r = meterFile(home, t, null);
+          const r = meterFile(home, t, null, false, ctx);
           if (r.skipped) alreadyCurrent += 1;
           else if (r.remetered) remetered += 1;
           else minedNew += 1;
