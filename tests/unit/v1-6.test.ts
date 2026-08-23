@@ -228,6 +228,11 @@ test("dashboard: injects the snapshot, escapes breakouts, never leaves the place
     const html = readFileSync(out.data.path, "utf8");
     assert.ok(!html.includes("__WAYBILL_DATA__"), "placeholder must be replaced");
     assert.ok(html.includes('"generated_at":"2026-08-22T12:00:00Z"'));
+    // Cache-savings tile (#18): renderer present, and the payload carries
+    // the derived figures it reads (labeled basis, coverage, null-not-$0).
+    assert.ok(html.includes('tile("Cache reads'), "cache-savings tile renderer present");
+    assert.ok(html.includes('"cache_savings"'), "spend30 payload carries cache_savings");
+    assert.ok(html.includes("saved vs list — derived"), "derived label present");
     assert.ok(!html.includes("</script><script>alert"), "ledger strings must not escape the JSON block");
     assert.ok(html.includes("\\u003c/script>"), "escaped form present instead");
   } finally {

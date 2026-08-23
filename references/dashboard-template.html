@@ -140,6 +140,12 @@
   tile("Cost · 30 days", cost !== null ? "$" + cost.toFixed(2) : "tokens only",
     s30.pricing_coverage.priced_pct < 100 && s30.total_tokens > 0
       ? "covers " + s30.pricing_coverage.priced_pct + "% of tokens" : "full coverage");
+  var cs = s30.cache_savings;
+  tile("Cache reads · 30 days", cs.cache_read_pct + "%",
+    cs.saved_usd !== null
+      ? "≈ $" + cs.saved_usd.toFixed(2) + " saved vs list — derived" +
+        (cs.covered_pct < 100 ? " · covers " + cs.covered_pct + "%" : "")
+      : compact(cs.cache_read_tokens) + " tokens at the cache-read rate");
   tile("Waybill overhead", s30.overhead.pct + "%", fmt(s30.overhead.tokens) + " tokens — itemized");
   tile("Open work", fmt(data.manifest.open_items.length) + " item(s)",
     compact(data.manifest.open_tokens) + " tokens open" +
