@@ -437,15 +437,18 @@ function verifyHome(home) {
       });
     }
   }
+  const preSplitSessions = new Set(
+    usage.filter((u) => Number(u.attribution.rules_version) < 3).map((u) => u.session_id)
+  );
   for (const s of sessions) {
-    if (s.cwds !== void 0 && s.cwds.length > 1) {
+    if (s.cwds !== void 0 && s.cwds.length > 1 && preSplitSessions.has(s.session_id)) {
       findings.push({
         check: "multi_repo",
         stream: "sessions",
         shard: shardFor(s.ts),
         id: s.id,
         severity: "warning",
-        message: `session ${s.session_id}: ran in ${s.cwds.length} working directories (${s.cwds.join(", ")}) \u2014 all spend is attributed via the first; per-turn split attribution is not yet supported`
+        message: `session ${s.session_id}: ran in ${s.cwds.length} working directories (${s.cwds.join(", ")}) and carries usage attributed under pre-split rules \u2014 all such spend books via the first directory; while the transcript survives, waybill meter --all re-attributes it per turn`
       });
     }
   }
@@ -854,7 +857,7 @@ import { homedir as homedir2 } from "node:os";
 import { join as join6 } from "node:path";
 
 // src/attribution/resolver.ts
-var RULES_VERSION = "2";
+var RULES_VERSION = "3";
 function keyFromBranch(branch, pattern) {
   if (!branch) return null;
   const m = branch.match(new RegExp(pattern));
@@ -1133,6 +1136,7 @@ function parseTranscript(raw, options) {
   let agentId = null;
   let version = null;
   let cwd = null;
+  let currentCwd = null;
   let currentBranch = null;
   let firstTs = null;
   let lastTs = null;
@@ -1148,6 +1152,7 @@ function parseTranscript(raw, options) {
         index: turnIndex,
         promptId: null,
         branchAtStart: currentBranch,
+        cwdAtStart: currentCwd,
         firstMessageId: null,
         lastMessageId: null,
         models: [],
@@ -1166,8 +1171,9 @@ function parseTranscript(raw, options) {
     } catch {
       continue;
     }
-    if (typeof line.cwd === "string" && line.cwd !== "" && !cwds.includes(line.cwd)) {
-      cwds.push(line.cwd);
+    if (typeof line.cwd === "string" && line.cwd !== "") {
+      currentCwd = line.cwd;
+      if (!cwds.includes(line.cwd)) cwds.push(line.cwd);
     }
     if (sessionId === null && typeof line.sessionId === "string") {
       sessionId = line.sessionId;
@@ -1189,6 +1195,7 @@ function parseTranscript(raw, options) {
         index: turnIndex,
         promptId: typeof line.promptId === "string" ? line.promptId : null,
         branchAtStart: currentBranch,
+        cwdAtStart: currentCwd,
         firstMessageId: null,
         lastMessageId: null,
         models: [],
@@ -1383,6 +1390,12 @@ function meterTranscript(input) {
     projectKeys: input.config.tracker.project_keys,
     ...input.turnOverrides ? { turnOverrides: input.turnOverrides } : {}
   };
+  const multiRepo = transcript.cwds.length > 1;
+  const repoForTurn = (turn) => {
+    if (!multiRepo) return input.repo;
+    const derived = turn.cwdAtStart !== null && input.resolveRepo ? input.resolveRepo(turn.cwdAtStart) : null;
+    return derived ?? input.repo;
+  };
   const existingUsageAuth = authoritative(input.existingUsage).filter(
     (u) => u.kind === "usage" && u.session_id === sessionId
   );
@@ -1406,7 +1419,9 @@ function meterTranscript(input) {
   }
   const emitted = zeroTotals();
   for (const turn of transcript.turns) {
-    const { attribution: attribution2, ambiguity } = resolveTurn(turn, ctx);
+    const turnRepo = repoForTurn(turn);
+    const turnCtx = turnRepo === ctx.repo ? ctx : { ...ctx, repo: turnRepo };
+    const { attribution: attribution2, ambiguity } = resolveTurn(turn, turnCtx);
     const settled = attribution2.resolver === "pin" || attribution2.resolver === "active_entry" || attribution2.resolver === "transcript_evidence";
     if (ambiguity && !settled) {
       const ambBody = {
@@ -1444,7 +1459,7 @@ function meterTranscript(input) {
           last_message_id: turn.lastMessageId ?? "",
           prompt_id: turn.promptId
         },
-        repo: input.repo,
+        repo: turnRepo,
         model: agg.model,
         tokens: agg.tokens,
         cost_usd: priceTokens(input.config, agg.model, agg.tokens),
@@ -1747,6 +1762,11 @@ function meterFile(home, transcriptPath, repoHint, force = false, ctx) {
   const repo = repoHint ?? repoFromCwd(probe.cwd);
   const existingUsage = shared?.usage ?? readEvents(home, "usage");
   const existingSessions = shared?.sessions ?? readEvents(home, "sessions");
+  const repoByCwd = /* @__PURE__ */ new Map();
+  const resolveRepo = (cwd) => {
+    if (!repoByCwd.has(cwd)) repoByCwd.set(cwd, repoFromCwd(cwd));
+    return repoByCwd.get(cwd) ?? null;
+  };
   const out = meterTranscript({
     transcriptPath,
     raw,
@@ -1756,7 +1776,8 @@ function meterFile(home, transcriptPath, repoHint, force = false, ctx) {
     existingUsage,
     existingSessions,
     existingExceptions,
-    turnOverrides: sessionId !== null ? turnOverridesFor(sessionId, existingExceptions) : /* @__PURE__ */ new Map()
+    turnOverrides: sessionId !== null ? turnOverridesFor(sessionId, existingExceptions) : /* @__PURE__ */ new Map(),
+    resolveRepo
   });
   appendEvents(home, "usage", out.newUsage);
   appendEvents(home, "sessions", out.newSessions);
@@ -3364,6 +3385,7 @@ function meterOtel(input) {
         index: 0,
         promptId: null,
         branchAtStart: null,
+        cwdAtStart: null,
         firstMessageId: null,
         lastMessageId: null,
         models: [],
@@ -6000,7 +6022,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "2.1.1" : "dev";
+var ENGINE_VERSION = true ? "2.2.0" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]

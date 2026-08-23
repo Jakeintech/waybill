@@ -20,6 +20,7 @@ function turn(index: number, overrides: Partial<Turn> = {}): Turn {
     index,
     promptId: null,
     branchAtStart: null,
+    cwdAtStart: null,
     firstMessageId: `msg_first_${index}`,
     lastMessageId: `msg_last_${index}`,
     models: [

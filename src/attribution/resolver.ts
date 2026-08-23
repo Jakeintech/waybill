@@ -3,7 +3,7 @@ import { rootSessionId } from "../core/events.ts";
 import { isPlausibleTrackerKey } from "../core/keys.ts";
 import type { EvidenceKey, Turn } from "../meter/transcript.ts";
 
-export const RULES_VERSION = "2"; // v2: key-plausibility gating (stoplist + project_keys)
+export const RULES_VERSION = "3"; // v3: per-turn repo in multi-directory sessions (v2: key-plausibility gating)
 
 export interface ResolverContext {
   sessionId: string;
@@ -54,7 +54,7 @@ function attribution(
 }
 
 /**
- * The attribution ladder (rules_version 1). First rule that fires wins:
+ * The attribution ladder. First rule that fires wins:
  *   1 pin                 1.00
  *   2 active_entry        0.90   exactly one open entry for the session's repo
  *   3 transcript_evidence 0.75   key in checkouts/commits/PR ops, applies forward
@@ -77,8 +77,7 @@ export function resolveTurn(turn: Turn, ctx: ResolverContext): Resolution {
   // Rule 1 — pin. A whole-session pin or one whose range covers the turn.
   // A pin on the parent session also covers its subagent transcripts
   // (composite ids): "pin this session" includes the agents it spawned.
-  // For plain ids root === self, so no pre-2.1 attribution changes — which
-  // is why RULES_VERSION stays put.
+  // For plain ids root === self, so pre-2.1 attribution was unchanged.
   const turnTs = turn.models.reduce((max, m) => (m.lastTs > max ? m.lastTs : max), "");
   const rootId = rootSessionId(ctx.sessionId);
   const matchingPins = ctx.pins.filter((p) => {
@@ -100,7 +99,8 @@ export function resolveTurn(turn: Turn, ctx: ResolverContext): Resolution {
     ambiguity = ambiguity ?? { rule: "pin", candidates: accounts };
   }
 
-  // Rule 2 — active_entry: exactly one open entry matching the session's repo.
+  // Rule 2 — active_entry: exactly one open entry matching the turn's repo
+  // (per-turn in multi-directory sessions since rules v3).
   const candidates = ctx.openEntries.filter(
     (e) => e.tracker_key !== null && (ctx.repo === null || e.repo === null || e.repo === ctx.repo),
   );

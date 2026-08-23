@@ -60,6 +60,8 @@ export function makeUsage(overrides: {
   account?: string;
   resolver?: UsageEvent["attribution"]["resolver"];
   confidence?: number;
+  /** Override to craft legacy events (e.g. pre-split rules "2"). */
+  rulesVersion?: string;
   repo?: string | null;
   cost?: UsageEvent["cost_usd"];
   waste?: UsageEvent["waste"];
@@ -96,7 +98,7 @@ export function makeUsage(overrides: {
       tracker_key: account.startsWith("story:") ? account.slice("story:".length) : null,
       resolver: overrides.resolver ?? ("active_entry" as const),
       confidence: overrides.confidence ?? 0.9,
-      rules_version: RULES_VERSION,
+      rules_version: overrides.rulesVersion ?? RULES_VERSION,
     },
     source: "transcript" as const,
     transcript_version: "2.1.229",
@@ -130,6 +132,8 @@ export function makeSessionReceipt(
     transcript_path: overrides.transcript_path ?? `~/.claude/projects/acme-platform/${sessionId}.jsonl`,
     transcript_version: overrides.transcript_version ?? "2.1.229",
     cwd: overrides.cwd ?? "/home/user/acme/platform",
+    // Present only when provided: single-cwd fixtures keep their ids.
+    ...(overrides.cwds !== undefined ? { cwds: overrides.cwds } : {}),
     repo: overrides.repo ?? "acme/platform",
     branches: overrides.branches ?? ["feat/PLAT-482-retry"],
     models: overrides.models ?? ["claude-opus-4-6"],

@@ -287,6 +287,14 @@ export function meterFile(
   const existingUsage = shared?.usage ?? readEvents<UsageEvent>(home, "usage");
   const existingSessions = shared?.sessions ?? readEvents<SessionEvent>(home, "sessions");
 
+  // Memoized per-cwd repo lookup for multi-directory sessions: one git
+  // remote read per distinct directory, not per turn.
+  const repoByCwd = new Map<string, string | null>();
+  const resolveRepo = (cwd: string): string | null => {
+    if (!repoByCwd.has(cwd)) repoByCwd.set(cwd, repoFromCwd(cwd));
+    return repoByCwd.get(cwd) ?? null;
+  };
+
   const out = meterTranscript({
     transcriptPath,
     raw,
@@ -297,6 +305,7 @@ export function meterFile(
     existingSessions,
     existingExceptions,
     turnOverrides: sessionId !== null ? turnOverridesFor(sessionId, existingExceptions) : new Map(),
+    resolveRepo,
   });
 
   appendEvents(home, "usage", out.newUsage);

@@ -28,6 +28,11 @@ export interface MeterInput {
   existingExceptions: ExceptionEvent[];
   /** Applied inbox resolutions for this session (turn index → account). */
   turnOverrides?: Map<number, string>;
+  /** Repo identity for a working directory (multi-repo sessions, rules
+   * v3): meterFile passes a memoized git-remote lookup; absent (direct
+   * callers, tests) means no derivation — the session-level repo hint
+   * governs every turn, as it always has. */
+  resolveRepo?: (cwd: string) => string | null;
 }
 
 export interface MeterOutput {
@@ -140,6 +145,20 @@ export function meterTranscript(input: MeterInput): MeterOutput {
     projectKeys: input.config.tracker.project_keys,
     ...(input.turnOverrides ? { turnOverrides: input.turnOverrides } : {}),
   };
+  // Per-turn repo (rules v3): a session that ran in several working
+  // directories attributes each turn via the directory active at its
+  // start. Precedence is deliberate: single-directory sessions keep the
+  // session-level repo exactly as before (hint first — their events must
+  // not churn on upgrade); multi-directory sessions derive per turn and
+  // fall back to the hint, because the one hint the capture carries
+  // describes only one of the directories.
+  const multiRepo = transcript.cwds.length > 1;
+  const repoForTurn = (turn: (typeof transcript.turns)[number]): string | null => {
+    if (!multiRepo) return input.repo;
+    const derived =
+      turn.cwdAtStart !== null && input.resolveRepo ? input.resolveRepo(turn.cwdAtStart) : null;
+    return derived ?? input.repo;
+  };
 
   const existingUsageAuth = authoritative(input.existingUsage).filter(
     (u) => u.kind === "usage" && u.session_id === sessionId,
@@ -171,7 +190,9 @@ export function meterTranscript(input: MeterInput): MeterOutput {
   const emitted: TokenCounts = zeroTotals();
 
   for (const turn of transcript.turns) {
-    const { attribution, ambiguity } = resolveTurn(turn, ctx);
+    const turnRepo = repoForTurn(turn);
+    const turnCtx = turnRepo === ctx.repo ? ctx : { ...ctx, repo: turnRepo };
+    const { attribution, ambiguity } = resolveTurn(turn, turnCtx);
     // Queue to the inbox only when the ambiguity actually stands: a
     // fall-through rule that landed at pin/active_entry/evidence strength
     // settles the turn; branch/default/none leaves it worth a human tap.
@@ -222,7 +243,7 @@ export function meterTranscript(input: MeterInput): MeterOutput {
           last_message_id: turn.lastMessageId ?? "",
           prompt_id: turn.promptId,
         },
-        repo: input.repo,
+        repo: turnRepo,
         model: agg.model,
         tokens: agg.tokens,
         cost_usd: priceTokens(input.config, agg.model, agg.tokens),

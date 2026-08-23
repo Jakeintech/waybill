@@ -201,6 +201,7 @@ export function meterOtel(input: OtelMeterInput): OtelMeterOutput {
         index: 0,
         promptId: null,
         branchAtStart: null,
+        cwdAtStart: null,
         firstMessageId: null,
         lastMessageId: null,
         models: [],

@@ -26,6 +26,10 @@ export interface Turn {
   index: number;
   promptId: string | null;
   branchAtStart: string | null;
+  /** Working directory in effect when the turn started — the per-turn
+   * attribution anchor for multi-repo sessions (FR-A3: a turn belongs to
+   * the context at its START; a turn is never split). */
+  cwdAtStart: string | null;
   firstMessageId: string | null;
   lastMessageId: string | null;
   models: ModelAggregate[];
@@ -40,9 +44,9 @@ export interface Turn {
 export interface ParsedTranscript {
   sessionId: string | null;
   /** Distinct working directories seen across the transcript, in first-
-   * appearance order. Attribution uses only the first (cwd); more than one
-   * marks a multi-repo session, which verify discloses (E-14) — per-turn
-   * split attribution is not yet supported. */
+   * appearance order. More than one marks a multi-repo session: each
+   * turn attributes via the directory active at its start (rules v3);
+   * verify discloses sessions still carrying pre-split attribution. */
   cwds: string[];
   /** Present when this file is a subagent transcript: the agent id carried
    * on the same line that supplied sessionId. Subagent files stamp it on
@@ -221,6 +225,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
   let agentId: string | null = null;
   let version: string | null = null;
   let cwd: string | null = null;
+  let currentCwd: string | null = null;
   let currentBranch: string | null = null;
   let firstTs: string | null = null;
   let lastTs: string | null = null;
@@ -239,6 +244,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         index: turnIndex,
         promptId: null,
         branchAtStart: currentBranch,
+        cwdAtStart: currentCwd,
         firstMessageId: null,
         lastMessageId: null,
         models: [],
@@ -258,8 +264,9 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
     } catch {
       continue;
     }
-    if (typeof line.cwd === "string" && line.cwd !== "" && !cwds.includes(line.cwd)) {
-      cwds.push(line.cwd);
+    if (typeof line.cwd === "string" && line.cwd !== "") {
+      currentCwd = line.cwd;
+      if (!cwds.includes(line.cwd)) cwds.push(line.cwd);
     }
     if (sessionId === null && typeof line.sessionId === "string") {
       sessionId = line.sessionId;
@@ -284,6 +291,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
         index: turnIndex,
         promptId: typeof line.promptId === "string" ? line.promptId : null,
         branchAtStart: currentBranch,
+        cwdAtStart: currentCwd,
         firstMessageId: null,
         lastMessageId: null,
         models: [],

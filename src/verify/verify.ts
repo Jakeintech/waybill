@@ -263,19 +263,29 @@ export function verifyHome(home: string): Finding[] {
     }
   }
 
-  // Multi-repo sessions (E-14): a transcript that ran in several working
-  // directories books ALL its spend to the first one's repo — a correct
-  // per-turn split does not exist yet, so the booking is disclosed rather
-  // than silently wrong.
+  // Multi-repo sessions (E-14): since rules v3 each turn attributes via
+  // the working directory active at its start, so a freshly metered
+  // multi-directory session is correct and silent. The warning fires only
+  // while a session still carries usage attributed under pre-split rules
+  // (< v3) — and retires itself after the re-meter the rules bump
+  // triggers. It advises the re-meter conditionally: a session whose
+  // transcript is gone can never re-attribute, and unfollowable advice is
+  // worse than a plain disclosure.
+  const preSplitSessions = new Set(
+    usage
+      .filter((u) => Number(u.attribution.rules_version) < 3)
+      .map((u) => u.session_id),
+  );
   for (const s of sessions) {
-    if (s.cwds !== undefined && s.cwds.length > 1) {
+    if (s.cwds !== undefined && s.cwds.length > 1 && preSplitSessions.has(s.session_id)) {
       findings.push({
         check: "multi_repo", stream: "sessions", shard: shardFor(s.ts), id: s.id,
         severity: "warning",
         message:
           `session ${s.session_id}: ran in ${s.cwds.length} working directories ` +
-          `(${s.cwds.join(", ")}) — all spend is attributed via the first; ` +
-          "per-turn split attribution is not yet supported",
+          `(${s.cwds.join(", ")}) and carries usage attributed under pre-split rules — ` +
+          "all such spend books via the first directory; while the transcript survives, " +
+          "waybill meter --all re-attributes it per turn",
       });
     }
   }

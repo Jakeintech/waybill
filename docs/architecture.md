@@ -44,7 +44,11 @@ cache-write tiers, extracting commit/PR evidence, tallying waste), and
 `src/meter/meter.ts` derives events: per-(turn, model) usage events
 attributed by a six-rule ladder (`src/attribution/resolver.ts` — turn
 override, pin, active entry, transcript evidence, session branch, repo
-default, none — with ambiguity fall-through into the inbox), priced by
+default, none — with ambiguity fall-through into the inbox). Since rules
+v3 the repo the ladder sees is per turn: a session that ran in several
+working directories attributes each turn via the directory active at the
+turn's start (FR-A3 — a turn is never split), while single-directory
+sessions keep the session-level repo byte-for-byte. Events are priced by
 `priceTokens` through the date-stamp-tolerant `resolveRate` (exact key,
 else the same normalized family, never across families; no match means
 `cost_usd: null` — a rate is never guessed), plus a session receipt and

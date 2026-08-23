@@ -5,6 +5,50 @@ brief conflicts with the scaffold the brief wins; where neither resolves a
 question, the choice that best preserves checkability and local-first privacy
 wins. Format: date, question, choice, rationale.
 
+## 2026-08-23 — Any attribution-behavior change bumps RULES_VERSION, stoplist edits included (2.2.0)
+
+**Question.** 2.1.1 added a prefix to the resolver's stoplist without
+bumping `RULES_VERSION`. Field report: 24 usage events minted by the
+older rules still carry a stoplisted account — projections filter them,
+but the raw stream disagrees with what the current engine would say.
+What is the rule?
+
+**Choice.** `RULES_VERSION` bumps on *any* change that can alter an
+attribution outcome — resolver rules, precedence, stoplists, key
+plausibility — not only on ladder redesigns. The version participates
+in both the checkpoint and the attribution fingerprint, so a bump makes
+the next `meter --all` re-meter every session and supersede any grain
+whose attribution the current rules reject; content-addressing keeps
+unchanged sessions a no-op. The 2.1.1 omission is repaired incidentally
+by 2.2.0's v3 bump wherever the transcript survives; events whose
+transcripts are gone stay as minted (append-only) and remain filtered at
+projection time — a re-attribution pass that works from stored events
+alone is tracked as future work, not improvised.
+
+**Rationale.** The stream is the product; "projections filter it" is a
+reading aid, not a correction. Versioning is the only mechanism that
+turns a code change into superseding events without hand-editing
+history, so the version must move whenever outcomes can.
+
+## 2026-08-23 — Per-turn repo precedence in multi-directory sessions (2.2.0)
+
+**Question.** Completing E-14 (rules v3), which repo should a turn see:
+always derive from the turn's working directory, or keep the session
+hint somewhere in the chain — and in what order?
+
+**Choice.** Single-directory sessions keep the session-level repo
+exactly as before (hint first, derivation fallback — computed once in
+meterFile). Multi-directory sessions derive per turn from the
+directory active at the turn's start and fall back to the session hint.
+
+**Rationale.** Single-directory precedence cannot change or every
+upgraded ledger's events would churn on the rules-v3 re-meter; the
+capture's one hint describes only one of a multi-directory session's
+directories, so derivation must outrank it exactly there. The verify
+disclosure now keys on pre-split rules_version rather than on being
+multi-directory, so it retires itself after the re-meter and never
+gives unfollowable advice.
+
 ## 2026-08-23 — Subagent transcripts: composite session ids, no version bump (2.1.0)
 
 **Question.** Subagent transcripts carry the parent's sessionId on every
