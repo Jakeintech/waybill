@@ -1,7 +1,7 @@
 import { loadConfig, saveConfig, type Config } from "../core/config.ts";
 import type { UsageEvent } from "../core/events.ts";
 import { loadPricingBundle, resolveBundledModel } from "../core/pricing-bundle.ts";
-import { unpricedModels } from "../core/pricing-resolve.ts";
+import { meteredModels, unpricedModels } from "../core/pricing-resolve.ts";
 import { authoritative, readEvents } from "../core/streams.ts";
 
 /**
@@ -21,13 +21,11 @@ export function runPricing(home: string, args: string[], json: boolean): number 
   if (verb === "show" || verb === undefined) {
     // Cross-check the table against what actually metered: a configured
     // table that cannot price the models in the ledger is not "configured".
-    const seenModels = [
-      ...new Set(
-        authoritative(readEvents<UsageEvent>(home, "usage"))
-          .filter((u) => u.kind === "usage")
-          .map((u) => u.model),
-      ),
-    ];
+    // Only models whose events carry tokens: a zero-token placeholder id
+    // ("<synthetic>") has nothing to price and must not be named.
+    const seenModels = meteredModels(
+      authoritative(readEvents<UsageEvent>(home, "usage")).filter((u) => u.kind === "usage"),
+    );
     const missing = unpricedModels(config.pricing, seenModels);
     if (json) {
       process.stdout.write(

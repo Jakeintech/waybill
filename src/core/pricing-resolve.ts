@@ -61,3 +61,21 @@ export function unpricedModels(
   }
   return [...missing].sort();
 }
+
+/** Distinct models whose usage actually carries tokens — the model list
+ * the unpriced check should see. Zero-token events (legacy placeholder
+ * ids like "<synthetic>", written before the meter skipped zero-usage
+ * messages) price nothing: a model seen only through them must never be
+ * named as unpriced, because status and pricing show print a real fix
+ * for every model they name and there is nothing to fix. Same principle
+ * as unpricedModels' "unknown" exclusion. */
+export function meteredModels(
+  usage: Iterable<{ model: string; tokens: { input: number; output: number; cache_read: number; cache_creation: number } }>,
+): string[] {
+  const seen = new Set<string>();
+  for (const u of usage) {
+    const t = u.tokens;
+    if (t.input + t.output + t.cache_read + t.cache_creation > 0) seen.add(u.model);
+  }
+  return [...seen].sort();
+}

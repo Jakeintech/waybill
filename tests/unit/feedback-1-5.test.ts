@@ -120,6 +120,59 @@ test("status names metered models with no resolvable rate, with the exact fix", 
   }
 });
 
+test("zero-token placeholder models are never named, counted, or called re-priceable", () => {
+  // Ledgers metered by pre-1.x engines carry usage events with model
+  // "<synthetic>" and zero tokens (placeholder assistant messages; the
+  // current parser skips them at the source). There is nothing to price
+  // and — because their grains are never re-emitted — no meter run can
+  // ever supersede them: naming them or pointing "meter --all" at them
+  // is permanently unfollowable advice.
+  const home = tempHome();
+  try {
+    cli(home, ["init", "--projects-dir", "/nonexistent-projects", "--claude-settings", "/nonexistent"]);
+    const priced = makeUsage({ ts: "2026-08-20T10:00:00Z", turnIndex: 1, model: "claude-opus-4-6" });
+    const phantom = makeUsage({
+      ts: "2026-08-20T11:00:00Z", turnIndex: 2, model: "<synthetic>",
+      tokens: { input: 0, output: 0, cache_read: 0, cache_creation: 0, cache_creation_5m: 0, cache_creation_1h: 0 },
+    });
+    appendEvents(home, "usage", [priced, phantom]);
+    appendEvents(home, "sessions", [makeSessionReceipt([priced, phantom])]);
+
+    const read = (): { unpriced_models: string[]; unpriced_events: number; repriceable_events: number } => {
+      const { stdout } = cli(home, ["status", "--claude-settings", "/nonexistent", "--json"], true);
+      return (JSON.parse(stdout) as { data: { pricing: { unpriced_models: string[]; unpriced_events: number; repriceable_events: number } } }).data.pricing;
+    };
+
+    // No rate for "<synthetic>": not named, not counted; the priced
+    // model's cost-null event stays the only re-priceable one.
+    const before = read();
+    assert.deepEqual(before.unpriced_models, []);
+    assert.equal(before.unpriced_events, 1);
+    assert.equal(before.repriceable_events, 1);
+    assert.doesNotMatch(
+      cli(home, ["status", "--claude-settings", "/nonexistent"], true).stdout,
+      /<synthetic>/,
+    );
+
+    // The field-observed trap: a user works around the old naming by
+    // setting a zero rate — that must not resurrect the phantom as a
+    // permanently unclearable "re-price: meter --all" hint.
+    cli(home, [
+      "pricing", "set", "<synthetic>", "--version", "2026-08-23",
+      "--input", "0", "--output", "0", "--cache-read", "0", "--cache-5m", "0", "--cache-1h", "0",
+    ]);
+    assert.equal(read().repriceable_events, 1); // still only the real model's event
+
+    // pricing show's cross-check applies the same rule.
+    const show = JSON.parse(cli(home, ["pricing", "show", "--json"], true).stdout) as {
+      data: { unpriced_models: string[] };
+    };
+    assert.ok(!show.data.unpriced_models.includes("<synthetic>"));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("pricing show surfaces metered-but-unpriced models (text and --json)", () => {
   const home = tempHome();
   try {

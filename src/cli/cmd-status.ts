@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../core/config.ts";
 import type { ExceptionEvent, LedgerEntry, PinEntry, UsageEvent } from "../core/events.ts";
-import { resolveRate, unpricedModels } from "../core/pricing-resolve.ts";
+import { meteredModels, resolveRate, unpricedModels } from "../core/pricing-resolve.ts";
 import { authoritative, readEvents } from "../core/streams.ts";
 import { manifestData } from "../projections/manifest.ts";
 import { countOpenAmbiguities, effectiveShipped, spendData } from "../projections/queries.ts";
@@ -86,15 +86,21 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   // models actually metered into the ledger have no resolvable rate, and
   // how many events still carry no cost (cured by the next meter run).
   // Sessions whose transcripts are gone (meter_gap) can never re-price —
-  // they must not keep the "run meter --all" hint alive forever.
+  // they must not keep the "run meter --all" hint alive forever. Neither
+  // can zero-token events (legacy placeholder ids like "<synthetic>"):
+  // the current meter never re-emits their grains, so no superseding
+  // priced event can ever exist — a hint pointing at them would be
+  // permanently unfollowable, over events that price to nothing anyway.
   const authUsage = authoritative(usage).filter((u) => u.kind === "usage");
-  const seenModels = [...new Set(authUsage.map((u) => u.model))];
-  const unpriced = unpricedModels(config.pricing, seenModels);
-  const unpricedEvents = authUsage.filter((u) => u.cost_usd === null).length;
+  const counted = authUsage.filter(
+    (u) => u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation > 0,
+  );
+  const unpriced = unpricedModels(config.pricing, meteredModels(counted));
+  const unpricedEvents = counted.filter((u) => u.cost_usd === null).length;
   const gapSessions = new Set(
     exceptions.filter((e) => e.kind === "meter_gap").map((e) => (e as { session_id: string }).session_id),
   );
-  const repriceable = authUsage.filter(
+  const repriceable = counted.filter(
     (u) =>
       u.cost_usd === null &&
       u.model !== "unknown" &&
@@ -277,7 +283,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     lines.push(
       `pricing: version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s)` +
         (unpriced.length > 0
-          ? `; NO RATE for metered model(s): ${unpriced.join(", ")} — costs shown tokens-only.` +
+          ? `; NO RATE for metered model(s): ${unpriced.join(", ")} — their costs stay tokens-only.` +
             " Fix: waybill pricing set <model-id> ... (then: waybill meter --all)"
           : "") +
         (repriceable > 0
