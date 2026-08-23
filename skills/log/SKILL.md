@@ -10,7 +10,7 @@ description: >
   Also use it at a natural stopping point after shipping something in a
   session, by offering (once, briefly) to log it.
 metadata:
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Log Work
@@ -39,8 +39,12 @@ initialization first (see the `ledger` skill).
 ## Opening a task (pre-registration — the important one)
 
 1. Ask the user for their **without-Claude estimate as a range in hours**,
-   before any work with Claude begins. This is required; explain in one line
-   why (it is what makes later time-saved claims credible).
+   before any work with Claude begins — once, with the one-line why (it is
+   what makes later time-saved claims credible). If they decline, open the
+   entry without an estimate (`estimate_without_claude_hours: null`, no
+   `pre_registered`): the item stays fully logged at facts tier, and any
+   later time-saved claim for it will be judgment tier. Never press twice,
+   and never backfill.
 2. If Atlassian MCP tools are connected, fetch the issue to fill `points`,
    `epic_key`, `epic_name`, `sprint`. Otherwise ask only for what's needed
    and leave the rest `null`.
@@ -106,8 +110,25 @@ of the attribution ladder.
    the attribution-inputs fingerprint, so the affected session re-meters
    even though its transcript hasn't grown; corrected usage events
    supersede the old attribution and history is preserved.
-4. **Unpin** = append a `correction` superseding the pin's id, then
-   `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" mine --all` again.
+4. **Unpin** = retract the pin with a `correction` superseding its id —
+   never by editing the stream. Find the pin's id, then append:
+
+```bash
+PIN_ID=$(jq -rs 'map(select(.kind=="pin" and .session_id=="<session uuid>")) | last | .id' \
+  "${WAYBILL_HOME:-$HOME/.waybill}"/streams/ledger/*.jsonl)
+"${CLAUDE_PLUGIN_ROOT}/bin/waybill" append --stream ledger --commit --event '{
+  "ts": "<now, ISO UTC>", "kind": "correction",
+  "supersedes": "'"$PIN_ID"'",
+  "title": "unpin session <session uuid>", "tracker_key": null,
+  "claude_role": "none",
+  "notes": "retracts the pin; spend re-attributes by the normal ladder"
+}'
+```
+
+   If several pins cover the session, repeat per pin. Then
+   `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" mine --all` — the retraction
+   changes the attribution fingerprint, so the session re-meters and
+   corrected usage supersedes the pinned attribution.
 5. For "everything after 3pm belongs to X", set
    `range: {"from": "<iso>", "to": null}`.
 

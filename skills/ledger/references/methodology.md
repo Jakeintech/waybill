@@ -34,11 +34,18 @@ biggest credibility lever the ledger has; protect it.
 
 Every pre-registered estimate is **sealed in escrow**: a SHA-256 hash over
 the estimate's canonical form (key, range, unit, logged-at time) is stored
-in the entry at open time (see `schema.md`). The estimate stays readable;
-the hash makes any later edit detectable, and the ledger repo's git history
-is a second, independent witness. `waybill verify` recomputes every seal.
-Tell the user this exists when they first pre-register — it is why a
-reviewer can trust the range wasn't written the night before the review.
+in the entry at open time (see `schema.md`). Be precise about what that
+proves: the seal makes any later edit detectable — it does not prove when
+the estimate was written. Write-time ordering is enforced separately (the
+engine refuses `logged_at` after the entry ts or ahead of the wall clock,
+stamps an `appended_at` witness, and `verify` discloses estimates written
+long after their claimed `logged_at`), and the ledger repo's git history
+is a second, local witness. `waybill verify` recomputes every seal. Tell
+the user this exists when they first pre-register — and when a reviewer
+asks how far to trust a range, point at the calibration record (estimates
+vs. recorded actuals, over-range items surfaced), which is what earns
+trust over time; a single sealed range is one pre-commitment, not proof
+of foresight.
 
 ## 3. Ranges, never points
 

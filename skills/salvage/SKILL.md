@@ -12,7 +12,7 @@ description: >
   reconstructed entries. Facts tier only — pre-registration is never
   backfilled.
 metadata:
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Salvage
@@ -72,12 +72,15 @@ To apply a confirmed cluster:
 ```
 
 2. Append the entry (see `skills/ledger/references/schema.md` for the
-   full shape): kind `opened`, the receipt-derived title,
+   full shape): kind `opened` with `ts: <cluster.first_ts>` — the
+   cluster's own window, never today's date or one shared batch date
+   (same-dated entries rob the resolver of recency and every later
+   session becomes an inbox ambiguity), the receipt-derived title,
    `estimate_without_claude_hours: null`, `claude_role` as the user
    states it (default `"none"` if unsure),
    `notes: "reconstructed from receipts (salvage)"`. If a matched merged
-   change exists, append a superseding `shipped` entry carrying its
-   URL/sha in `artifacts`.
+   change exists, append a superseding `shipped` entry with
+   `ts: <cluster.last_ts>` carrying its URL/sha in `artifacts`.
 
 3. After all clusters: `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" mine --all`
    re-attributes the pinned sessions, then close with one line — tokens
