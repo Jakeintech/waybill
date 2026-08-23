@@ -437,6 +437,31 @@ function verifyHome(home) {
       });
     }
   }
+  for (const s of sessions) {
+    if (s.cwds !== void 0 && s.cwds.length > 1) {
+      findings.push({
+        check: "multi_repo",
+        stream: "sessions",
+        shard: shardFor(s.ts),
+        id: s.id,
+        severity: "warning",
+        message: `session ${s.session_id}: ran in ${s.cwds.length} working directories (${s.cwds.join(", ")}) \u2014 all spend is attributed via the first; per-turn split attribution is not yet supported`
+      });
+    }
+  }
+  const gaps = authoritative(byStream.get("exceptions") ?? []).filter(
+    (e) => e.kind === "meter_gap"
+  );
+  for (const g of [...gaps].sort((a, b) => a.session_id < b.session_id ? -1 : 1)) {
+    findings.push({
+      check: "meter_gap",
+      stream: "exceptions",
+      shard: shardFor(g.ts),
+      id: g.id,
+      severity: "warning",
+      message: `session ${g.session_id}: transcript ` + (g.reason === "transcript_pruned" ? "was pruned before metering" : "was unreadable") + " \u2014 its usage is missing from every total"
+    });
+  }
   return findings;
 }
 function isEmptyHome(home) {
@@ -1096,6 +1121,7 @@ function parseTranscript(raw, options) {
   const models = [];
   const byMessage = /* @__PURE__ */ new Map();
   let sessionId = null;
+  const cwds = [];
   let agentId = null;
   let version = null;
   let cwd = null;
@@ -1131,6 +1157,9 @@ function parseTranscript(raw, options) {
       line = JSON.parse(lineText);
     } catch {
       continue;
+    }
+    if (typeof line.cwd === "string" && line.cwd !== "" && !cwds.includes(line.cwd)) {
+      cwds.push(line.cwd);
     }
     if (sessionId === null && typeof line.sessionId === "string") {
       sessionId = line.sessionId;
@@ -1258,6 +1287,7 @@ function parseTranscript(raw, options) {
   const nonEmptyTurns = turns.filter((t) => t.models.length > 0);
   return {
     sessionId,
+    cwds,
     agentId,
     version,
     cwd,
@@ -1456,6 +1486,8 @@ function meterTranscript(input) {
     transcript_path: input.transcriptPath,
     transcript_version: transcript.version,
     cwd: transcript.cwd,
+    // Present only when >1: single-cwd receipts keep their pre-2.1 ids.
+    ...transcript.cwds.length > 1 ? { cwds: transcript.cwds } : {},
     repo: input.repo,
     branches: transcript.branches,
     models: transcript.models,
@@ -1651,15 +1683,32 @@ function probeSessionId(raw) {
   }
   return null;
 }
-function meterFile(home, transcriptPath, repoHint, force = false) {
+function loadMeterContext(home) {
   const config = loadConfig(home);
+  const ledgerEvents = readEvents(home, "ledger");
+  const exceptions = readEvents(home, "exceptions");
+  return {
+    config,
+    pricingDigest: sha256Hex(canonicalJson(config.pricing)),
+    ledgerEvents,
+    usage: readEvents(home, "usage"),
+    sessions: readEvents(home, "sessions"),
+    exceptions,
+    // Stable across a walk: metering appends ambiguities/gaps, never the
+    // resolutions, pins, or open entries the fingerprint is built from.
+    fingerprint: attributionFingerprint(ledgerEvents, exceptions, config)
+  };
+}
+function meterFile(home, transcriptPath, repoHint, force = false, ctx) {
+  const shared = ctx ?? null;
+  const config = shared?.config ?? loadConfig(home);
   const state = loadState(home);
   const fileBytes = statSync(transcriptPath).size;
   const raw = readFileSync6(transcriptPath, "utf8");
-  const pricingDigest = sha256Hex(canonicalJson(config.pricing));
-  const ledgerEvents = readEvents(home, "ledger");
-  const existingExceptions = readEvents(home, "exceptions");
-  const fingerprint = attributionFingerprint(ledgerEvents, existingExceptions, config);
+  const pricingDigest = shared?.pricingDigest ?? sha256Hex(canonicalJson(config.pricing));
+  const ledgerEvents = shared?.ledgerEvents ?? readEvents(home, "ledger");
+  const existingExceptions = shared?.exceptions ?? readEvents(home, "exceptions");
+  const fingerprint = shared?.fingerprint ?? attributionFingerprint(ledgerEvents, existingExceptions, config);
   const duplicateOf = (sid) => {
     const cp = Object.hasOwn(state.sessions, sid) ? state.sessions[sid] : void 0;
     if (!cp || cp.transcript_path === transcriptPath) return false;
@@ -1688,8 +1737,8 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
   }
   const hadCheckpoint = sessionId !== null && Object.hasOwn(state.sessions, sessionId);
   const repo = repoHint ?? repoFromCwd(probe.cwd);
-  const existingUsage = readEvents(home, "usage");
-  const existingSessions = readEvents(home, "sessions");
+  const existingUsage = shared?.usage ?? readEvents(home, "usage");
+  const existingSessions = shared?.sessions ?? readEvents(home, "sessions");
   const out = meterTranscript({
     transcriptPath,
     raw,
@@ -1704,6 +1753,11 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
   appendEvents(home, "usage", out.newUsage);
   appendEvents(home, "sessions", out.newSessions);
   appendEvents(home, "exceptions", out.newExceptions);
+  if (shared) {
+    shared.usage.push(...out.newUsage);
+    shared.sessions.push(...out.newSessions);
+    shared.exceptions.push(...out.newExceptions);
+  }
   if (out.sessionId !== null) {
     const lastTurn = out.transcript.turns[out.transcript.turns.length - 1];
     state.sessions[out.sessionId] = {
@@ -1734,9 +1788,10 @@ function meterAllQuiet(home, projectsDir, onError) {
   if (!acquireLock(home)) return null;
   const result = { metered: 0, already_current: 0, failures: 0 };
   try {
+    const ctx = loadMeterContext(home);
     for (const p of listTranscripts(projectsDir)) {
       try {
-        const r = meterFile(home, p, null);
+        const r = meterFile(home, p, null, false, ctx);
         if (r.skipped) result.already_current += 1;
         else result.metered += 1;
       } catch (err) {
@@ -1749,11 +1804,11 @@ function meterAllQuiet(home, projectsDir, onError) {
   }
   return result;
 }
-function meterFileWithSubagents(home, transcriptPath, repoHint, force = false, onError) {
+function meterFileWithSubagents(home, transcriptPath, repoHint, force = false, onError, ctx) {
   const results = [];
   for (const p of [transcriptPath, ...listSubagentTranscripts(transcriptPath)]) {
     try {
-      results.push(meterFile(home, p, repoHint, force));
+      results.push(meterFile(home, p, repoHint, force, ctx));
     } catch (err) {
       if (p === transcriptPath) throw err;
       onError?.(p, err);
@@ -2875,7 +2930,7 @@ function runPricingImport(home, config, rest, json) {
 }
 
 // src/cli/cmd-init.ts
-var GITHUB_PAT_MESSAGE = "Export GITHUB_MCP_PAT in your shell profile. Create at https://github.com/settings/tokens with repo scope.";
+var GITHUB_PAT_MESSAGE = 'Export GITHUB_MCP_PAT in your shell profile (easiest: "$(gh auth token)"). Or mint a fine-grained read-only PAT (repository contents + pull requests, read-only) at https://github.com/settings/personal-access-tokens';
 function git(home, args) {
   execFileSync4("git", ["-C", home, ...args], {
     stdio: ["ignore", "ignore", "ignore"],
@@ -3371,9 +3426,10 @@ async function runMeter(home, args, json) {
   let failures = 0;
   try {
     if (all) {
+      const ctx = loadMeterContext(home);
       for (const p of listTranscripts(projectsDir)) {
         try {
-          results.push(meterFile(home, p, repo, force));
+          results.push(meterFile(home, p, repo, force, ctx));
         } catch (err) {
           failures += 1;
           process.stderr.write(`waybill meter: ${p}: ${err.message}
@@ -3414,630 +3470,12 @@ async function runMeter(home, args, json) {
 
 // src/cli/cmd-mine.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import { existsSync as existsSync9, mkdirSync as mkdirSync5, readFileSync as readFileSync11, readdirSync as readdirSync3, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join10 } from "node:path";
-function commitLedger(home) {
-  try {
-    execFileSync5("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
-    execFileSync5("git", ["-C", home, "commit", "-m", "meter: mined pending sessions"], {
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 15e3
-    });
-  } catch {
-  }
-}
-function gapTs(capture) {
-  const captured = capture.captured_at;
-  if (typeof captured === "string") {
-    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(captured);
-    if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`;
-    if (!Number.isNaN(Date.parse(captured))) return captured;
-  }
-  return "1970-01-01T00:00:00Z";
-}
-function recordGap(home, sessionId, ts, reason) {
-  const existing = readEvents(home, "exceptions");
-  const already = existing.some(
-    (e) => e.kind === "meter_gap" && e.session_id === sessionId
-  );
-  if (already) return;
-  const body = {
-    ts,
-    kind: "meter_gap",
-    schema_version: SCHEMA_VERSION,
-    supersedes: null,
-    session_id: sessionId,
-    reason
-  };
-  appendEvents(home, "exceptions", [finalizeEvent("exceptions", body)]);
-}
-function runMine(home, args, json) {
-  let all = false;
-  let projectsDir = defaultProjectsDir();
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--queue") all = false;
-    else if (a === "--all") all = true;
-    else if (a === "--projects-dir") projectsDir = args[++i] ?? projectsDir;
-    else {
-      process.stderr.write(`waybill mine: unknown option ${a}
-`);
-      return 2;
-    }
-  }
-  if (loadConfig(home).metering.enabled === false) {
-    process.stdout.write(
-      json ? JSON.stringify({ paused: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n" : "metering: PAUSED (config.metering.enabled = false) \u2014 nothing metered\n"
-    );
-    return 0;
-  }
-  const queueDir = join10(home, "pending-sessions");
-  mkdirSync5(queueDir, { recursive: true });
-  if (!acquireLock(home)) {
-    process.stdout.write(
-      json ? JSON.stringify({ locked: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n" : "mined: 0 new (another metering process is running \u2014 queue intact)\n"
-    );
-    return 0;
-  }
-  let minedNew = 0;
-  let remetered = 0;
-  let gaps = 0;
-  let alreadyCurrent = 0;
-  try {
-    const files = readdirSync3(queueDir).filter((f) => f.endsWith(".json")).sort();
-    for (const f of files) {
-      const path = join10(queueDir, f);
-      let capture;
-      try {
-        capture = JSON.parse(readFileSync11(path, "utf8"));
-      } catch {
-        continue;
-      }
-      if (capture.mined === true || typeof capture.mined === "string") continue;
-      const transcript = capture.transcript_path;
-      if (typeof transcript !== "string" || !existsSync9(transcript)) {
-        if (typeof capture.session_id === "string") {
-          recordGap(home, capture.session_id, gapTs(capture), "transcript_pruned");
-        }
-        gaps += 1;
-        capture.mined = "gap";
-        writeFileSync6(path, JSON.stringify(capture) + "\n", "utf8");
-        continue;
-      }
-      try {
-        const results = meterFileWithSubagents(
-          home,
-          transcript,
-          typeof capture.repo === "string" ? capture.repo : null,
-          false,
-          (p, err) => process.stderr.write(`waybill mine: ${p}: ${err.message}
-`)
-        );
-        capture.mined = true;
-        capture["mined_session_id"] = results[0].session_id;
-        capture["mined_usage_events"] = results.reduce((n, r) => n + r.usage, 0);
-        capture["mined_subagent_transcripts"] = results.length - 1;
-        writeFileSync6(path, JSON.stringify(capture) + "\n", "utf8");
-        for (const result of results) {
-          if (result.skipped) alreadyCurrent += 1;
-          else if (result.remetered) remetered += 1;
-          else minedNew += 1;
-        }
-      } catch (err) {
-        process.stderr.write(`waybill mine: ${transcript}: ${err.message}
-`);
-      }
-    }
-    if (all) {
-      for (const t of listTranscripts(projectsDir)) {
-        try {
-          const r = meterFile(home, t, null);
-          if (r.skipped) alreadyCurrent += 1;
-          else if (r.remetered) remetered += 1;
-          else minedNew += 1;
-        } catch (err) {
-          process.stderr.write(`waybill mine: ${t}: ${err.message}
-`);
-        }
-      }
-    }
-  } finally {
-    releaseLock(home);
-  }
-  if (minedNew + remetered > 0) {
-    commitLedger(home);
-    refreshDashboardIfPresent(home);
-  }
-  if (json) {
-    process.stdout.write(
-      JSON.stringify({
-        mined_new: minedNew,
-        remetered,
-        gaps,
-        already_current: alreadyCurrent
-      }) + "\n"
-    );
-    return 0;
-  }
-  process.stdout.write(
-    `mined: ${minedNew} new \xB7 ${remetered} re-metered (inputs changed) \xB7 ${gaps} gap(s) \xB7 ${alreadyCurrent} already current
-`
-  );
-  return 0;
-}
-
-// src/cli/cmd-export.ts
-import { join as join12 } from "node:path";
-
-// src/report/redaction.ts
-var SESSION_KEYS = /* @__PURE__ */ new Set(["session_id", "transcript_path", "cwd", "sessions"]);
-var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes", "branches"]);
-function collectStrings(value, field, into) {
-  if (value === null || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const v of value) collectStrings(v, field, into);
-    return;
-  }
-  for (const [k, v] of Object.entries(value)) {
-    if (k === field && typeof v === "string") into.add(v);
-    else if (k === `${field}s` && Array.isArray(v)) {
-      for (const item of v) if (typeof item === "string") into.add(item);
-    } else collectStrings(v, field, into);
-  }
-}
-function redact(data, audience) {
-  if (audience === "self") return { data, mapping: {} };
-  const clone = JSON.parse(JSON.stringify(data));
-  stripKeys(clone, SESSION_KEYS);
-  if (audience === "internal") return { data: clone, mapping: {} };
-  const keys = /* @__PURE__ */ new Set();
-  collectStrings(clone, "tracker_key", keys);
-  collectStrings(clone, "key", keys);
-  collectAccountKeys(clone, keys);
-  const epicKeys = /* @__PURE__ */ new Set();
-  collectStrings(clone, "epic_key", epicKeys);
-  const epicNames = /* @__PURE__ */ new Set();
-  collectStrings(clone, "epic_name", epicNames);
-  const repos = /* @__PURE__ */ new Set();
-  collectStrings(clone, "repo", repos);
-  const adhocs = /* @__PURE__ */ new Set();
-  collectAdhocLabels(clone, adhocs);
-  const mapping = {};
-  let n = 0;
-  for (const k of [...keys].sort()) mapping[k] = `STORY-${++n}`;
-  n = 0;
-  for (const k of [...epicKeys].sort()) mapping[k] = `EPIC-${++n}`;
-  n = 0;
-  for (const k of [...epicNames].sort()) mapping[k] = `Epic ${++n}`;
-  n = 0;
-  for (const k of [...repos].sort()) mapping[k] = `repo-${++n}`;
-  n = 0;
-  for (const k of [...adhocs].sort()) mapping[`adhoc:${k}`] = `adhoc-${++n}`;
-  const redacted = rewrite(clone, mapping);
-  return { data: redacted, mapping };
-}
-function collectAdhocLabels(value, into) {
-  if (typeof value === "string") {
-    if (value.startsWith("adhoc:")) into.add(value.slice(6));
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const v of value) collectAdhocLabels(v, into);
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    for (const v of Object.values(value)) collectAdhocLabels(v, into);
-  }
-}
-function collectAccountKeys(value, into) {
-  if (typeof value === "string") {
-    if (value.startsWith("story:")) into.add(value.slice(6));
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const v of value) collectAccountKeys(v, into);
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    for (const v of Object.values(value)) collectAccountKeys(v, into);
-  }
-}
-function stripKeys(value, drop) {
-  if (value === null || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const v of value) stripKeys(v, drop);
-    return;
-  }
-  const obj = value;
-  for (const k of Object.keys(obj)) {
-    if (drop.has(k) && typeof obj[k] !== "number") delete obj[k];
-    else stripKeys(obj[k], drop);
-  }
-}
-function rewrite(value, mapping) {
-  if (typeof value === "string") {
-    if (value.startsWith("story:")) {
-      const key = value.slice(6);
-      return `story:${mapping[key] ?? key}`;
-    }
-    if (value.startsWith("adhoc:")) {
-      return `adhoc:${mapping[value] ?? "redacted"}`;
-    }
-    return mapping[value] ?? value;
-  }
-  if (Array.isArray(value)) return value.map((v) => rewrite(v, mapping));
-  if (value !== null && typeof value === "object") {
-    const obj = value;
-    const out = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (EXTERNAL_DROP.has(k)) continue;
-      out[k] = rewrite(v, mapping);
-    }
-    return out;
-  }
-  return value;
-}
-
-// src/cli/cmd-pack.ts
-import { copyFileSync, existsSync as existsSync10, mkdirSync as mkdirSync6, readFileSync as readFileSync12, readdirSync as readdirSync4, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync10, mkdirSync as mkdirSync6, readFileSync as readFileSync12, readdirSync as readdirSync3, writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join11 } from "node:path";
-function readRawLines(home, stream) {
-  const out = [];
-  for (const shard of listShards(home, stream)) {
-    for (const raw of readFileSync12(shardPath(home, stream, shard), "utf8").split("\n")) {
-      if (raw.trim() === "") continue;
-      let parsed = null;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = null;
-      }
-      out.push({ raw, parsed, shard });
-    }
-  }
-  return out;
-}
-function engineBundlePath() {
-  const argv1 = process.argv[1] ?? "";
-  if (argv1.endsWith("waybill.mjs") && existsSync10(argv1)) return argv1;
-  let dir = import.meta.dirname;
-  for (let i = 0; i < 6; i++) {
-    const candidate = join11(dir, "bin", "waybill.mjs");
-    if (existsSync10(candidate)) return candidate;
-    dir = join11(dir, "..");
-  }
-  return null;
-}
-function buildPack(home, outDir, window, nowIso2) {
-  const empty = {
-    out_dir: outDir,
-    sessions: 0,
-    events: { ledger: 0, usage: 0, sessions: 0, exceptions: 0 },
-    total_tokens: 0,
-    engine_included: false,
-    config_included: false
-  };
-  const findings = splitFindings(verifyHome(home)).errors;
-  if (findings.length > 0) {
-    return {
-      result: empty,
-      error: `refusing to pack an unverified ledger: ${findings.length} finding(s) \u2014 run: waybill verify`
-    };
-  }
-  if (existsSync10(outDir) && readdirSync4(outDir).length > 0) {
-    return { result: empty, error: `output directory is not empty: ${outDir} \u2014 pass --out <dir>` };
-  }
-  const usageLines = readRawLines(home, "usage");
-  const included = /* @__PURE__ */ new Set();
-  for (const l of usageLines) {
-    const ts = l.parsed?.["ts"];
-    const sid = l.parsed?.["session_id"];
-    if (typeof ts === "string" && typeof sid === "string" && inWindow(ts, window.from, window.to)) {
-      included.add(rootSessionId(sid));
-    }
-  }
-  const includes = (sid) => included.has(rootSessionId(String(sid)));
-  const keep = {
-    ledger: readRawLines(home, "ledger"),
-    usage: usageLines.filter((l) => includes(l.parsed?.["session_id"])),
-    sessions: readRawLines(home, "sessions").filter((l) => includes(l.parsed?.["session_id"])),
-    exceptions: []
-  };
-  const exceptionLines = readRawLines(home, "exceptions");
-  const includedAmbiguities = /* @__PURE__ */ new Set();
-  for (const l of exceptionLines) {
-    if (l.parsed?.["kind"] === "ambiguity" && includes(l.parsed?.["session_id"])) {
-      includedAmbiguities.add(String(l.parsed?.["id"]));
-    }
-  }
-  keep.exceptions = exceptionLines.filter((l) => {
-    if (l.parsed?.["kind"] === "resolution") return includedAmbiguities.has(String(l.parsed?.["resolves"]));
-    return includes(l.parsed?.["session_id"]);
-  });
-  const packUsage = keep.usage.map((l) => l.parsed).filter((u) => u !== null);
-  const totalTokens5 = authoritative(packUsage).filter((u) => u.kind === "usage").reduce((n, u) => n + u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation, 0);
-  mkdirSync6(outDir, { recursive: true });
-  const files = {};
-  const writePackFile = (rel, content) => {
-    const p = join11(outDir, rel);
-    mkdirSync6(join11(p, ".."), { recursive: true });
-    writeFileSync7(p, content, "utf8");
-    files[rel] = sha256Hex(content);
-  };
-  for (const stream of ["ledger", "usage", "sessions", "exceptions"]) {
-    const byShard = /* @__PURE__ */ new Map();
-    for (const l of keep[stream]) {
-      const bucket = byShard.get(l.shard) ?? [];
-      bucket.push(l.raw);
-      byShard.set(l.shard, bucket);
-    }
-    for (const [shard, lines] of [...byShard.entries()].sort()) {
-      writePackFile(join11("streams", stream, `${shard}.jsonl`), lines.join("\n") + "\n");
-    }
-  }
-  let configIncluded = false;
-  const configPath2 = join11(home, "config.json");
-  if (existsSync10(configPath2)) {
-    writePackFile("config.json", readFileSync12(configPath2, "utf8"));
-    configIncluded = true;
-  }
-  let engineIncluded = false;
-  const engine = engineBundlePath();
-  if (engine !== null) {
-    copyFileSync(engine, join11(outDir, "waybill.mjs"));
-    files["waybill.mjs"] = sha256Hex(readFileSync12(join11(outDir, "waybill.mjs"), "utf8"));
-    engineIncluded = true;
-  }
-  const result = {
-    out_dir: outDir,
-    sessions: included.size,
-    events: {
-      ledger: keep.ledger.length,
-      usage: keep.usage.length,
-      sessions: keep.sessions.length,
-      exceptions: keep.exceptions.length
-    },
-    total_tokens: totalTokens5,
-    engine_included: engineIncluded,
-    config_included: configIncluded
-  };
-  writePackFile("README.md", packReadme(result, window, nowIso2));
-  writeFileSync7(
-    join11(outDir, "pack.json"),
-    JSON.stringify(
-      {
-        kind: "waybill-verification-pack",
-        pack_version: 1,
-        engine_version: ENGINE_VERSION,
-        generated_at: nowIso2,
-        window,
-        sessions: result.sessions,
-        events: result.events,
-        total_tokens: result.total_tokens,
-        engine_included: engineIncluded,
-        config_included: configIncluded,
-        verify_at_pack_time: "green",
-        files
-      },
-      null,
-      2
-    ) + "\n",
-    "utf8"
-  );
-  return { result, error: null };
-}
-function packReadme(result, window, nowIso2) {
-  const windowLine = window.from === null && window.to === null ? "all recorded history" : `${window.from ?? "(start)"} \u2192 ${window.to ?? "(now)"}`;
-  const verifyCmd = result.engine_included ? "node waybill.mjs verify --home ." : "node <path-to-waybill.mjs> verify --home .  (engine: github.com/jakeintech/waybill, bin/waybill.mjs)";
-  return `# Waybill verification pack
 
-Generated ${nowIso2} \xB7 window: ${windowLine} \xB7 ${result.sessions} session(s), ${result.total_tokens.toLocaleString("en-US")} tokens.
-
-This directory accompanies a report or token pitch. It contains the actual
-event lines behind the numbers \u2014 not a rendering of them \u2014 so you can check
-the claims yourself, offline, with one command:
-
-\`\`\`
-${verifyCmd}
-\`\`\`
-
-That re-runs, against the included events (Node 20+, no network, no install):
-
-- **Id determinism** \u2014 every event id recomputes from its content
-  (SHA-256); an edited line no longer matches its id.
-- **Escrow seals** \u2014 each pre-registered estimate is hash-sealed at
-  logging time. The seal proves the entry hasn't been edited since a copy
-  was shared; it does not prove when the estimate was written. Write-time
-  ordering is enforced separately (logged_at \u2264 ts, wall-clock checked at
-  append; verify discloses estimates written long after their logged_at).
-- **Conservation** \u2014 per session, the sum of per-turn usage events equals
-  the session receipt's totals. Sessions are included whole (every usage
-  event, even outside the window) so this check is meaningful.
-- **Supersession integrity** \u2014 corrections form unforked chains; nothing
-  is silently edited or double-counted.
-
-Then read the numbers the same way the sender did:
-
-\`\`\`
-${result.engine_included ? "node waybill.mjs" : "node <path-to-waybill.mjs>"} query spend --home .
-${result.engine_included ? "node waybill.mjs" : "node <path-to-waybill.mjs>"} query report --home .
-\`\`\`
-
-Contents: \`streams/\` (verbatim ledger, usage, session-receipt, and
-exception events)${result.config_included ? ", `config.json` (the sender's rate table, so cost figures reproduce)" : ""}${result.engine_included ? ", `waybill.mjs` (the engine \u2014 a single dependency-free bundle)" : ""},
-and \`pack.json\` (metadata + SHA-256 of every file here).
-
-Note: pack contents are **verbatim and unredacted** (tracker keys, titles,
-repos) \u2014 redaction would break the id checks above. Treat the pack at the
-same sensitivity as the internal report it accompanies.
-`;
-}
-
-// src/cli/cmd-export.ts
-function csvCell(v) {
-  const s = v === null || v === void 0 ? "" : String(v);
-  return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
-}
-function runExport(home, args, json) {
-  let format = json ? "json" : "csv";
-  let from = null;
-  let to = null;
-  let audience = null;
-  let pack = false;
-  let out = null;
-  let now = null;
-  let formatSet = false;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--pack") {
-      pack = true;
-    } else if (a === "--out" || a === "--now") {
-      const v = args[++i];
-      if (v === void 0) {
-        process.stderr.write(`waybill export: ${a} needs a value
-`);
-        return 2;
-      }
-      if (a === "--out") out = v;
-      else now = v;
-    } else if (a === "--format") {
-      const v = args[++i];
-      if (v !== "csv" && v !== "json") {
-        process.stderr.write("waybill export: --format must be csv or json\n");
-        return 2;
-      }
-      if (json && v === "csv") {
-        process.stderr.write("waybill export: --json conflicts with --format csv \u2014 pick one\n");
-        return 2;
-      }
-      format = v;
-      formatSet = true;
-    } else if (a === "--from" || a === "--to") {
-      const v = args[++i];
-      if (v === void 0) {
-        process.stderr.write(`waybill export: ${a} needs a value
-`);
-        return 2;
-      }
-      if (a === "--from") from = v;
-      else to = v;
-    } else if (a === "--audience") {
-      const v = args[++i];
-      if (v !== "self" && v !== "internal" && v !== "external") {
-        process.stderr.write("waybill export: --audience must be self, internal, or external\n");
-        return 2;
-      }
-      audience = v;
-    } else {
-      process.stderr.write(`waybill export: unknown option ${a}
-`);
-      return 2;
-    }
-  }
-  const config = loadConfig(home);
-  let window;
-  try {
-    window = normalizeWindow(from, to);
-  } catch (err) {
-    process.stderr.write(`waybill export: ${err.message}
-`);
-    return 2;
-  }
-  if (pack) {
-    if (formatSet) {
-      process.stderr.write("waybill export: --pack writes a directory \u2014 --format applies to csv/json exports only\n");
-      return 2;
-    }
-    if (audience !== null) {
-      process.stderr.write(
-        "waybill export: --pack cannot be redacted (--audience) \u2014 verbatim events are what the recipient verifies; share the redacted report instead\n"
-      );
-      return 2;
-    }
-    if (now !== null && Number.isNaN(Date.parse(now))) {
-      process.stderr.write(`waybill export: --now is not a date: ${now}
-`);
-      return 2;
-    }
-    const nowIso2 = now ?? (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
-    const outDir = out ?? join12(home, "rollups", "verification-pack");
-    const { result, error } = buildPack(home, outDir, window, nowIso2);
-    if (error !== null) {
-      process.stderr.write(`waybill export: ${error}
-`);
-      return 1;
-    }
-    if (json) {
-      process.stdout.write(JSON.stringify({ data: result }, null, 2) + "\n");
-    } else {
-      const events = result.events.ledger + result.events.usage + result.events.sessions + result.events.exceptions;
-      process.stdout.write(
-        `verification pack: ${result.out_dir}
-${result.sessions} session(s), ${events} event lines, ${result.total_tokens.toLocaleString("en-US")} tokens \u2014 verified green at pack time.
-Recipient check: node waybill.mjs verify --home .
-`
-      );
-    }
-    return 0;
-  }
-  if (out !== null || now !== null) {
-    process.stderr.write("waybill export: --out/--now apply to --pack only\n");
-    return 2;
-  }
-  const spend = spendData(
-    readEvents(home, "usage"),
-    readEvents(home, "exceptions"),
-    readEvents(home, "ledger"),
-    config,
-    window
-  );
-  const aud = audience ?? config.audience_default;
-  const { data } = redact(spend, aud);
-  const redacted = data;
-  if (format === "json") {
-    process.stdout.write(JSON.stringify({ audience: aud, data: redacted }, null, 2) + "\n");
-    return 0;
-  }
-  const header = [
-    "account",
-    "tokens",
-    "input",
-    "output",
-    "cache_read",
-    "cache_creation",
-    "cost_usd",
-    "min_confidence",
-    "resolvers",
-    "sessions",
-    "waste_retried_commands",
-    "waste_repeated_reads"
-  ];
-  const lines = [header.join(",")];
-  for (const a of redacted.accounts) {
-    lines.push(
-      [
-        a.account,
-        a.tokens,
-        a.input,
-        a.output,
-        a.cache_read,
-        a.cache_creation,
-        a.cost_usd ?? "",
-        a.min_confidence,
-        a.resolvers.join("|"),
-        a.sessions,
-        a.waste.retried_commands,
-        a.waste.repeated_reads
-      ].map(csvCell).join(",")
-    );
-  }
-  process.stdout.write(lines.join("\n") + "\n");
-  return 0;
-}
-
-// src/cli/cmd-pace.ts
-import { existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync13, writeFileSync as writeFileSync8 } from "node:fs";
-import { join as join13 } from "node:path";
+// src/cli/notice.ts
+import { existsSync as existsSync9, mkdirSync as mkdirSync5, readFileSync as readFileSync11, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join10 } from "node:path";
 
 // src/projections/pace.ts
 function periodWindow(period, grantedAt) {
@@ -4175,35 +3613,767 @@ function renderPace(p) {
   return lines.join("\n");
 }
 
-// src/cli/cmd-pace.ts
+// src/cli/notice.ts
 function stateFile(home) {
-  return join13(home, "rollups", "pace-state.json");
+  return join10(home, "rollups", "pace-state.json");
 }
 function loadPaceState(home) {
   const p = stateFile(home);
-  if (!existsSync11(p)) return null;
+  if (!existsSync9(p)) return null;
   try {
-    return JSON.parse(readFileSync13(p, "utf8"));
+    return JSON.parse(readFileSync11(p, "utf8"));
   } catch {
     return null;
   }
 }
 function firstRunFile(home) {
-  return join13(home, "rollups", "first-run.json");
+  return join10(home, "rollups", "first-run.json");
 }
 function loadFirstRun(home) {
   const p = firstRunFile(home);
-  if (!existsSync11(p)) return {};
+  if (!existsSync9(p)) return {};
   try {
-    return JSON.parse(readFileSync13(p, "utf8"));
+    return JSON.parse(readFileSync11(p, "utf8"));
   } catch {
     return {};
   }
 }
 function saveFirstRun(home, state) {
-  mkdirSync7(join13(home, "rollups"), { recursive: true });
-  writeFileSync8(firstRunFile(home), JSON.stringify(state) + "\n", "utf8");
+  mkdirSync5(join10(home, "rollups"), { recursive: true });
+  writeFileSync6(firstRunFile(home), JSON.stringify(state) + "\n", "utf8");
 }
+function noticeFile(home) {
+  return join10(home, "rollups", "next-notice");
+}
+function computeNotice(home, nowIso2) {
+  const config = loadConfig(home);
+  const level = config.notices.level;
+  if (level === "off") return { lines: [], mark: () => {
+  } };
+  const ledger = readEvents(home, "ledger");
+  const usage = readEvents(home, "usage");
+  const exceptions = readEvents(home, "exceptions");
+  const pace = paceData(ledger, usage, exceptions, config, nowIso2);
+  if (pace.allocation) {
+    const prior = loadPaceState(home);
+    const samePeriod = prior !== null && prior.period === pace.allocation.period;
+    const already = samePeriod ? prior.notified_thresholds : [];
+    const fresh = pace.thresholds_crossed.filter((t) => !already.includes(t));
+    const reminderDays = config.budgets.renewal_reminder_days;
+    const renewalDue = level === "normal" && pace.days_to_renewal !== null && pace.days_to_renewal >= 0 && pace.days_to_renewal <= reminderDays && !(samePeriod && prior.renewal_notified === true);
+    const lines = [];
+    if (fresh.length > 0) {
+      const top = Math.max(...fresh);
+      lines.push(
+        `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` + (pace.shipped_pct_of_committed !== null ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped` : "") + (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") + ". Worth a look, not an alarm."
+      );
+    }
+    if (renewalDue) {
+      lines.push(
+        `waybill: the ${pace.allocation.period} grant renews in ${pace.days_to_renewal} day(s) \u2014 a good moment to build the token pitch while the receipts are fresh.`
+      );
+    }
+    if (lines.length > 0) {
+      const allocation = pace.allocation;
+      return {
+        lines,
+        // at most one notice block per session — never stack first-run lines on it
+        mark: () => {
+          mkdirSync5(join10(home, "rollups"), { recursive: true });
+          writeFileSync6(
+            stateFile(home),
+            JSON.stringify({
+              period: allocation.period,
+              notified_thresholds: [.../* @__PURE__ */ new Set([...already, ...fresh])].sort((a, b) => a - b),
+              renewal_notified: samePeriod && prior.renewal_notified === true || renewalDue
+            }) + "\n",
+            "utf8"
+          );
+        }
+      };
+    }
+  }
+  if (level !== "normal") return { lines: [], mark: () => {
+  } };
+  const firstRun = loadFirstRun(home);
+  if (!existsSync9(configPath(home))) {
+    if (firstRun.uninitialized_announced !== true) {
+      return {
+        lines: ['waybill: not initialized. Say "initialize my waybill ledger" \u2014 60s, no auth.'],
+        mark: () => saveFirstRun(home, { ...firstRun, uninitialized_announced: true })
+      };
+    }
+    return { lines: [], mark: () => {
+    } };
+  }
+  const sessionsMetered = Object.keys(loadState(home).sessions).length;
+  const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
+  if (sessionsMetered > 0 && entriesLogged === 0 && firstRun.unlogged_announced !== true) {
+    return {
+      lines: [
+        `waybill: ${sessionsMetered} session(s) metered, nothing logged yet. Say "sync my ledger" for a receipt from your git history.`
+      ],
+      mark: () => saveFirstRun(home, { ...firstRun, unlogged_announced: true })
+    };
+  }
+  return { lines: [], mark: () => {
+  } };
+}
+function queueNotice(home, nowIso2) {
+  const { lines, mark } = computeNotice(home, nowIso2);
+  if (lines.length === 0) return;
+  mkdirSync5(join10(home, "rollups"), { recursive: true });
+  const p = noticeFile(home);
+  let pending = [];
+  if (existsSync9(p)) {
+    try {
+      pending = readFileSync11(p, "utf8").split("\n").filter((l) => l !== "");
+    } catch {
+      pending = [];
+    }
+  }
+  const fresh = lines.filter((l) => !pending.includes(l));
+  if (fresh.length === 0) return;
+  writeFileSync6(p, [...pending, ...fresh].join("\n") + "\n", "utf8");
+  mark();
+}
+
+// src/cli/cmd-mine.ts
+function commitLedger(home) {
+  try {
+    execFileSync5("git", ["-C", home, "add", "-A"], { stdio: ["ignore", "ignore", "ignore"], timeout: 15e3 });
+    execFileSync5("git", ["-C", home, "commit", "-m", "meter: mined pending sessions"], {
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 15e3
+    });
+  } catch {
+  }
+}
+function gapTs(capture) {
+  const captured = capture.captured_at;
+  if (typeof captured === "string") {
+    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(captured);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`;
+    if (!Number.isNaN(Date.parse(captured))) return captured;
+  }
+  return "1970-01-01T00:00:00Z";
+}
+function recordGap(home, sessionId, ts, reason) {
+  const existing = readEvents(home, "exceptions");
+  const already = existing.some(
+    (e) => e.kind === "meter_gap" && e.session_id === sessionId
+  );
+  if (already) return;
+  const body = {
+    ts,
+    kind: "meter_gap",
+    schema_version: SCHEMA_VERSION,
+    supersedes: null,
+    session_id: sessionId,
+    reason
+  };
+  appendEvents(home, "exceptions", [finalizeEvent("exceptions", body)]);
+}
+function runMine(home, args, json) {
+  let all = false;
+  let projectsDir = defaultProjectsDir();
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--queue") all = false;
+    else if (a === "--all") all = true;
+    else if (a === "--projects-dir") projectsDir = args[++i] ?? projectsDir;
+    else {
+      process.stderr.write(`waybill mine: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  if (loadConfig(home).metering.enabled === false) {
+    process.stdout.write(
+      json ? JSON.stringify({ paused: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n" : "metering: PAUSED (config.metering.enabled = false) \u2014 nothing metered\n"
+    );
+    return 0;
+  }
+  const queueDir = join11(home, "pending-sessions");
+  mkdirSync6(queueDir, { recursive: true });
+  if (!acquireLock(home)) {
+    process.stdout.write(
+      json ? JSON.stringify({ locked: true, mined_new: 0, remetered: 0, gaps: 0, already_current: 0 }) + "\n" : "mined: 0 new (another metering process is running \u2014 queue intact)\n"
+    );
+    return 0;
+  }
+  let minedNew = 0;
+  let remetered = 0;
+  let gaps = 0;
+  let alreadyCurrent = 0;
+  try {
+    const ctx = loadMeterContext(home);
+    const files = readdirSync3(queueDir).filter((f) => f.endsWith(".json")).sort();
+    for (const f of files) {
+      const path = join11(queueDir, f);
+      let capture;
+      try {
+        capture = JSON.parse(readFileSync12(path, "utf8"));
+      } catch {
+        continue;
+      }
+      if (capture.mined === true || typeof capture.mined === "string") continue;
+      const transcript = capture.transcript_path;
+      if (typeof transcript !== "string" || !existsSync10(transcript)) {
+        if (typeof capture.session_id === "string") {
+          recordGap(home, capture.session_id, gapTs(capture), "transcript_pruned");
+        }
+        gaps += 1;
+        capture.mined = "gap";
+        writeFileSync7(path, JSON.stringify(capture) + "\n", "utf8");
+        continue;
+      }
+      try {
+        const results = meterFileWithSubagents(
+          home,
+          transcript,
+          typeof capture.repo === "string" ? capture.repo : null,
+          false,
+          (p, err) => process.stderr.write(`waybill mine: ${p}: ${err.message}
+`),
+          ctx
+        );
+        capture.mined = true;
+        capture["mined_session_id"] = results[0].session_id;
+        capture["mined_usage_events"] = results.reduce((n, r) => n + r.usage, 0);
+        capture["mined_subagent_transcripts"] = results.length - 1;
+        writeFileSync7(path, JSON.stringify(capture) + "\n", "utf8");
+        for (const result of results) {
+          if (result.skipped) alreadyCurrent += 1;
+          else if (result.remetered) remetered += 1;
+          else minedNew += 1;
+        }
+      } catch (err) {
+        process.stderr.write(`waybill mine: ${transcript}: ${err.message}
+`);
+      }
+    }
+    if (all) {
+      for (const t of listTranscripts(projectsDir)) {
+        try {
+          const r = meterFile(home, t, null, false, ctx);
+          if (r.skipped) alreadyCurrent += 1;
+          else if (r.remetered) remetered += 1;
+          else minedNew += 1;
+        } catch (err) {
+          process.stderr.write(`waybill mine: ${t}: ${err.message}
+`);
+        }
+      }
+    }
+  } finally {
+    releaseLock(home);
+  }
+  if (minedNew + remetered > 0) {
+    commitLedger(home);
+    refreshDashboardIfPresent(home);
+  }
+  try {
+    queueNotice(home, (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"));
+  } catch {
+  }
+  if (json) {
+    process.stdout.write(
+      JSON.stringify({
+        mined_new: minedNew,
+        remetered,
+        gaps,
+        already_current: alreadyCurrent
+      }) + "\n"
+    );
+    return 0;
+  }
+  process.stdout.write(
+    `mined: ${minedNew} new \xB7 ${remetered} re-metered (inputs changed) \xB7 ${gaps} gap(s) \xB7 ${alreadyCurrent} already current
+`
+  );
+  return 0;
+}
+
+// src/cli/cmd-export.ts
+import { join as join13 } from "node:path";
+
+// src/report/redaction.ts
+var SESSION_KEYS = /* @__PURE__ */ new Set(["session_id", "transcript_path", "cwd", "sessions"]);
+var EXTERNAL_DROP = /* @__PURE__ */ new Set(["title", "prs", "url", "urls", "deploy", "notes", "branches"]);
+function collectStrings(value, field, into) {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const v of value) collectStrings(v, field, into);
+    return;
+  }
+  for (const [k, v] of Object.entries(value)) {
+    if (k === field && typeof v === "string") into.add(v);
+    else if (k === `${field}s` && Array.isArray(v)) {
+      for (const item of v) if (typeof item === "string") into.add(item);
+    } else collectStrings(v, field, into);
+  }
+}
+function redact(data, audience) {
+  if (audience === "self") return { data, mapping: {} };
+  const clone = JSON.parse(JSON.stringify(data));
+  stripKeys(clone, SESSION_KEYS);
+  if (audience === "internal") return { data: clone, mapping: {} };
+  const keys = /* @__PURE__ */ new Set();
+  collectStrings(clone, "tracker_key", keys);
+  collectStrings(clone, "key", keys);
+  collectAccountKeys(clone, keys);
+  const epicKeys = /* @__PURE__ */ new Set();
+  collectStrings(clone, "epic_key", epicKeys);
+  const epicNames = /* @__PURE__ */ new Set();
+  collectStrings(clone, "epic_name", epicNames);
+  const repos = /* @__PURE__ */ new Set();
+  collectStrings(clone, "repo", repos);
+  const adhocs = /* @__PURE__ */ new Set();
+  collectAdhocLabels(clone, adhocs);
+  const mapping = {};
+  let n = 0;
+  for (const k of [...keys].sort()) mapping[k] = `STORY-${++n}`;
+  n = 0;
+  for (const k of [...epicKeys].sort()) mapping[k] = `EPIC-${++n}`;
+  n = 0;
+  for (const k of [...epicNames].sort()) mapping[k] = `Epic ${++n}`;
+  n = 0;
+  for (const k of [...repos].sort()) mapping[k] = `repo-${++n}`;
+  n = 0;
+  for (const k of [...adhocs].sort()) mapping[`adhoc:${k}`] = `adhoc-${++n}`;
+  const redacted = rewrite(clone, mapping);
+  return { data: redacted, mapping };
+}
+function collectAdhocLabels(value, into) {
+  if (typeof value === "string") {
+    if (value.startsWith("adhoc:")) into.add(value.slice(6));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectAdhocLabels(v, into);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const v of Object.values(value)) collectAdhocLabels(v, into);
+  }
+}
+function collectAccountKeys(value, into) {
+  if (typeof value === "string") {
+    if (value.startsWith("story:")) into.add(value.slice(6));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) collectAccountKeys(v, into);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const v of Object.values(value)) collectAccountKeys(v, into);
+  }
+}
+function stripKeys(value, drop) {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const v of value) stripKeys(v, drop);
+    return;
+  }
+  const obj = value;
+  for (const k of Object.keys(obj)) {
+    if (drop.has(k) && typeof obj[k] !== "number") delete obj[k];
+    else stripKeys(obj[k], drop);
+  }
+}
+function rewrite(value, mapping) {
+  if (typeof value === "string") {
+    if (value.startsWith("story:")) {
+      const key = value.slice(6);
+      return `story:${mapping[key] ?? key}`;
+    }
+    if (value.startsWith("adhoc:")) {
+      return `adhoc:${mapping[value] ?? "redacted"}`;
+    }
+    return mapping[value] ?? value;
+  }
+  if (Array.isArray(value)) return value.map((v) => rewrite(v, mapping));
+  if (value !== null && typeof value === "object") {
+    const obj = value;
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (EXTERNAL_DROP.has(k)) continue;
+      out[k] = rewrite(v, mapping);
+    }
+    return out;
+  }
+  return value;
+}
+
+// src/cli/cmd-pack.ts
+import { copyFileSync, existsSync as existsSync11, mkdirSync as mkdirSync7, readFileSync as readFileSync13, readdirSync as readdirSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { join as join12 } from "node:path";
+function readRawLines(home, stream) {
+  const out = [];
+  for (const shard of listShards(home, stream)) {
+    for (const raw of readFileSync13(shardPath(home, stream, shard), "utf8").split("\n")) {
+      if (raw.trim() === "") continue;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+      out.push({ raw, parsed, shard });
+    }
+  }
+  return out;
+}
+function engineBundlePath() {
+  const argv1 = process.argv[1] ?? "";
+  if (argv1.endsWith("waybill.mjs") && existsSync11(argv1)) return argv1;
+  let dir = import.meta.dirname;
+  for (let i = 0; i < 6; i++) {
+    const candidate = join12(dir, "bin", "waybill.mjs");
+    if (existsSync11(candidate)) return candidate;
+    dir = join12(dir, "..");
+  }
+  return null;
+}
+function buildPack(home, outDir, window, nowIso2) {
+  const empty = {
+    out_dir: outDir,
+    sessions: 0,
+    gap_sessions: 0,
+    events: { ledger: 0, usage: 0, sessions: 0, exceptions: 0 },
+    total_tokens: 0,
+    engine_included: false,
+    config_included: false
+  };
+  const findings = splitFindings(verifyHome(home)).errors;
+  if (findings.length > 0) {
+    return {
+      result: empty,
+      error: `refusing to pack an unverified ledger: ${findings.length} finding(s) \u2014 run: waybill verify`
+    };
+  }
+  if (existsSync11(outDir) && readdirSync4(outDir).length > 0) {
+    return { result: empty, error: `output directory is not empty: ${outDir} \u2014 pass --out <dir>` };
+  }
+  const usageLines = readRawLines(home, "usage");
+  const included = /* @__PURE__ */ new Set();
+  for (const l of usageLines) {
+    const ts = l.parsed?.["ts"];
+    const sid = l.parsed?.["session_id"];
+    if (typeof ts === "string" && typeof sid === "string" && inWindow(ts, window.from, window.to)) {
+      included.add(rootSessionId(sid));
+    }
+  }
+  const includes = (sid) => included.has(rootSessionId(String(sid)));
+  const keep = {
+    ledger: readRawLines(home, "ledger"),
+    usage: usageLines.filter((l) => includes(l.parsed?.["session_id"])),
+    sessions: readRawLines(home, "sessions").filter((l) => includes(l.parsed?.["session_id"])),
+    exceptions: []
+  };
+  const exceptionLines = readRawLines(home, "exceptions");
+  const includedAmbiguities = /* @__PURE__ */ new Set();
+  for (const l of exceptionLines) {
+    if (l.parsed?.["kind"] === "ambiguity" && includes(l.parsed?.["session_id"])) {
+      includedAmbiguities.add(String(l.parsed?.["id"]));
+    }
+  }
+  keep.exceptions = exceptionLines.filter((l) => {
+    if (l.parsed?.["kind"] === "resolution") return includedAmbiguities.has(String(l.parsed?.["resolves"]));
+    if (l.parsed?.["kind"] === "meter_gap") return true;
+    return includes(l.parsed?.["session_id"]);
+  });
+  const gapSessions = new Set(
+    keep.exceptions.filter((l) => l.parsed?.["kind"] === "meter_gap").map((l) => String(l.parsed?.["session_id"]))
+  ).size;
+  const packUsage = keep.usage.map((l) => l.parsed).filter((u) => u !== null);
+  const totalTokens5 = authoritative(packUsage).filter((u) => u.kind === "usage").reduce((n, u) => n + u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation, 0);
+  mkdirSync7(outDir, { recursive: true });
+  const files = {};
+  const writePackFile = (rel, content) => {
+    const p = join12(outDir, rel);
+    mkdirSync7(join12(p, ".."), { recursive: true });
+    writeFileSync8(p, content, "utf8");
+    files[rel] = sha256Hex(content);
+  };
+  for (const stream of ["ledger", "usage", "sessions", "exceptions"]) {
+    const byShard = /* @__PURE__ */ new Map();
+    for (const l of keep[stream]) {
+      const bucket = byShard.get(l.shard) ?? [];
+      bucket.push(l.raw);
+      byShard.set(l.shard, bucket);
+    }
+    for (const [shard, lines] of [...byShard.entries()].sort()) {
+      writePackFile(join12("streams", stream, `${shard}.jsonl`), lines.join("\n") + "\n");
+    }
+  }
+  let configIncluded = false;
+  const configPath2 = join12(home, "config.json");
+  if (existsSync11(configPath2)) {
+    writePackFile("config.json", readFileSync13(configPath2, "utf8"));
+    configIncluded = true;
+  }
+  let engineIncluded = false;
+  const engine = engineBundlePath();
+  if (engine !== null) {
+    copyFileSync(engine, join12(outDir, "waybill.mjs"));
+    files["waybill.mjs"] = sha256Hex(readFileSync13(join12(outDir, "waybill.mjs"), "utf8"));
+    engineIncluded = true;
+  }
+  const result = {
+    out_dir: outDir,
+    sessions: included.size,
+    gap_sessions: gapSessions,
+    events: {
+      ledger: keep.ledger.length,
+      usage: keep.usage.length,
+      sessions: keep.sessions.length,
+      exceptions: keep.exceptions.length
+    },
+    total_tokens: totalTokens5,
+    engine_included: engineIncluded,
+    config_included: configIncluded
+  };
+  writePackFile("README.md", packReadme(result, window, nowIso2));
+  writeFileSync8(
+    join12(outDir, "pack.json"),
+    JSON.stringify(
+      {
+        kind: "waybill-verification-pack",
+        pack_version: 1,
+        engine_version: ENGINE_VERSION,
+        generated_at: nowIso2,
+        window,
+        sessions: result.sessions,
+        gap_sessions: result.gap_sessions,
+        events: result.events,
+        total_tokens: result.total_tokens,
+        engine_included: engineIncluded,
+        config_included: configIncluded,
+        verify_at_pack_time: "green",
+        files
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
+  return { result, error: null };
+}
+function packReadme(result, window, nowIso2) {
+  const windowLine = window.from === null && window.to === null ? "all recorded history" : `${window.from ?? "(start)"} \u2192 ${window.to ?? "(now)"}`;
+  const verifyCmd = result.engine_included ? "node waybill.mjs verify --home ." : "node <path-to-waybill.mjs> verify --home .  (engine: github.com/jakeintech/waybill, bin/waybill.mjs)";
+  return `# Waybill verification pack
+
+Generated ${nowIso2} \xB7 window: ${windowLine} \xB7 ${result.sessions} session(s), ${result.total_tokens.toLocaleString("en-US")} tokens.
+${result.gap_sessions > 0 ? `
+**Missing sessions, disclosed:** ${result.gap_sessions} session(s) carry a \`meter_gap\` marker \u2014 their transcripts were pruned or unreadable before metering, so their spend is absent from every total here. The markers travel in \`streams/exceptions/\`; \`verify\` reports each as a warning.
+` : ""}
+This directory accompanies a report or token pitch. It contains the actual
+event lines behind the numbers \u2014 not a rendering of them \u2014 so you can check
+the claims yourself, offline, with one command:
+
+\`\`\`
+${verifyCmd}
+\`\`\`
+
+That re-runs, against the included events (Node 20+, no network, no install):
+
+- **Id determinism** \u2014 every event id recomputes from its content
+  (SHA-256); an edited line no longer matches its id.
+- **Escrow seals** \u2014 each pre-registered estimate is hash-sealed at
+  logging time. The seal proves the entry hasn't been edited since a copy
+  was shared; it does not prove when the estimate was written. Write-time
+  ordering is enforced separately (logged_at \u2264 ts, wall-clock checked at
+  append; verify discloses estimates written long after their logged_at).
+- **Conservation** \u2014 per session, the sum of per-turn usage events equals
+  the session receipt's totals. Sessions are included whole (every usage
+  event, even outside the window) so this check is meaningful.
+- **Supersession integrity** \u2014 corrections form unforked chains; nothing
+  is silently edited or double-counted.
+
+Then read the numbers the same way the sender did:
+
+\`\`\`
+${result.engine_included ? "node waybill.mjs" : "node <path-to-waybill.mjs>"} query spend --home .
+${result.engine_included ? "node waybill.mjs" : "node <path-to-waybill.mjs>"} query report --home .
+\`\`\`
+
+Contents: \`streams/\` (verbatim ledger, usage, session-receipt, and
+exception events)${result.config_included ? ", `config.json` (the sender's rate table, so cost figures reproduce)" : ""}${result.engine_included ? ", `waybill.mjs` (the engine \u2014 a single dependency-free bundle)" : ""},
+and \`pack.json\` (metadata + SHA-256 of every file here).
+
+Note: pack contents are **verbatim and unredacted** (tracker keys, titles,
+repos) \u2014 redaction would break the id checks above. Treat the pack at the
+same sensitivity as the internal report it accompanies.
+`;
+}
+
+// src/cli/cmd-export.ts
+function csvCell(v) {
+  const s = v === null || v === void 0 ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+function runExport(home, args, json) {
+  let format = json ? "json" : "csv";
+  let from = null;
+  let to = null;
+  let audience = null;
+  let pack = false;
+  let out = null;
+  let now = null;
+  let formatSet = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--pack") {
+      pack = true;
+    } else if (a === "--out" || a === "--now") {
+      const v = args[++i];
+      if (v === void 0) {
+        process.stderr.write(`waybill export: ${a} needs a value
+`);
+        return 2;
+      }
+      if (a === "--out") out = v;
+      else now = v;
+    } else if (a === "--format") {
+      const v = args[++i];
+      if (v !== "csv" && v !== "json") {
+        process.stderr.write("waybill export: --format must be csv or json\n");
+        return 2;
+      }
+      if (json && v === "csv") {
+        process.stderr.write("waybill export: --json conflicts with --format csv \u2014 pick one\n");
+        return 2;
+      }
+      format = v;
+      formatSet = true;
+    } else if (a === "--from" || a === "--to") {
+      const v = args[++i];
+      if (v === void 0) {
+        process.stderr.write(`waybill export: ${a} needs a value
+`);
+        return 2;
+      }
+      if (a === "--from") from = v;
+      else to = v;
+    } else if (a === "--audience") {
+      const v = args[++i];
+      if (v !== "self" && v !== "internal" && v !== "external") {
+        process.stderr.write("waybill export: --audience must be self, internal, or external\n");
+        return 2;
+      }
+      audience = v;
+    } else {
+      process.stderr.write(`waybill export: unknown option ${a}
+`);
+      return 2;
+    }
+  }
+  const config = loadConfig(home);
+  let window;
+  try {
+    window = normalizeWindow(from, to);
+  } catch (err) {
+    process.stderr.write(`waybill export: ${err.message}
+`);
+    return 2;
+  }
+  if (pack) {
+    if (formatSet) {
+      process.stderr.write("waybill export: --pack writes a directory \u2014 --format applies to csv/json exports only\n");
+      return 2;
+    }
+    if (audience !== null) {
+      process.stderr.write(
+        "waybill export: --pack cannot be redacted (--audience) \u2014 verbatim events are what the recipient verifies; share the redacted report instead\n"
+      );
+      return 2;
+    }
+    if (now !== null && Number.isNaN(Date.parse(now))) {
+      process.stderr.write(`waybill export: --now is not a date: ${now}
+`);
+      return 2;
+    }
+    const nowIso2 = now ?? (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const outDir = out ?? join13(home, "rollups", "verification-pack");
+    const { result, error } = buildPack(home, outDir, window, nowIso2);
+    if (error !== null) {
+      process.stderr.write(`waybill export: ${error}
+`);
+      return 1;
+    }
+    if (json) {
+      process.stdout.write(JSON.stringify({ data: result }, null, 2) + "\n");
+    } else {
+      const events = result.events.ledger + result.events.usage + result.events.sessions + result.events.exceptions;
+      process.stdout.write(
+        `verification pack: ${result.out_dir}
+${result.sessions} session(s), ${events} event lines, ${result.total_tokens.toLocaleString("en-US")} tokens \u2014 verified green at pack time.
+Recipient check: node waybill.mjs verify --home .
+`
+      );
+    }
+    return 0;
+  }
+  if (out !== null || now !== null) {
+    process.stderr.write("waybill export: --out/--now apply to --pack only\n");
+    return 2;
+  }
+  const spend = spendData(
+    readEvents(home, "usage"),
+    readEvents(home, "exceptions"),
+    readEvents(home, "ledger"),
+    config,
+    window
+  );
+  const aud = audience ?? config.audience_default;
+  const { data } = redact(spend, aud);
+  const redacted = data;
+  if (format === "json") {
+    process.stdout.write(JSON.stringify({ audience: aud, data: redacted }, null, 2) + "\n");
+    return 0;
+  }
+  const header = [
+    "account",
+    "tokens",
+    "input",
+    "output",
+    "cache_read",
+    "cache_creation",
+    "cost_usd",
+    "min_confidence",
+    "resolvers",
+    "sessions",
+    "waste_retried_commands",
+    "waste_repeated_reads"
+  ];
+  const lines = [header.join(",")];
+  for (const a of redacted.accounts) {
+    lines.push(
+      [
+        a.account,
+        a.tokens,
+        a.input,
+        a.output,
+        a.cache_read,
+        a.cache_creation,
+        a.cost_usd ?? "",
+        a.min_confidence,
+        a.resolvers.join("|"),
+        a.sessions,
+        a.waste.retried_commands,
+        a.waste.repeated_reads
+      ].map(csvCell).join(",")
+    );
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+  return 0;
+}
+
+// src/cli/cmd-pace.ts
 function runPace(home, args, json) {
   let notice = false;
   let nowIso2 = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -4222,70 +4392,19 @@ function runPace(home, args, json) {
 `);
     return 2;
   }
+  if (notice) {
+    const { lines, mark } = computeNotice(home, nowIso2);
+    if (lines.length > 0) {
+      process.stdout.write(lines.join("\n") + "\n");
+      mark();
+    }
+    return 0;
+  }
   const config = loadConfig(home);
   const ledger = readEvents(home, "ledger");
   const usage = readEvents(home, "usage");
   const exceptions = readEvents(home, "exceptions");
   const pace = paceData(ledger, usage, exceptions, config, nowIso2);
-  if (notice) {
-    const level = config.notices.level;
-    if (level === "off") return 0;
-    if (pace.allocation) {
-      const prior = loadPaceState(home);
-      const samePeriod = prior !== null && prior.period === pace.allocation.period;
-      const already = samePeriod ? prior.notified_thresholds : [];
-      const fresh = pace.thresholds_crossed.filter((t) => !already.includes(t));
-      const reminderDays = config.budgets.renewal_reminder_days;
-      const renewalDue = level === "normal" && pace.days_to_renewal !== null && pace.days_to_renewal >= 0 && pace.days_to_renewal <= reminderDays && !(samePeriod && prior.renewal_notified === true);
-      const lines = [];
-      if (fresh.length > 0) {
-        const top = Math.max(...fresh);
-        lines.push(
-          `waybill: ${top}% of the ${pace.allocation.period} token grant is spent` + (pace.shipped_pct_of_committed !== null ? ` with ${pace.shipped_pct_of_committed}% of committed points shipped` : "") + (pace.biggest_open_spend ? `; biggest open spend: ${pace.biggest_open_spend.account}` : "") + ". Worth a look, not an alarm."
-        );
-      }
-      if (renewalDue) {
-        lines.push(
-          `waybill: the ${pace.allocation.period} grant renews in ${pace.days_to_renewal} day(s) \u2014 a good moment to build the token pitch while the receipts are fresh.`
-        );
-      }
-      if (lines.length > 0) {
-        process.stdout.write(lines.join("\n") + "\n");
-        mkdirSync7(join13(home, "rollups"), { recursive: true });
-        writeFileSync8(
-          stateFile(home),
-          JSON.stringify({
-            period: pace.allocation.period,
-            notified_thresholds: [.../* @__PURE__ */ new Set([...already, ...fresh])].sort((a, b) => a - b),
-            renewal_notified: samePeriod && prior.renewal_notified === true || renewalDue
-          }) + "\n",
-          "utf8"
-        );
-        return 0;
-      }
-    }
-    if (level !== "normal") return 0;
-    const firstRun = loadFirstRun(home);
-    if (!existsSync11(configPath(home))) {
-      if (firstRun.uninitialized_announced !== true) {
-        process.stdout.write(
-          'waybill: not initialized. Say "initialize my waybill ledger" \u2014 60s, no auth.\n'
-        );
-        saveFirstRun(home, { ...firstRun, uninitialized_announced: true });
-      }
-      return 0;
-    }
-    const sessionsMetered = Object.keys(loadState(home).sessions).length;
-    const entriesLogged = ledger.filter((e) => e.kind !== "pin").length;
-    if (sessionsMetered > 0 && entriesLogged === 0 && firstRun.unlogged_announced !== true) {
-      process.stdout.write(
-        `waybill: ${sessionsMetered} session(s) metered, nothing logged yet. Say "sync my ledger" for a receipt from your git history.
-`
-      );
-      saveFirstRun(home, { ...firstRun, unlogged_announced: true });
-    }
-    return 0;
-  }
   if (json) {
     process.stdout.write(JSON.stringify({ data: pace }, null, 2) + "\n");
   } else {
