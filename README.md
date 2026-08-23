@@ -1,8 +1,7 @@
 # Waybill
 
-**Bring receipts.** Waybill is token accounting for AI-assisted work — a [Claude Code](https://code.claude.com) plugin that meters every token, attributes it to the Jira story it shipped, and turns the receipts into value reports, performance-review packets, and token-budget requests that survive scrutiny.
-
-A *waybill* is the shipping document that itemizes cargo and its charges. You ship; Waybill keeps the itemized record.
+**Bring receipts.** Token accounting for AI-assisted work, as a
+[Claude Code](https://code.claude.com) plugin.
 
 [![CI](https://github.com/Jakeintech/waybill/actions/workflows/ci.yml/badge.svg)](https://github.com/Jakeintech/waybill/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -12,36 +11,18 @@ A *waybill* is the shipping document that itemizes cargo and its charges. You sh
   <img src="assets/demo.svg" alt="waybill demo: initialize the ledger, sync it, ask what you did yesterday, build the token pitch, then verify — every number conservation-checked" width="800">
 </p>
 
-## Why
-
-Two conversations decide a lot of an engineer's year, and both run on the same broken input:
-
-- **"What was the AI budget worth?"** — more teams allocate Claude tokens by demonstrated value. Use them well, show it, get more.
-- **"What did you accomplish this cycle?"** — performance reviews, promo packets, sprint reviews.
-
-Humans answer both from memory, the night before, in adjectives. The person deciding can't tell honest claims from inflated ones, so they discount everything. Waybill fixes the *evidence*, not the persuasion: it records work as it happens, ties every claim to an artifact — a PR, an issue, a deploy tag, a transcript — and refuses to let you make the kind of claim that gets your next pitch ignored.
-
 ## Sixty seconds to your first receipt
 
-```bash
+```text
 claude plugin marketplace add Jakeintech/waybill
 claude plugin install waybill@waybill
+        ↳ restart Claude Code (hooks load at startup), then say:
+          "initialize my waybill ledger"
 ```
 
-**Restart Claude Code** — hooks and skills load at startup, so without the
-restart nothing is captured. Then in a session, say
-**"initialize my waybill ledger"**. That's the whole setup: no accounts,
-no tokens, no OAuth. Waybill seeds your identity from `git config`,
-imports Anthropic list-price rates so costs appear from day one (dated
-model ids resolve to their family rate, and `waybill status` names any
-model it can't price rather than showing a quietly partial total), checks
-your transcript-retention setting, meters your existing Claude Code
-transcripts — subagent transcripts included — and renders a **bootstrap
-receipt**: your shipped work and metered tokens, itemized, in under a
-minute.
-
-Real output — this repository's own development, metered by the engine
-(waybill on waybill; the session that built 2.1.0):
+No accounts, no tokens, no OAuth — and the first receipt renders in
+under a minute. Real output: this repository's own development, metered
+by the engine (waybill on waybill — the session that built 2.1.0):
 
 ```
 WAYBILL · BOOTSTRAP RECEIPT
@@ -68,9 +49,43 @@ EVIDENCE TIER: FACTS (LOCAL GIT LOG · METERED TRANSCRIPTS)
 RANGES NOT MIDPOINTS · NOTHING PADDED · UNATTRIBUTED SHOWN
 ```
 
-That unattributed line is the point: nothing is hidden, and the
-[attribution ladder](docs/architecture.md) plus one-tap pins move spend
-onto the stories it served as you work.
+Look at the shape of that spend before the claims: **98.7% of this
+session's tokens were cache reads** — billed at a tenth of the input
+rate, invisible in a "tokens used" headline. Receipts change what you
+even think to ask. And the unattributed line is the point: nothing is
+hidden, and the [attribution ladder](docs/architecture.md) plus one-tap
+pins move spend onto the stories it served as you work.
+
+**The claim, in one clause:** Waybill deterministically attributes AI
+coding-agent token spend to the work item that shipped — metered from
+local transcripts and git history, never estimated. Vendor dashboards
+stop at per-user/per-day; engineering-intelligence platforms spread
+daily spend across tickets proportionally. Waybill's numbers are
+receipts, not estimates ([the field, dated and labeled](docs/positioning.md)).
+
+A *waybill* is the shipping document that itemizes cargo and its
+charges. You ship; Waybill keeps the itemized record: value reports,
+performance-review packets, standups, invoices, disclosure registers,
+and token-budget requests that survive scrutiny.
+
+## Why
+
+Two conversations decide a lot of an engineer's year, and both run on the same broken input:
+
+- **"What was the AI budget worth?"** — more teams allocate Claude tokens by demonstrated value. Use them well, show it, get more.
+- **"What did you accomplish this cycle?"** — performance reviews, promo packets, sprint reviews.
+
+Humans answer both from memory, the night before, in adjectives. The person deciding can't tell honest claims from inflated ones, so they discount everything. Waybill fixes the *evidence*, not the persuasion: it records work as it happens, ties every claim to an artifact — a PR, an issue, a deploy tag, a transcript — and refuses to let you make the kind of claim that gets your next pitch ignored.
+
+### What init actually does
+
+Waybill seeds your identity from `git config`, imports Anthropic
+list-price rates so costs appear from day one (dated model ids resolve
+to their family rate, and `waybill status` names any model it can't
+price rather than showing a quietly partial total), checks your
+transcript-retention setting, meters your existing Claude Code
+transcripts — subagent transcripts included — and renders the bootstrap
+receipt above from your own git history and metered sessions.
 
 ### Updating
 

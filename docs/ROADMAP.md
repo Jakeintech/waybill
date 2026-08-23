@@ -5,10 +5,12 @@
 One engine, two jobs. The engine is an **evidence-tiered accomplishment
 ledger**. The jobs it serves:
 
-1. **The wedge — AI token-budget pitches.** Narrow, urgent, and currently
-   unserved: teams that allocate Claude tokens by demonstrated value give
-   engineers a recurring "prove it" assignment with no tooling. This is the
-   launch story.
+1. **The wedge — AI token-budget pitches.** Narrow and urgent: teams that
+   allocate Claude tokens by demonstrated value give engineers a recurring
+   "prove it" assignment. Org platforms answer it with estimated
+   allocations; Waybill answers it with receipts the engineer owns —
+   deterministic, verifiable, individual-first (the full field survey:
+   [positioning](positioning.md)). This is the launch story.
 2. **The market — brag documents.** Performance reviews, promo packets, and
    sprint reviews are the same problem (recall + credibility) for a much
    larger audience. Everything the wedge needs, the market reuses.
