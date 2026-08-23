@@ -1,6 +1,8 @@
 import type {
   Envelope,
+  ExceptionEvent,
   LedgerEntry,
+  MeterGapEvent,
   SessionEvent,
   StreamName,
   TokenCounts,
@@ -22,7 +24,8 @@ export interface Finding {
     | "supersedes"
     | "escrow"
     | "conservation"
-    | "pre_registration";
+    | "pre_registration"
+    | "meter_gap";
   stream: StreamName | null;
   shard: string | null;
   id: string | null;
@@ -257,6 +260,25 @@ export function verifyHome(home: string): Finding[] {
         message: `session ${sessionId}: receipt has totals but no usage events`,
       });
     }
+  }
+
+  // Meter gaps (E-11): sessions whose transcripts were pruned or unreadable
+  // before metering have no usage events at all — conservation cannot see
+  // them, so green would silently stand for "minus whatever is missing".
+  // Disclosed as warnings: the ledger's promises hold, and the reader is
+  // told what the totals do not contain.
+  const gaps = authoritative((byStream.get("exceptions") ?? []) as ExceptionEvent[]).filter(
+    (e): e is MeterGapEvent => e.kind === "meter_gap",
+  );
+  for (const g of [...gaps].sort((a, b) => (a.session_id < b.session_id ? -1 : 1))) {
+    findings.push({
+      check: "meter_gap", stream: "exceptions", shard: shardFor(g.ts), id: g.id,
+      severity: "warning",
+      message:
+        `session ${g.session_id}: transcript ` +
+        (g.reason === "transcript_pruned" ? "was pruned before metering" : "was unreadable") +
+        " — its usage is missing from every total",
+    });
   }
 
   return findings;

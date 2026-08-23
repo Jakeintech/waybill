@@ -61,6 +61,9 @@ function readRawLines(home: string, stream: StreamName): PackLine[] {
 export interface PackResult {
   out_dir: string;
   sessions: number;
+  /** Sessions with a meter_gap marker: transcripts pruned or unreadable
+   * before metering, so their spend is absent from every total (E-11). */
+  gap_sessions: number;
   events: Record<StreamName, number>;
   total_tokens: number;
   engine_included: boolean;
@@ -88,7 +91,7 @@ export function buildPack(
   nowIso: string,
 ): { result: PackResult; error: string | null } {
   const empty: PackResult = {
-    out_dir: outDir, sessions: 0,
+    out_dir: outDir, sessions: 0, gap_sessions: 0,
     events: { ledger: 0, usage: 0, sessions: 0, exceptions: 0 },
     total_tokens: 0, engine_included: false, config_included: false,
   };
@@ -140,8 +143,17 @@ export function buildPack(
   }
   keep.exceptions = exceptionLines.filter((l) => {
     if (l.parsed?.["kind"] === "resolution") return includedAmbiguities.has(String(l.parsed?.["resolves"]));
+    // Gap markers always travel (E-11): a gap session has no usage events,
+    // so no window can select it — and a pack that dropped the marker
+    // would stamp green over silently missing sessions.
+    if (l.parsed?.["kind"] === "meter_gap") return true;
     return includes(l.parsed?.["session_id"]);
   });
+  const gapSessions = new Set(
+    keep.exceptions
+      .filter((l) => l.parsed?.["kind"] === "meter_gap")
+      .map((l) => String(l.parsed?.["session_id"])),
+  ).size;
 
   const packUsage = keep.usage
     .map((l) => l.parsed as unknown as UsageEvent)
@@ -189,6 +201,7 @@ export function buildPack(
   const result: PackResult = {
     out_dir: outDir,
     sessions: included.size,
+    gap_sessions: gapSessions,
     events: {
       ledger: keep.ledger.length,
       usage: keep.usage.length,
@@ -211,6 +224,7 @@ export function buildPack(
         generated_at: nowIso,
         window,
         sessions: result.sessions,
+        gap_sessions: result.gap_sessions,
         events: result.events,
         total_tokens: result.total_tokens,
         engine_included: engineIncluded,
@@ -237,7 +251,9 @@ function packReadme(result: PackResult, window: Window, nowIso: string): string 
   return `# Waybill verification pack
 
 Generated ${nowIso} · window: ${windowLine} · ${result.sessions} session(s), ${result.total_tokens.toLocaleString("en-US")} tokens.
-
+${result.gap_sessions > 0
+    ? `\n**Missing sessions, disclosed:** ${result.gap_sessions} session(s) carry a \`meter_gap\` marker — their transcripts were pruned or unreadable before metering, so their spend is absent from every total here. The markers travel in \`streams/exceptions/\`; \`verify\` reports each as a warning.\n`
+    : ""}
 This directory accompanies a report or token pitch. It contains the actual
 event lines behind the numbers — not a rendering of them — so you can check
 the claims yourself, offline, with one command:
