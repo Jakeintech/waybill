@@ -70,6 +70,17 @@ totals on principle. The collector runs locally; nothing about this
 recipe sends your data anywhere waybill's promises forbid — the exporter
 endpoint above is loopback, and the export file lives on your disk.
 
-Fixture-tested in `tests/unit/otel.test.ts` (shape, fill-gaps-only,
-transcript-wins supersession); the exact metric attributes it reads are
-documented in `src/meter/otel.ts`.
+Two operational notes from live validation: start the collector before
+the session (metrics that arrive with no listener are dropped, not
+queued), and remember exports flush on an interval — for short sessions
+either wait a few seconds after exit or lower
+`OTEL_METRIC_EXPORT_INTERVAL` (ms) while testing.
+
+**Validated live (2026-08-23):** this recipe, exactly as written above —
+Claude Code 2.1.241 with the four env vars → otelcol-contrib 0.112.0
+running the yaml verbatim → file exporter → `waybill meter --otel` on
+the produced export ingested the session (`+1 usage event(s) across 1
+session(s)`), `waybill verify` green, `query spend` showing the
+session's exact token total. Fixture-tested in `tests/unit/otel.test.ts`
+(shape, fill-gaps-only, transcript-wins supersession); the exact metric
+attributes it reads are documented in `src/meter/otel.ts`.
