@@ -38,7 +38,7 @@ shown, never hidden).
 | What's my open spend? | `query spend` → `.data.open_spend` |
 | Attribution health? | `query spend` → `.data.attribution_health` |
 | Overall ledger health? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" status` |
-| Show me my dashboard | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" dashboard` — writes `rollups/dashboard.html` (spend, pacing, open work, last 7 days) and prints its path; tell the user to open that file. The miner keeps it fresh; reading it costs zero tokens. |
+| Show me my dashboard | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" dashboard` — writes `rollups/dashboard.html` (spend, pacing, open work, last 7 days), opens it in the user's browser, and prints its path (pass `--no-open` to skip the launch, e.g. on a headless box). The miner keeps the file fresh; reading it costs zero tokens. |
 | What's still in flight / sitting? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" query manifest` |
 | What never got tracked? | `query untracked` — then hand off to the salvage skill |
 | Share the ledger as a file? | `"${CLAUDE_PLUGIN_ROOT}/bin/waybill" export --format csv` (respects --audience) |

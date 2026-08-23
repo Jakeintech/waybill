@@ -64,7 +64,8 @@ Commands:
   conventions Print the receipt-friendly CLAUDE.md block and commit-msg hook
                 (key-prefixed branches/commits raise attribution confidence)
   dashboard   Write rollups/dashboard.html — the zero-token view of your ledger
-                [--now <iso>] (refreshed by mine when the file exists)
+                — and open it in your browser [--no-open] [--now <iso>]
+                (the miner refreshes the file silently when it exists)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:

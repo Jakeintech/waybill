@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../core/config.ts";
@@ -73,8 +74,34 @@ export function refreshDashboardIfPresent(home: string): void {
   }
 }
 
+/**
+ * Open a file in the platform's default browser, best-effort. Only the
+ * explicit `waybill dashboard` command calls this — the miner's silent
+ * refresh (refreshDashboardIfPresent) must never pop a browser after a
+ * session ends. A missing opener (headless box, CI) is fine: the path is
+ * printed either way.
+ */
+function openInBrowser(path: string): boolean {
+  const [cmd, args] =
+    process.platform === "darwin"
+      ? ["open", [path]]
+      : process.platform === "win32"
+        ? ["cmd", ["/c", "start", "", path]]
+        : ["xdg-open", [path]];
+  try {
+    const child = spawn(cmd as string, args as string[], { detached: true, stdio: "ignore" });
+    child.on("error", () => {
+      // opener missing — the printed path still tells the user where it is
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function runDashboard(home: string, args: string[], json: boolean): number {
-  const flags = parseFlags("dashboard", args, { "--now": "value" });
+  const flags = parseFlags("dashboard", args, { "--now": "value", "--no-open": "boolean" });
   if (flags === null) return 2;
   let nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const now = flags.values["--now"];
@@ -92,11 +119,17 @@ export function runDashboard(home: string, args: string[], json: boolean): numbe
     process.stderr.write(`waybill dashboard: ${(err as Error).message}\n`);
     return 1;
   }
+  // Users shouldn't need to know how to open an HTML file: launch it,
+  // unless asked not to (--no-open; --json implies a machine caller).
+  const opened = flags.bools["--no-open"] === true || json ? false : openInBrowser(out);
   if (json) {
     process.stdout.write(JSON.stringify({ data: { path: out, generated_at: nowIso } }) + "\n");
   } else {
     process.stdout.write(
-      `wrote ${out}\nOpen it in a browser — reading your numbers costs zero tokens. ` +
+      `wrote ${out}\n` +
+        (opened
+          ? "Opening it in your browser (pass --no-open to skip) — reading your numbers costs zero tokens. "
+          : "Open it in a browser — reading your numbers costs zero tokens. ") +
         `The miner refreshes it after each session; regenerate any time with: waybill dashboard\n`,
     );
   }

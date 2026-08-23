@@ -234,3 +234,26 @@ test("dashboard: injects the snapshot, escapes breakouts, never leaves the place
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("dashboard: opens in the browser by default; --no-open and --json stay launch-free", () => {
+  const home = tempHome();
+  try {
+    // --no-open: the old print-the-path behavior, no launch attempted.
+    const quiet = cli(home, ["dashboard", "--no-open", "--now", "2026-08-22T12:00:00Z"]).stdout;
+    assert.match(quiet, /^wrote /);
+    assert.match(quiet, /Open it in a browser/);
+    assert.doesNotMatch(quiet, /Opening it in your browser/);
+
+    // Default: the launch is attempted (best-effort — a headless box
+    // without an opener still prints the path first) and says so.
+    const opened = cli(home, ["dashboard", "--now", "2026-08-22T12:00:00Z"]).stdout;
+    assert.match(opened, /Opening it in your browser \(pass --no-open to skip\)/);
+
+    // --json is a machine caller: pure JSON, never a launch message.
+    const json = cli(home, ["dashboard", "--json", "--now", "2026-08-22T12:00:00Z"]).stdout;
+    JSON.parse(json); // exactly one parseable document
+    assert.doesNotMatch(json, /browser/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
