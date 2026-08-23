@@ -149,6 +149,11 @@ export interface SessionEvent extends Envelope {
   transcript_path: string;
   transcript_version: string | null;
   cwd: string | null;
+  /** Present only when the transcript ran in more than one working
+   * directory (2.1, additive): every cwd seen, first-appearance order.
+   * Attribution books all spend to the first — verify discloses the rest
+   * (E-14) until per-turn split attribution exists. */
+  cwds?: string[];
   repo: string | null;
   branches: string[];
   models: string[];

@@ -39,6 +39,11 @@ export interface Turn {
 
 export interface ParsedTranscript {
   sessionId: string | null;
+  /** Distinct working directories seen across the transcript, in first-
+   * appearance order. Attribution uses only the first (cwd); more than one
+   * marks a multi-repo session, which verify discloses (E-14) — per-turn
+   * split attribution is not yet supported. */
+  cwds: string[];
   /** Present when this file is a subagent transcript: the agent id carried
    * on the same line that supplied sessionId. Subagent files stamp it on
    * every line; inline sidechains in a main transcript never set it (the
@@ -212,6 +217,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
   >();
 
   let sessionId: string | null = null;
+  const cwds: string[] = [];
   let agentId: string | null = null;
   let version: string | null = null;
   let cwd: string | null = null;
@@ -251,6 +257,9 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
       line = JSON.parse(lineText) as RawLine;
     } catch {
       continue;
+    }
+    if (typeof line.cwd === "string" && line.cwd !== "" && !cwds.includes(line.cwd)) {
+      cwds.push(line.cwd);
     }
     if (sessionId === null && typeof line.sessionId === "string") {
       sessionId = line.sessionId;
@@ -398,6 +407,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
 
   return {
     sessionId,
+    cwds,
     agentId,
     version,
     cwd,

@@ -280,6 +280,8 @@ export function meterTranscript(input: MeterInput): MeterOutput {
     transcript_path: input.transcriptPath,
     transcript_version: transcript.version,
     cwd: transcript.cwd,
+    // Present only when >1: single-cwd receipts keep their pre-2.1 ids.
+    ...(transcript.cwds.length > 1 ? { cwds: transcript.cwds } : {}),
     repo: input.repo,
     branches: transcript.branches,
     models: transcript.models,

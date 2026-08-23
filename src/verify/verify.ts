@@ -25,7 +25,8 @@ export interface Finding {
     | "escrow"
     | "conservation"
     | "pre_registration"
-    | "meter_gap";
+    | "meter_gap"
+    | "multi_repo";
   stream: StreamName | null;
   shard: string | null;
   id: string | null;
@@ -258,6 +259,23 @@ export function verifyHome(home: string): Finding[] {
       findings.push({
         check: "conservation", stream: "sessions", shard: null, id: receipt.id,
         message: `session ${sessionId}: receipt has totals but no usage events`,
+      });
+    }
+  }
+
+  // Multi-repo sessions (E-14): a transcript that ran in several working
+  // directories books ALL its spend to the first one's repo — a correct
+  // per-turn split does not exist yet, so the booking is disclosed rather
+  // than silently wrong.
+  for (const s of sessions) {
+    if (s.cwds !== undefined && s.cwds.length > 1) {
+      findings.push({
+        check: "multi_repo", stream: "sessions", shard: shardFor(s.ts), id: s.id,
+        severity: "warning",
+        message:
+          `session ${s.session_id}: ran in ${s.cwds.length} working directories ` +
+          `(${s.cwds.join(", ")}) — all spend is attributed via the first; ` +
+          "per-turn split attribution is not yet supported",
       });
     }
   }
