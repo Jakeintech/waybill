@@ -1021,6 +1021,14 @@ function unpricedModels(pricing, models) {
   }
   return [...missing].sort();
 }
+function meteredModels(usage) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const u of usage) {
+    const t = u.tokens;
+    if (t.input + t.output + t.cache_read + t.cache_creation > 0) seen.add(u.model);
+  }
+  return [...seen].sort();
+}
 
 // src/meter/transcript.ts
 var KNOWN_USAGE_FIELDS = /* @__PURE__ */ new Set([
@@ -2005,6 +2013,7 @@ exit 0
 }
 
 // src/cli/cmd-dashboard.ts
+import { spawn } from "node:child_process";
 import { existsSync as existsSync7, mkdirSync as mkdirSync3, readFileSync as readFileSync7, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join8 } from "node:path";
 
@@ -2775,8 +2784,20 @@ function refreshDashboardIfPresent(home) {
   } catch {
   }
 }
+function openInBrowser(path) {
+  const [cmd, args] = process.platform === "darwin" ? ["open", [path]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", path]] : ["xdg-open", [path]];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => {
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 function runDashboard(home, args, json) {
-  const flags = parseFlags("dashboard", args, { "--now": "value" });
+  const flags = parseFlags("dashboard", args, { "--now": "value", "--no-open": "boolean" });
   if (flags === null) return 2;
   let nowIso2 = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
   const now = flags.values["--now"];
@@ -2795,12 +2816,13 @@ function runDashboard(home, args, json) {
 `);
     return 1;
   }
+  const opened = flags.bools["--no-open"] === true || json ? false : openInBrowser(out);
   if (json) {
     process.stdout.write(JSON.stringify({ data: { path: out, generated_at: nowIso2 } }) + "\n");
   } else {
     process.stdout.write(
       `wrote ${out}
-Open it in a browser \u2014 reading your numbers costs zero tokens. The miner refreshes it after each session; regenerate any time with: waybill dashboard
+` + (opened ? "Opening it in your browser (pass --no-open to skip) \u2014 reading your numbers costs zero tokens. " : "Open it in a browser \u2014 reading your numbers costs zero tokens. ") + `The miner refreshes it after each session; regenerate any time with: waybill dashboard
 `
     );
   }
@@ -2837,11 +2859,9 @@ function runPricing(home, args, json) {
     return runPricingImport(home, config, rest, json);
   }
   if (verb === "show" || verb === void 0) {
-    const seenModels = [
-      ...new Set(
-        authoritative(readEvents(home, "usage")).filter((u) => u.kind === "usage").map((u) => u.model)
-      )
-    ];
+    const seenModels = meteredModels(
+      authoritative(readEvents(home, "usage")).filter((u) => u.kind === "usage")
+    );
     const missing = unpricedModels(config.pricing, seenModels);
     if (json) {
       process.stdout.write(
@@ -4547,13 +4567,15 @@ function runStatus(home, args, json) {
   const gaps = exceptions.filter((e) => e.kind === "meter_gap").length;
   const findings = fast ? null : verifyHome(home);
   const authUsage = authoritative(usage).filter((u) => u.kind === "usage");
-  const seenModels = [...new Set(authUsage.map((u) => u.model))];
-  const unpriced = unpricedModels(config.pricing, seenModels);
-  const unpricedEvents = authUsage.filter((u) => u.cost_usd === null).length;
+  const counted = authUsage.filter(
+    (u) => u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation > 0
+  );
+  const unpriced = unpricedModels(config.pricing, meteredModels(counted));
+  const unpricedEvents = counted.filter((u) => u.cost_usd === null).length;
   const gapSessions = new Set(
     exceptions.filter((e) => e.kind === "meter_gap").map((e) => e.session_id)
   );
-  const repriceable = authUsage.filter(
+  const repriceable = counted.filter(
     (u) => u.cost_usd === null && u.model !== "unknown" && !gapSessions.has(u.session_id) && resolveRate(config.pricing, u.model) !== null
   ).length;
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
@@ -4692,7 +4714,7 @@ function runStatus(home, args, json) {
     );
   } else {
     lines.push(
-      `pricing: version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s)` + (unpriced.length > 0 ? `; NO RATE for metered model(s): ${unpriced.join(", ")} \u2014 costs shown tokens-only. Fix: waybill pricing set <model-id> ... (then: waybill meter --all)` : "") + (repriceable > 0 ? `; ${fmtInt2(repriceable)} event(s) metered before their rate existed \u2014 re-price: waybill meter --all` : "")
+      `pricing: version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s)` + (unpriced.length > 0 ? `; NO RATE for metered model(s): ${unpriced.join(", ")} \u2014 their costs stay tokens-only. Fix: waybill pricing set <model-id> ... (then: waybill meter --all)` : "") + (repriceable > 0 ? `; ${fmtInt2(repriceable)} event(s) metered before their rate existed \u2014 re-price: waybill meter --all` : "")
     );
   }
   {
@@ -5978,7 +6000,7 @@ function runSyncPlan(home, args) {
 }
 
 // src/cli/main.ts
-var ENGINE_VERSION = true ? "2.1.0" : "dev";
+var ENGINE_VERSION = true ? "2.1.1" : "dev";
 var USAGE = `waybill \u2014 token accounting for AI-assisted work. Bring receipts.
 
 Usage: waybill <command> [options]
@@ -6023,7 +6045,8 @@ Commands:
   conventions Print the receipt-friendly CLAUDE.md block and commit-msg hook
                 (key-prefixed branches/commits raise attribution confidence)
   dashboard   Write rollups/dashboard.html \u2014 the zero-token view of your ledger
-                [--now <iso>] (refreshed by mine when the file exists)
+                \u2014 and open it in your browser [--no-open] [--now <iso>]
+                (the miner refreshes the file silently when it exists)
   verify      Check ledger integrity: envelopes, ids, escrow, conservation
 
 Options:

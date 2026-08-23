@@ -1,11 +1,11 @@
-# Validation — release gate (v2.1.0; earlier release evidence retained below)
+# Validation — release gate (v2.1.1; earlier release evidence retained below)
 
 ## Gate results (2026-08-23, Linux/Node 22 remote container; CI mirrors on Ubuntu/Node 24)
 
 | Check | Result |
 |---|---|
 | `tsc --noEmit` (strict) | clean |
-| `node --test` full suite | **224 / 224 pass** (2.1 batch: subagent-transcript metering with exact-sum fixtures, append clock check + verify warnings, demo static-render pins, init-time metering, shared-walk stream cache equivalence, meter-gap disclosure, precomputed session notices, multi-repo warnings, the cache projection's exact-arithmetic fixtures; v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
+| `node --test` full suite | **226 / 226 pass** (2.1 batch: zero-token placeholder-model pricing-health exclusion and the dashboard browser launch (2.1.1), subagent-transcript metering with exact-sum fixtures, append clock check + verify warnings, demo static-render pins, init-time metering, shared-walk stream cache equivalence, meter-gap disclosure, precomputed session notices, multi-repo warnings, the cache projection's exact-arithmetic fixtures; v2.0 batch: Azure DevOps + Bitbucket adapters with conformance and own-data, shared flag parser, status --fast, standup↔spend agreement golden) |
 | Reproducible build + zero bin diff | pass |
 | `scripts/validate-plugin.sh` | pass |
 | `claude plugin validate --strict`, both manifests (root = marketplace; tree minus marketplace.json = plugin) | pass / pass |

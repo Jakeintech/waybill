@@ -5,6 +5,35 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [2.1.1] - 2026-08-23
+
+First field report from a 3.4B-token ledger, same day. Ledgers metered by
+pre-1.x engines carry zero-token usage events under the placeholder model
+id `<synthetic>` (the current parser skips such messages at the source,
+so the events are historical and — append-only — permanent).
+
+### Fixed
+- **Zero-token placeholder models no longer poison pricing health** —
+  `status` and `pricing show` named `<synthetic>` as an unpriced model
+  with a `pricing set` "fix" that would invent a rate for a non-model;
+  and once any rate resolved for it, `status` counted its events as
+  "metered before their rate existed — re-price: waybill meter --all",
+  advice that is permanently unfollowable (the meter never re-emits
+  zero-usage grains, so no superseding event can ever exist). Models are
+  now drawn only from events that actually carry tokens
+  (`meteredModels`, the same principle as the long-standing `"unknown"`
+  exclusion), and the no-cost / re-priceable counts skip zero-token
+  events. The status wording also scopes itself honestly: "their costs
+  stay tokens-only", not the ledger's.
+
+### Added
+- **`waybill dashboard` opens the page it wrote** — users shouldn't need
+  to know how to open an HTML file. The explicit command launches the
+  default browser (macOS `open`, Windows `start`, else `xdg-open`),
+  best-effort and detached; `--no-open` skips it, `--json` never
+  launches, and the miner's silent refresh path is untouched — a
+  browser must never pop because a session ended.
+
 ## [2.1.0] - 2026-08-23
 
 The launch-readiness release: the meter now sees everything Claude Code
@@ -103,7 +132,7 @@ your existing sessions' events are untouched.
   pre-2.0 changelog folded into a details block; `.mailmap` normalizes
   tool-default commit authorship (E-06).
 
-
+## [2.0.0] - 2026-08-22
 
 "Delivered": the free side complete — the final release of the committed
 path ([ROADMAP](docs/ROADMAP.md)). The major version marks scope completion,
