@@ -141,13 +141,14 @@ ledger unlocks the stronger claims (see tiers below).
 
 | Moment | What happens |
 |---|---|
-| You start a task | `log` records your **without-Claude estimate first** (pre-registration), sealed with a SHA-256 escrow hash |
+| You start a task | Tell `log` — it asks for your **without-Claude estimate first**, as a range, and seals it at write time (SHA-256 escrow; edits are detectable ever after). Decline and the item is simply logged facts-only — estimates are the tier-3 upgrade, never a toll |
 | You work | A `SessionEnd` hook queues the session and a detached, dependency-free miner meters real token usage from the transcript — no model calls, no network, never blocking |
 | Things merge | `sync` reconciles the ledger against your Jira issues and GitHub PRs (or Linear, GitLab, or plain local git) |
 | You wonder where it went | `spend` answers by story/epic/model/week, files the attribution inbox one tap at a time, and tracks budget pacing — one line at 80%/100%, never nagging |
+| You wonder what the bill is even made of | `cache` breaks it down by cache tier: the cache-read share, effective vs list cost (derived, labeled), write premiums netted out — "why is my bill like this", answered with receipts |
 | It's 9:58 and standup is at 10 | `standup` turns the ledger into "what I did yesterday" bullets — shipped, in progress, started — every line traceable to a receipt; `--days 7` makes it a weekly digest |
 | Work shipped without a ticket | `salvage` clusters the untracked spend with its receipts (sessions, branches, PRs), proposes what each group plainly was, and turns your one-tap confirmations into reconstructed entries — facts tier, never forged estimates |
-| You just want to *look* | `waybill dashboard` writes a self-contained local page (spend, pacing, open work, last 7 days) the miner keeps fresh — reading your own numbers costs **zero tokens** |
+| You just want to *look* | `waybill dashboard` writes a self-contained local page (spend, pacing, cache savings, open work, last 7 days) and opens it in your browser; the miner keeps it fresh — reading your own numbers costs **zero tokens** |
 | The sprint ends | `retro` runs the honest look back: estimates vs. actuals (over-range items named, not hidden), tokens-per-point by model, waste, rework, and what sat on the truck |
 | You need to make a case | `report` builds a one-page, receipt-linked pitch; `forecast` sizes your next token ask from your own metered tokens-per-story-point |
 | They should not have to trust you | `waybill export --pack` ships the **verification pack**: the verbatim events behind the numbers plus the engine itself, so the recipient re-runs the integrity checks offline — `node waybill.mjs verify --home .` |
@@ -223,13 +224,19 @@ it. The full exit path, from turning it down to walking away:
 
 ## Compared to the alternatives
 
-| | Memory / a spreadsheet brag doc | Org admin dashboards | Waybill |
-|---|---|---|---|
-| Captured when it happens | ✗ | ✓ | ✓ |
-| Tied to PRs/issues/deploys | ✗ | partial | ✓ |
-| Honest counterfactuals | ✗ | ✗ | ✓ (pre-registered, ranged) |
-| Works bottom-up, for *you* | ✓ | ✗ | ✓ |
-| Data you own locally | ✓ | ✗ | ✓ |
+| | Memory / a brag doc | Vendor usage dashboards | Engineering-intelligence platforms | Waybill |
+|---|---|---|---|---|
+| Captured when it happens | ✗ | ✓ | ✓ | ✓ |
+| Tied to PRs/issues/deploys | ✗ | ✗ (per-user/per-day) | ✓ (allocated) | ✓ (metered) |
+| Spend-to-work numbers are… | recollections | totals only | proportional estimates | **receipts** |
+| Honest counterfactuals | ✗ | ✗ | ✗ | ✓ (pre-registered, ranged) |
+| Recipient can re-verify offline | ✗ | ✗ | ✗ | ✓ (`export --pack`) |
+| Works bottom-up, for *you* | ✓ | ✗ | ✗ | ✓ |
+| Data you own locally | ✓ | ✗ | ✗ | ✓ |
+
+Categories, not names, on purpose — the named, dated field survey lives
+in [docs/positioning.md](docs/positioning.md), labeled in Waybill's own
+evidence tiers.
 
 ## Docs
 

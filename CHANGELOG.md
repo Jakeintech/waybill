@@ -5,6 +5,56 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) — the ledger entry schema is the
 compatibility surface.
 
+## [2.2.0] - 2026-08-23
+
+Multi-repo attribution, completed — the fix 2.1.0 shipped as a warning.
+Minor: attribution behavior changes (rules v3), so the next `mine`/
+`meter --all` re-meters each session once; single-directory sessions
+recompute identical events (content-addressed, a no-op), and
+multi-directory sessions gain corrected superseding events. One shared
+stream read per walk (2.1.0's E-10) keeps that pass cheap.
+
+### Added
+- **Per-turn attribution for multi-repo sessions** (completes E-14,
+  closes #21) — a session that ran in several working directories now
+  attributes each turn via the directory active at the turn's start
+  (FR-A3: a turn is never split). Rules v3. Precedence is deliberate:
+  single-directory sessions keep the session-level repo byte-for-byte
+  (hint first — no event churn on upgrade); multi-directory sessions
+  derive per turn from each directory's git remote and fall back to the
+  session hint, because the one hint a capture carries describes only
+  one of the directories. verify's multi-repo warning now fires only for
+  sessions still carrying pre-split (< v3) usage and retires itself
+  after the re-meter; its advice is conditional on the transcript
+  surviving, never unfollowable.
+- **Dashboard cache-savings tile** (closes #18) — cache-read share of
+  the last 30 days with the derived list-price saving beside it, basis
+  labeled, coverage disclosed when partial, and never a $0 for an
+  unpriced model.
+- **OTel recipe validated live** (closes #20) — the docs/otel.md
+  pipeline run exactly as written: Claude Code 2.1.241 → otelcol-contrib
+  0.112.0 (the doc's yaml verbatim) → file export → `meter --otel`
+  ingesting the session, verify green. Two operational notes added to
+  the doc (collector before session; export-interval flushing).
+
+### Fixed
+- **Pre-registration prose matches the mechanism everywhere** — the
+  methodology no longer claims the seal proves a range "wasn't written
+  the night before" (it proves no edits since; write-time ordering is
+  enforced separately, and the calibration record is what earns trust
+  over time); the log skill accepts a declined estimate gracefully
+  (facts-tier entry, never pressed twice, never backfilled); the README
+  row says the same.
+- **Unpin is a recipe, not a one-liner** — the log skill's unpin step
+  now carries the exact commands (find the pin's id, append the
+  `correction` superseding it, re-mine), so retracting a pin never
+  tempts a hand-authored stream edit. A dedicated `waybill unpin` verb
+  is tracked for next minor.
+- **Salvage dates reconstructed entries by their cluster's window**
+  (`ts: first_ts`), never one shared batch date — same-dated entries rob
+  the resolver of recency and turn every later session into an inbox
+  ambiguity. Write time stays disclosed via `appended_at`.
+
 ## [2.1.1] - 2026-08-23
 
 First field report from a 3.4B-token ledger, same day. Ledgers metered by

@@ -22,6 +22,14 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](product-spec.md).
 
+## Shipped — 2.2.0 (2026-08)
+
+Multi-repo attribution completed (per-turn, rules v3 — closes the E-14
+warning with the real fix), the dashboard cache-savings tile, the OTel
+recipe validated live against a real collector, and the
+pre-registration prose aligned with its mechanism end to end. Issues
+#18, #20, #21 closed.
+
 ## Shipped — 2.1.0 (2026-08)
 
 The launch-readiness release: subagent transcripts metered (the largest

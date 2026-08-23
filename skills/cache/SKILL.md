@@ -9,7 +9,7 @@ description: >
   Answers come from `waybill query cache` — deterministic volume by cache
   tier plus a derived effective-vs-list cost view, never estimates.
 metadata:
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Cache
