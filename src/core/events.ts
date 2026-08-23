@@ -187,6 +187,23 @@ export type ExceptionEvent =
   | AmbiguityEvent | ResolutionEvent | MeterDiscrepancyEvent | MeterGapEvent;
 
 /**
+ * Subagent transcripts (`projects/<proj>/<session>/subagents/agent-*.jsonl`)
+ * carry the parent's sessionId on every line, so they meter as sessions of
+ * their own under a composite id — otherwise their checkpoints, receipts,
+ * and per-(turn, model) usage grains would collide with the parent's.
+ * Plain ids pass through `rootSessionId` untouched; user-facing session
+ * counts group by root so a session and its subagents count once.
+ */
+export function subagentSessionId(parentId: string, agentId: string): string {
+  return `${parentId}:agent-${agentId}`;
+}
+
+export function rootSessionId(sessionId: string): string {
+  const i = sessionId.indexOf(":agent-");
+  return i === -1 ? sessionId : sessionId.slice(0, i);
+}
+
+/**
  * Assign the deterministic id. `body` must be the complete event minus `id`,
  * with fields in schema order (serialization preserves insertion order).
  */

@@ -8,6 +8,7 @@ import type {
   TokenCounts,
   UsageEvent,
 } from "../core/events.ts";
+import { rootSessionId } from "../core/events.ts";
 import { inWindow as isInWindow } from "../core/time.ts";
 import { authoritative } from "../core/streams.ts";
 import { countOpenAmbiguities, effectiveShipped, normalizeWindow, type Window } from "./queries.ts";
@@ -148,7 +149,7 @@ export function standupData(
       last_ts: u.ts,
     };
     acc.tokens += totalTokens(u.tokens);
-    acc.sessions.add(u.session_id);
+    acc.sessions.add(rootSessionId(u.session_id)); // subagents count with their session
     if (u.ts > acc.last_ts) acc.last_ts = u.ts;
     byAccount.set(u.attribution.account, acc);
   }
@@ -218,10 +219,17 @@ export function standupData(
   const repos: string[] = [];
   const branches: string[] = [];
   let turns = 0;
+  let rootCount = 0;
   for (const s of receipts) {
     if (s.repo !== null && !repos.includes(s.repo)) repos.push(s.repo);
     for (const b of s.branches) if (!branches.includes(b)) branches.push(b);
-    turns += s.turns;
+    // Session and turn counts mean what the user did: subagent-transcript
+    // receipts (composite ids) contribute repos/branches but neither a
+    // session of their own nor phantom turns (they hold no user prompts).
+    if (rootSessionId(s.session_id) === s.session_id) {
+      rootCount += 1;
+      turns += s.turns;
+    }
   }
   repos.sort();
   branches.sort();
@@ -235,7 +243,7 @@ export function standupData(
     shipped,
     progressed,
     opened,
-    session_summary: { count: receipts.length, repos, branches, turns },
+    session_summary: { count: rootCount, repos, branches, turns },
     tokens: {
       total,
       totals,

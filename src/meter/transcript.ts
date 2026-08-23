@@ -39,6 +39,11 @@ export interface Turn {
 
 export interface ParsedTranscript {
   sessionId: string | null;
+  /** Present when this file is a subagent transcript: the agent id carried
+   * on the same line that supplied sessionId. Subagent files stamp it on
+   * every line; inline sidechains in a main transcript never set it (the
+   * main file's first identity line has no agentId). */
+  agentId: string | null;
   version: string | null;
   cwd: string | null;
   branches: string[];
@@ -57,6 +62,7 @@ interface RawLine {
   parentUuid?: string | null;
   isSidechain?: boolean;
   sessionId?: string;
+  agentId?: string;
   version?: string;
   cwd?: string;
   gitBranch?: string;
@@ -206,6 +212,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
   >();
 
   let sessionId: string | null = null;
+  let agentId: string | null = null;
   let version: string | null = null;
   let cwd: string | null = null;
   let currentBranch: string | null = null;
@@ -245,7 +252,12 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
     } catch {
       continue;
     }
-    if (sessionId === null && typeof line.sessionId === "string") sessionId = line.sessionId;
+    if (sessionId === null && typeof line.sessionId === "string") {
+      sessionId = line.sessionId;
+      // Adopted only from the identity line: a main transcript's inline
+      // sidechain lines must never re-identify the whole file as an agent's.
+      if (typeof line.agentId === "string" && line.agentId !== "") agentId = line.agentId;
+    }
     if (version === null && typeof line.version === "string") version = line.version;
     if (cwd === null && typeof line.cwd === "string") cwd = line.cwd;
     if (typeof line.gitBranch === "string" && line.gitBranch !== "") {
@@ -386,6 +398,7 @@ export function parseTranscript(raw: string, options: ParseOptions): ParsedTrans
 
   return {
     sessionId,
+    agentId,
     version,
     cwd,
     branches,

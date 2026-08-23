@@ -1,4 +1,5 @@
 import type { Attribution, LedgerEntry, PinEntry } from "../core/events.ts";
+import { rootSessionId } from "../core/events.ts";
 import { isPlausibleTrackerKey } from "../core/keys.ts";
 import type { EvidenceKey, Turn } from "../meter/transcript.ts";
 
@@ -74,9 +75,14 @@ export function resolveTurn(turn: Turn, ctx: ResolverContext): Resolution {
   }
 
   // Rule 1 — pin. A whole-session pin or one whose range covers the turn.
+  // A pin on the parent session also covers its subagent transcripts
+  // (composite ids): "pin this session" includes the agents it spawned.
+  // For plain ids root === self, so no pre-2.1 attribution changes — which
+  // is why RULES_VERSION stays put.
   const turnTs = turn.models.reduce((max, m) => (m.lastTs > max ? m.lastTs : max), "");
+  const rootId = rootSessionId(ctx.sessionId);
   const matchingPins = ctx.pins.filter((p) => {
-    if (p.session_id !== ctx.sessionId) return false;
+    if (p.session_id !== ctx.sessionId && p.session_id !== rootId) return false;
     if (p.range === null) return true;
     if (turnTs === "") return false;
     const fromOk = p.range.from <= turnTs;

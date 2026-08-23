@@ -14,6 +14,7 @@ import type {
   SessionEvent,
   UsageEvent,
 } from "../core/events.ts";
+import { subagentSessionId } from "../core/events.ts";
 import { appendEvents, authoritative, readEvents } from "../core/streams.ts";
 import { RULES_VERSION } from "../attribution/resolver.ts";
 import { METER_LOGIC_VERSION, meterTranscript, selectOpenEntries } from "./meter.ts";
@@ -63,10 +64,37 @@ export function listTranscripts(projectsDir: string): string[] {
       continue;
     }
     for (const f of entries.sort()) {
-      if (f.endsWith(".jsonl")) out.push(join(dir, f));
+      if (f.endsWith(".jsonl")) {
+        out.push(join(dir, f));
+        continue;
+      }
+      // Subagent transcripts (E-02) live one level down, beside the main
+      // file: projects/<proj>/<session>/subagents/agent-*.jsonl. Each is a
+      // transcript in its own right and meters with its own checkpoint.
+      out.push(...listSubagentTranscripts(join(dir, f)));
     }
   }
   return out;
+}
+
+/** The subagent transcripts belonging to a session directory (or to a main
+ * transcript path — `<dir>/<session>.jsonl` keeps them at `<dir>/<session>/
+ * subagents/`). Sorted, `.jsonl` only (a `.meta.json` sits beside each). */
+export function listSubagentTranscripts(sessionDirOrTranscript: string): string[] {
+  const sessionDir = sessionDirOrTranscript.endsWith(".jsonl")
+    ? sessionDirOrTranscript.slice(0, -".jsonl".length)
+    : sessionDirOrTranscript;
+  const subagentsDir = join(sessionDir, "subagents");
+  let entries: string[];
+  try {
+    entries = readdirSync(subagentsDir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((f) => f.endsWith(".jsonl"))
+    .sort()
+    .map((f) => join(subagentsDir, f));
 }
 
 /**
@@ -126,9 +154,13 @@ export function turnOverridesFor(
   return overrides;
 }
 
-/** Leading-lines sessionId probe — the fast path must not pay for a full
- * parse. Reads a handful of lines, not just the first: transcripts often
- * open with a `type:"summary"` line that carries no sessionId. */
+/** Leading-lines session-identity probe — the fast path must not pay for a
+ * full parse. Reads a handful of lines, not just the first: transcripts
+ * often open with a `type:"summary"` line that carries no sessionId.
+ * Returns the same effective id the meter derives: composite for a
+ * subagent transcript (agentId on the identity line), plain otherwise —
+ * so checkpoints and the duplicate guard never confuse a subagent file
+ * with its parent session. */
 function probeSessionId(raw: string): string | null {
   let start = 0;
   for (let i = 0; i < 8 && start < raw.length; i++) {
@@ -136,8 +168,12 @@ function probeSessionId(raw: string): string | null {
     const line = nl === -1 ? raw.slice(start) : raw.slice(start, nl);
     start = nl === -1 ? raw.length : nl + 1;
     try {
-      const parsed = JSON.parse(line) as { sessionId?: string };
-      if (typeof parsed.sessionId === "string") return parsed.sessionId;
+      const parsed = JSON.parse(line) as { sessionId?: string; agentId?: string };
+      if (typeof parsed.sessionId === "string") {
+        return typeof parsed.agentId === "string" && parsed.agentId !== ""
+          ? subagentSessionId(parsed.sessionId, parsed.agentId)
+          : parsed.sessionId;
+      }
     } catch {
       // not JSON — keep probing
     }
@@ -195,7 +231,10 @@ export function meterFile(
     branchKeyPattern: config.metering.branch_key_pattern,
     projectKeys: config.tracker.project_keys,
   });
-  const sessionId = probe.sessionId;
+  const sessionId =
+    probe.sessionId !== null && probe.agentId !== null
+      ? subagentSessionId(probe.sessionId, probe.agentId)
+      : probe.sessionId;
   if (!force && sessionId !== null && sessionId !== probedId) {
     if (isCurrent(state, sessionId, fileBytes, pricingDigest, fingerprint) || duplicateOf(sessionId)) {
       return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
@@ -249,4 +288,30 @@ export function meterFile(
     sessions: out.newSessions.length,
     exceptions: out.newExceptions.length,
   };
+}
+
+/**
+ * Meter a main transcript plus its sibling subagent transcripts (E-02).
+ * The queued SessionEnd capture names only the main file, so the queue
+ * path discovers `<transcript-dir>/<session>/subagents/*.jsonl` here —
+ * `--all` walks find them via listTranscripts instead. One failing file
+ * never blocks the others; errors surface through `onError`.
+ */
+export function meterFileWithSubagents(
+  home: string,
+  transcriptPath: string,
+  repoHint: string | null,
+  force = false,
+  onError?: (path: string, err: Error) => void,
+): MeterRunResult[] {
+  const results: MeterRunResult[] = [];
+  for (const p of [transcriptPath, ...listSubagentTranscripts(transcriptPath)]) {
+    try {
+      results.push(meterFile(home, p, repoHint, force));
+    } catch (err) {
+      if (p === transcriptPath) throw err; // the named file keeps its contract
+      onError?.(p, err as Error);
+    }
+  }
+  return results;
 }

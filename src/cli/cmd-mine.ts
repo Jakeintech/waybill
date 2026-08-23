@@ -5,7 +5,7 @@ import { loadConfig } from "../core/config.ts";
 import { finalizeEvent, SCHEMA_VERSION, type ExceptionEvent, type MeterGapEvent } from "../core/events.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLock, releaseLock } from "../meter/lock.ts";
-import { defaultProjectsDir, listTranscripts, meterFile } from "../meter/run.ts";
+import { defaultProjectsDir, listTranscripts, meterFile, meterFileWithSubagents } from "../meter/run.ts";
 import { refreshDashboardIfPresent } from "./cmd-dashboard.ts";
 
 interface Capture {
@@ -124,14 +124,25 @@ export function runMine(home: string, args: string[], json: boolean): number {
         continue;
       }
       try {
-        const result = meterFile(home, transcript, typeof capture.repo === "string" ? capture.repo : null);
+        // The capture names the main transcript; its subagent transcripts
+        // (E-02) sit beside it and are metered in the same pass.
+        const results = meterFileWithSubagents(
+          home,
+          transcript,
+          typeof capture.repo === "string" ? capture.repo : null,
+          false,
+          (p, err) => process.stderr.write(`waybill mine: ${p}: ${err.message}\n`),
+        );
         capture.mined = true;
-        capture["mined_session_id"] = result.session_id;
-        capture["mined_usage_events"] = result.usage;
+        capture["mined_session_id"] = results[0]!.session_id;
+        capture["mined_usage_events"] = results.reduce((n, r) => n + r.usage, 0);
+        capture["mined_subagent_transcripts"] = results.length - 1;
         writeFileSync(path, JSON.stringify(capture) + "\n", "utf8");
-        if (result.skipped) alreadyCurrent += 1;
-        else if (result.remetered) remetered += 1;
-        else minedNew += 1;
+        for (const result of results) {
+          if (result.skipped) alreadyCurrent += 1;
+          else if (result.remetered) remetered += 1;
+          else minedNew += 1;
+        }
       } catch (err) {
         process.stderr.write(`waybill mine: ${transcript}: ${(err as Error).message}\n`);
       }

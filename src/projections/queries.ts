@@ -7,6 +7,7 @@ import type {
   ResolutionEvent,
   UsageEvent,
 } from "../core/events.ts";
+import { rootSessionId } from "../core/events.ts";
 import { inWindow as isInWindow, isIsoBound } from "../core/time.ts";
 import { resolveRate } from "../core/pricing-resolve.ts";
 import { authoritative } from "../core/streams.ts";
@@ -215,7 +216,8 @@ export function spendData(
     }
     accounts.set(u.attribution.account, acc);
     const sess = accountSessions.get(u.attribution.account) ?? new Set<string>();
-    sess.add(u.session_id);
+    // Root ids: a session and its subagent transcripts count as one session.
+    sess.add(rootSessionId(u.session_id));
     accountSessions.set(u.attribution.account, sess);
 
     const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false, unpriced: 0 };
@@ -420,7 +422,7 @@ export function reportData(
     split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
     storyModelTokens.set(key, split);
     const sess = sessionsByKey.get(key) ?? new Set<string>();
-    sess.add(u.session_id);
+    sess.add(rootSessionId(u.session_id)); // subagents count with their session
     sessionsByKey.set(key, sess);
   }
 

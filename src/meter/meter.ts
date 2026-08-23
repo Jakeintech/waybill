@@ -9,7 +9,7 @@ import type {
   TokenCounts,
   UsageEvent,
 } from "../core/events.ts";
-import { finalizeEvent, SCHEMA_VERSION } from "../core/events.ts";
+import { finalizeEvent, SCHEMA_VERSION, subagentSessionId } from "../core/events.ts";
 import type { Config } from "../core/config.ts";
 import { resolveRate } from "../core/pricing-resolve.ts";
 import { authoritative } from "../core/streams.ts";
@@ -96,7 +96,14 @@ export function meterTranscript(input: MeterInput): MeterOutput {
     branchKeyPattern: input.config.metering.branch_key_pattern,
     projectKeys: input.config.tracker.project_keys,
   });
-  const sessionId = transcript.sessionId;
+  // Subagent transcripts (E-02) meter under a composite session id: their
+  // lines carry the parent's sessionId, and reusing it verbatim would
+  // collide receipts, checkpoints, and per-(turn, model) usage grains with
+  // the parent transcript's.
+  const sessionId =
+    transcript.sessionId !== null && transcript.agentId !== null
+      ? subagentSessionId(transcript.sessionId, transcript.agentId)
+      : transcript.sessionId;
   const newUsage: UsageEvent[] = [];
   const newSessions: SessionEvent[] = [];
   const newExceptions: ExceptionEvent[] = [];

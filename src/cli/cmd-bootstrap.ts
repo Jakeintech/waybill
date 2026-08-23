@@ -1,5 +1,6 @@
 import { loadConfig, loadIdentity } from "../core/config.ts";
 import type { UsageEvent } from "../core/events.ts";
+import { rootSessionId } from "../core/events.ts";
 import { authoritative, readEvents } from "../core/streams.ts";
 import { gitLogRaw, isGitRepo, parseGitLog, summarizeRepo, type RepoSummary } from "../gitlocal/gitlocal.ts";
 import { repoFromCwd } from "../meter/run.ts";
@@ -84,7 +85,7 @@ export function collectTokens(home: string, sinceIso: string, untilIso?: string)
   const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
   const byAccount = new Map<string, number>();
   for (const u of usage) {
-    sessions.add(u.session_id);
+    sessions.add(rootSessionId(u.session_id)); // subagents count with their session
     totals.input += u.tokens.input;
     totals.output += u.tokens.output;
     totals.cache_read += u.tokens.cache_read;

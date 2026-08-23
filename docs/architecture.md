@@ -31,9 +31,15 @@ queue.
 For each capture, `src/meter/run.ts:meterFile` consults a per-session
 checkpoint in `meter_state.json` — file bytes, the rules and meter-logic
 versions, a digest of the whole pricing table, and a fingerprint of the
-attribution inputs — and skips unchanged transcripts. Otherwise
+attribution inputs — and skips unchanged transcripts. Subagent transcripts
+(`projects/<proj>/<session>/subagents/agent-*.jsonl`) are transcripts in
+their own right: the walk and the queue path both discover them, and each
+meters under a composite session id (`<parent>:agent-<id>`) with its own
+checkpoint, receipt, and conservation check — a whole-session pin on the
+parent covers them, and user-facing session counts group them with their
+root session. Otherwise
 `src/meter/transcript.ts` parses the transcript into turns (deduplicating
-streamed assistant lines by message id, folding sidechains, splitting
+streamed assistant lines by message id, folding inline sidechains, splitting
 cache-write tiers, extracting commit/PR evidence, tallying waste), and
 `src/meter/meter.ts` derives events: per-(turn, model) usage events
 attributed by a six-rule ladder (`src/attribution/resolver.ts` — turn

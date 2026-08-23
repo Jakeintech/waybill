@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFi
 import { join } from "node:path";
 import type { StreamName } from "../core/events.ts";
 import type { UsageEvent } from "../core/events.ts";
+import { rootSessionId } from "../core/events.ts";
 import { sha256Hex } from "../core/sha.ts";
 import { authoritative, listShards, shardPath } from "../core/streams.ts";
 import type { Window } from "../projections/queries.ts";
@@ -104,36 +105,40 @@ export function buildPack(
     return { result: empty, error: `output directory is not empty: ${outDir} — pass --out <dir>` };
   }
 
-  // Pass 1: which sessions have in-window usage.
+  // Pass 1: which sessions have in-window usage. Membership is by ROOT
+  // session id, so a session travels whole together with its subagent
+  // transcripts' events (composite ids) — never sliced apart at a window
+  // edge.
   const usageLines = readRawLines(home, "usage");
   const included = new Set<string>();
   for (const l of usageLines) {
     const ts = l.parsed?.["ts"];
     const sid = l.parsed?.["session_id"];
     if (typeof ts === "string" && typeof sid === "string" && inWindow(ts, window.from, window.to)) {
-      included.add(sid);
+      included.add(rootSessionId(sid));
     }
   }
+  const includes = (sid: unknown): boolean => included.has(rootSessionId(String(sid)));
 
   // Pass 2: filter each stream. Ledger travels whole; usage/sessions lines
   // follow their session id; exceptions follow their session id, plus
   // resolutions for included ambiguities.
   const keep: Record<StreamName, PackLine[]> = {
     ledger: readRawLines(home, "ledger"),
-    usage: usageLines.filter((l) => included.has(String(l.parsed?.["session_id"]))),
-    sessions: readRawLines(home, "sessions").filter((l) => included.has(String(l.parsed?.["session_id"]))),
+    usage: usageLines.filter((l) => includes(l.parsed?.["session_id"])),
+    sessions: readRawLines(home, "sessions").filter((l) => includes(l.parsed?.["session_id"])),
     exceptions: [],
   };
   const exceptionLines = readRawLines(home, "exceptions");
   const includedAmbiguities = new Set<string>();
   for (const l of exceptionLines) {
-    if (l.parsed?.["kind"] === "ambiguity" && included.has(String(l.parsed?.["session_id"]))) {
+    if (l.parsed?.["kind"] === "ambiguity" && includes(l.parsed?.["session_id"])) {
       includedAmbiguities.add(String(l.parsed?.["id"]));
     }
   }
   keep.exceptions = exceptionLines.filter((l) => {
     if (l.parsed?.["kind"] === "resolution") return includedAmbiguities.has(String(l.parsed?.["resolves"]));
-    return included.has(String(l.parsed?.["session_id"]));
+    return includes(l.parsed?.["session_id"]);
   });
 
   const packUsage = keep.usage

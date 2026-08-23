@@ -4,7 +4,7 @@ import type { ExceptionEvent, LedgerEntry, PinEntry, SessionEvent, UsageEvent } 
 import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLockWait, releaseLock } from "../meter/lock.ts";
 import { meterOtel } from "../meter/otel.ts";
-import { defaultProjectsDir, listTranscripts, meterFile, type MeterRunResult } from "../meter/run.ts";
+import { defaultProjectsDir, listTranscripts, meterFile, meterFileWithSubagents, type MeterRunResult } from "../meter/run.ts";
 
 export async function runMeter(home: string, args: string[], json: boolean): Promise<number> {
   let transcript: string | null = null;
@@ -95,13 +95,28 @@ export async function runMeter(home: string, args: string[], json: boolean): Pro
   const results: MeterRunResult[] = [];
   let failures = 0;
   try {
-    const paths = all ? listTranscripts(projectsDir) : [transcript!];
-    for (const p of paths) {
+    if (all) {
+      // listTranscripts already includes subagent transcripts (E-02).
+      for (const p of listTranscripts(projectsDir)) {
+        try {
+          results.push(meterFile(home, p, repo, force));
+        } catch (err) {
+          failures += 1;
+          process.stderr.write(`waybill meter: ${p}: ${(err as Error).message}\n`);
+        }
+      }
+    } else {
+      // A named transcript brings its sibling subagent transcripts along.
       try {
-        results.push(meterFile(home, p, repo, force));
+        results.push(
+          ...meterFileWithSubagents(home, transcript!, repo, force, (p, err) => {
+            failures += 1;
+            process.stderr.write(`waybill meter: ${p}: ${err.message}\n`);
+          }),
+        );
       } catch (err) {
         failures += 1;
-        process.stderr.write(`waybill meter: ${p}: ${(err as Error).message}\n`);
+        process.stderr.write(`waybill meter: ${transcript!}: ${(err as Error).message}\n`);
       }
     }
   } finally {
