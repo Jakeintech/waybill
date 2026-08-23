@@ -2224,6 +2224,84 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
     }
   };
 }
+function cacheData(usageEvents, config, window) {
+  const usage = authoritative(usageEvents).filter(
+    (u) => u.kind === "usage" && inWindow2(u.ts, window) && totalTokens(u) > 0
+  );
+  const tokens = { input: 0, output: 0, cache_read: 0, cache_creation: 0, cache_creation_5m: 0, cache_creation_1h: 0 };
+  const byModel = /* @__PURE__ */ new Map();
+  let unattributed = 0;
+  let total = 0;
+  for (const u of usage) {
+    const t = totalTokens(u);
+    total += t;
+    if (u.attribution.account === "unattributed") unattributed += t;
+    tokens.input += u.tokens.input;
+    tokens.output += u.tokens.output;
+    tokens.cache_read += u.tokens.cache_read;
+    tokens.cache_creation += u.tokens.cache_creation;
+    tokens.cache_creation_5m += u.tokens.cache_creation_5m;
+    tokens.cache_creation_1h += u.tokens.cache_creation_1h;
+    const m = byModel.get(u.model) ?? { input: 0, output: 0, cache_read: 0, cache_creation: 0, cache_creation_5m: 0, cache_creation_1h: 0 };
+    m.input += u.tokens.input;
+    m.output += u.tokens.output;
+    m.cache_read += u.tokens.cache_read;
+    m.cache_creation += u.tokens.cache_creation;
+    m.cache_creation_5m += u.tokens.cache_creation_5m;
+    m.cache_creation_1h += u.tokens.cache_creation_1h;
+    byModel.set(u.model, m);
+  }
+  const round4 = (v) => Math.round(v * 1e4) / 1e4;
+  let effective = 0;
+  let listEq = 0;
+  let cacheReadUsd = 0;
+  let coveredTokens = 0;
+  const modelRows = [];
+  for (const [model, m] of [...byModel.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
+    const modelTotal = m.input + m.output + m.cache_read + m.cache_creation;
+    const rate = resolveRate(config.pricing, model)?.rates ?? null;
+    let effectiveUsd = null;
+    if (rate !== null) {
+      const cc5m = m.cache_creation_5m === 0 && m.cache_creation_1h === 0 ? m.cache_creation : Math.max(m.cache_creation - m.cache_creation_1h, 0);
+      const eff = (m.input * rate.input_per_mtok + m.output * rate.output_per_mtok + m.cache_read * rate.cache_read_per_mtok + cc5m * rate.cache_write_5m_per_mtok + m.cache_creation_1h * rate.cache_write_1h_per_mtok) / 1e6;
+      const list = ((m.input + m.cache_read + m.cache_creation) * rate.input_per_mtok + m.output * rate.output_per_mtok) / 1e6;
+      effective += eff;
+      listEq += list;
+      cacheReadUsd += m.cache_read * rate.cache_read_per_mtok / 1e6;
+      coveredTokens += modelTotal;
+      effectiveUsd = round4(eff);
+    }
+    modelRows.push({
+      model,
+      tokens: { input: m.input, output: m.output, cache_read: m.cache_read, cache_creation_5m: m.cache_creation_5m, cache_creation_1h: m.cache_creation_1h },
+      effective_usd: effectiveUsd
+    });
+  }
+  modelRows.sort((a, b) => {
+    const ta = a.tokens.input + a.tokens.output + a.tokens.cache_read + a.tokens.cache_creation_5m + a.tokens.cache_creation_1h;
+    const tb = b.tokens.input + b.tokens.output + b.tokens.cache_read + b.tokens.cache_creation_5m + b.tokens.cache_creation_1h;
+    return tb - ta || (a.model < b.model ? -1 : 1);
+  });
+  const priced = coveredTokens > 0;
+  return {
+    window,
+    tokens,
+    total_tokens: total,
+    cache_read_pct: total > 0 ? Math.round(tokens.cache_read / total * 1e3) / 10 : 0,
+    by_model: modelRows,
+    billed: {
+      effective_usd: priced ? round4(effective) : null,
+      list_equivalent_usd: priced ? round4(listEq) : null,
+      saved_usd: priced ? round4(listEq - effective) : null,
+      cache_read_share_of_billed_pct: priced && effective > 0 ? Math.round(cacheReadUsd / effective * 1e3) / 10 : null,
+      covered_pct: total > 0 ? Math.round(coveredTokens / total * 1e3) / 10 : 0,
+      basis: "list_price_equivalent_derived"
+    },
+    unattributed_tokens: unattributed,
+    unattributed_pct: total > 0 ? Math.round(unattributed / total * 1e3) / 10 : 0,
+    pricing_version: config.pricing.version
+  };
+}
 function countOpenAmbiguities(exceptionEvents) {
   const resolved = new Set(
     exceptionEvents.filter((e) => e.kind === "resolution").map((e) => e.resolves)
@@ -4446,6 +4524,23 @@ function runStatus(home, args, json) {
   const usage = readEvents(home, "usage");
   const exceptions = readEvents(home, "exceptions");
   const spend = spendData(usage, exceptions, ledger, config, { from: null, to: null });
+  const shippedViews = effectiveShipped(ledger);
+  const evidence = shippedViews.reduce(
+    (acc, v) => {
+      const pts = v.entry.points ?? 0;
+      const pre = v.entry.estimate_without_claude_hours?.pre_registered === true;
+      acc.points += pts;
+      if (pre) {
+        acc.pre_registered_points += pts;
+        acc.pre_registered_items += 1;
+      } else {
+        acc.facts_only_points += pts;
+      }
+      acc.items += 1;
+      return acc;
+    },
+    { items: 0, points: 0, pre_registered_items: 0, pre_registered_points: 0, facts_only_points: 0 }
+  );
   const manifest = manifestData(ledger, usage, config, (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"));
   const state = loadState(home);
   const lastMine = Object.values(state.sessions).map((s) => s.metered_through_ts ?? "").filter((t) => t !== "").sort().pop() ?? null;
@@ -4549,6 +4644,7 @@ function runStatus(home, args, json) {
       attributed_pct_conf_060: spend.attribution_health.attributed_pct_conf_060,
       inbox_open: spend.attribution_health.inbox_open
     },
+    evidence,
     manifest: {
       open_items: manifest.open_items.length,
       open_tokens: manifest.open_tokens,
@@ -4580,6 +4676,11 @@ function runStatus(home, args, json) {
   lines.push(
     `spend: ${fmtInt2(spend.total_tokens)} tokens, ${spend.unattributed_pct}% unattributed (${spend.attribution_health.attributed_pct_conf_060}% attributed at conf \u2265 0.6)` + (spend.attribution_health.inbox_open > 0 ? `; ${spend.attribution_health.inbox_open} in the attribution inbox \u2014 see: waybill query inbox` : "")
   );
+  if (evidence.items > 0) {
+    lines.push(
+      `evidence: ${fmtInt2(evidence.points)} pts shipped across ${evidence.items} item(s) \u2014 ${fmtInt2(evidence.pre_registered_points)} pts with pre-registered estimates, ${fmtInt2(evidence.facts_only_points)} pts facts-only`
+    );
+  }
   if (manifest.sitting > 0) {
     lines.push(
       `manifest: ${manifest.open_items.length} open item(s), ${fmtInt2(manifest.open_tokens)} tokens open; ${manifest.sitting} sitting idle \u2265 ${manifest.demurrage_days}d \u2014 see: waybill query manifest`
@@ -4817,6 +4918,9 @@ function runQuery(home, args) {
     case "spend":
       payload = spendData(usage, exceptions, ledger, config, window);
       break;
+    case "cache":
+      payload = cacheData(usage, config, window);
+      break;
     case "report":
       payload = reportData(ledger, usage, exceptions, config, window);
       break;
@@ -4881,7 +4985,7 @@ function runQuery(home, args) {
     }
     default:
       process.stderr.write(
-        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup | untracked | manifest\n"
+        "waybill query: pass one of spend | cache | report | forecast | story <KEY> | inbox | standup | untracked | manifest\n"
       );
       return 2;
   }
@@ -5897,7 +6001,9 @@ Commands:
                 --tracker jira|linear|github-issues|azure-devops --items <raw.json>
                 --git github|gitlab|bitbucket|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
-  query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
+  query       Projections as JSON: spend | cache (what the bill is made of:
+                volume by cache tier, effective vs list cost, derived)
+                | report | forecast | story <KEY> | inbox
                 | standup ("what did I do" digest \u2014 default window: yesterday;
                 --date yesterday|today|YYYY-MM-DD or --days <n>, local-calendar)
                 | untracked (salvage clustering: spend with no receipt behind it)

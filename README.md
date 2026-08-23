@@ -63,6 +63,10 @@ stop at per-user/per-day; engineering-intelligence platforms spread
 daily spend across tickets proportionally. Waybill's numbers are
 receipts, not estimates ([the field, dated and labeled](docs/positioning.md)).
 
+Ask **"why is my bill like this"** and the `cache` skill answers from
+the same receipts: volume by cache tier, the cache-read share, and the
+effective-vs-list cost delta — derived, labeled, never estimated.
+
 A *waybill* is the shipping document that itemizes cargo and its
 charges. You ship; Waybill keeps the itemized record: value reports,
 performance-review packets, standups, invoices, disclosure registers,

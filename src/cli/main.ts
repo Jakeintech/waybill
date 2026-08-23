@@ -42,7 +42,9 @@ Commands:
                 --tracker jira|linear|github-issues|azure-devops --items <raw.json>
                 --git github|gitlab|bitbucket|local --changes <raw.json>
                 [--local-repo <dir>]... [--since <iso>] [--baseline] | --apply <plan.json>
-  query       Projections as JSON: spend | report | forecast | story <KEY> | inbox
+  query       Projections as JSON: spend | cache (what the bill is made of:
+                volume by cache tier, effective vs list cost, derived)
+                | report | forecast | story <KEY> | inbox
                 | standup ("what did I do" digest — default window: yesterday;
                 --date yesterday|today|YYYY-MM-DD or --days <n>, local-calendar)
                 | untracked (salvage clustering: spend with no receipt behind it)

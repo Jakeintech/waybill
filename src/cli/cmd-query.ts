@@ -2,6 +2,7 @@ import { loadConfig, type Audience, type Detail } from "../core/config.ts";
 import type { ExceptionEvent, LedgerEntry, PinEntry, SessionEvent, UsageEvent } from "../core/events.ts";
 import { readEvents } from "../core/streams.ts";
 import {
+  cacheData,
   effectiveShipped,
   forecastData,
   normalizeWindow,
@@ -101,6 +102,11 @@ export function runQuery(home: string, args: string[]): number {
     case "spend":
       payload = spendData(usage, exceptions, ledger, config, window);
       break;
+    case "cache":
+      // What the bill is actually made of: volume by cache tier, plus the
+      // derived effective-vs-list cost view (S-04).
+      payload = cacheData(usage, config, window);
+      break;
     case "report":
       payload = reportData(ledger, usage, exceptions, config, window);
       break;
@@ -185,7 +191,7 @@ export function runQuery(home: string, args: string[]): number {
     }
     default:
       process.stderr.write(
-        "waybill query: pass one of spend | report | forecast | story <KEY> | inbox | standup | untracked | manifest\n",
+        "waybill query: pass one of spend | cache | report | forecast | story <KEY> | inbox | standup | untracked | manifest\n",
       );
       return 2;
   }

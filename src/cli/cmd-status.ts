@@ -6,7 +6,7 @@ import type { ExceptionEvent, LedgerEntry, PinEntry, UsageEvent } from "../core/
 import { resolveRate, unpricedModels } from "../core/pricing-resolve.ts";
 import { authoritative, readEvents } from "../core/streams.ts";
 import { manifestData } from "../projections/manifest.ts";
-import { countOpenAmbiguities, spendData } from "../projections/queries.ts";
+import { countOpenAmbiguities, effectiveShipped, spendData } from "../projections/queries.ts";
 import { loadState } from "../meter/state.ts";
 import { splitFindings, verifyHome } from "../verify/verify.ts";
 import { execFileSync } from "node:child_process";
@@ -53,6 +53,25 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   const usage = readEvents<UsageEvent>(home, "usage");
   const exceptions = readEvents<ExceptionEvent>(home, "exceptions");
   const spend = spendData(usage, exceptions, ledger, config, { from: null, to: null });
+  // Evidence-tier mix (S-05): how much of the shipped record carries the
+  // top tier. Points where present; items keep the count honest.
+  const shippedViews = effectiveShipped(ledger);
+  const evidence = shippedViews.reduce(
+    (acc, v) => {
+      const pts = v.entry.points ?? 0;
+      const pre = v.entry.estimate_without_claude_hours?.pre_registered === true;
+      acc.points += pts;
+      if (pre) {
+        acc.pre_registered_points += pts;
+        acc.pre_registered_items += 1;
+      } else {
+        acc.facts_only_points += pts;
+      }
+      acc.items += 1;
+      return acc;
+    },
+    { items: 0, points: 0, pre_registered_items: 0, pre_registered_points: 0, facts_only_points: 0 },
+  );
   const manifest = manifestData(ledger, usage, config, new Date().toISOString().replace(/\.\d{3}Z$/, "Z"));
   const state = loadState(home);
   const lastMine = Object.values(state.sessions)
@@ -189,6 +208,7 @@ export function runStatus(home: string, args: string[], json: boolean): number {
       attributed_pct_conf_060: spend.attribution_health.attributed_pct_conf_060,
       inbox_open: spend.attribution_health.inbox_open,
     },
+    evidence,
     manifest: {
       open_items: manifest.open_items.length,
       open_tokens: manifest.open_tokens,
@@ -236,6 +256,13 @@ export function runStatus(home: string, args: string[], json: boolean): number {
         ? `; ${spend.attribution_health.inbox_open} in the attribution inbox — see: waybill query inbox`
         : ""),
   );
+  if (evidence.items > 0) {
+    lines.push(
+      `evidence: ${fmtInt(evidence.points)} pts shipped across ${evidence.items} item(s) — ` +
+        `${fmtInt(evidence.pre_registered_points)} pts with pre-registered estimates, ` +
+        `${fmtInt(evidence.facts_only_points)} pts facts-only`,
+    );
+  }
   if (manifest.sitting > 0) {
     lines.push(
       `manifest: ${manifest.open_items.length} open item(s), ${fmtInt(manifest.open_tokens)} tokens open; ` +

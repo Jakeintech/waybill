@@ -31,7 +31,7 @@ copy-paste and send.
 > GitLab/Azure DevOps story it served, with a per-event resolver name
 > and confidence, a conservation check (Σ attributed = Σ observed per
 > session), SHA-256-sealed pre-registered estimates, and append-only
-> storage. Eleven skills render the receipts for different readers:
+> storage. Twelve skills render the receipts for different readers:
 > standup digests, one-page token pitches and perf-review packets,
 > sprint retros with estimate calibration, invoices, AI-disclosure
 > registers, and a verification pack (`export --pack`) that lets the

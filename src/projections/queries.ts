@@ -292,6 +292,155 @@ export function spendData(
   };
 }
 
+export interface CacheData {
+  window: Window;
+  /** Metered token volume by class, cache writes split by tier. */
+  tokens: {
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_creation: number;
+    cache_creation_5m: number;
+    cache_creation_1h: number;
+  };
+  total_tokens: number;
+  /** Cache reads as a share of total metered volume. */
+  cache_read_pct: number;
+  by_model: Array<{
+    model: string;
+    tokens: { input: number; output: number; cache_read: number; cache_creation_5m: number; cache_creation_1h: number };
+    /** Derived from the current rate table; null when no rate resolves. */
+    effective_usd: number | null;
+  }>;
+  /**
+   * The billed-cost view, DERIVED at query time from the current rate
+   * table (same convention as spend's cache_savings — never a stored
+   * fact). effective = the tokens priced as billed (0.1× reads, 1.25×/2×
+   * write premiums); list_equivalent = the same tokens with no caching at
+   * all (reads and writes as ordinary input). saved = list − effective:
+   * the NET saving, write premiums already paid for. covered_pct says how
+   * much of the volume the dollar math actually covers — an unpriced
+   * model contributes volume but no dollars, and that is disclosed, not
+   * blended.
+   */
+  billed: {
+    effective_usd: number | null;
+    list_equivalent_usd: number | null;
+    saved_usd: number | null;
+    /** Cache-read dollars as a share of the effective bill. */
+    cache_read_share_of_billed_pct: number | null;
+    covered_pct: number;
+    basis: "list_price_equivalent_derived";
+  };
+  /** The honesty floor travels on every payload. */
+  unattributed_tokens: number;
+  unattributed_pct: number;
+  pricing_version: string | null;
+}
+
+export function cacheData(
+  usageEvents: UsageEvent[],
+  config: Config,
+  window: Window,
+): CacheData {
+  const usage = authoritative(usageEvents).filter(
+    (u) => u.kind === "usage" && inWindow(u.ts, window) && totalTokens(u) > 0,
+  );
+  const tokens = { input: 0, output: 0, cache_read: 0, cache_creation: 0, cache_creation_5m: 0, cache_creation_1h: 0 };
+  const byModel = new Map<
+    string,
+    { input: number; output: number; cache_read: number; cache_creation: number; cache_creation_5m: number; cache_creation_1h: number }
+  >();
+  let unattributed = 0;
+  let total = 0;
+  for (const u of usage) {
+    const t = totalTokens(u);
+    total += t;
+    if (u.attribution.account === "unattributed") unattributed += t;
+    tokens.input += u.tokens.input;
+    tokens.output += u.tokens.output;
+    tokens.cache_read += u.tokens.cache_read;
+    tokens.cache_creation += u.tokens.cache_creation;
+    tokens.cache_creation_5m += u.tokens.cache_creation_5m;
+    tokens.cache_creation_1h += u.tokens.cache_creation_1h;
+    const m = byModel.get(u.model) ?? { input: 0, output: 0, cache_read: 0, cache_creation: 0, cache_creation_5m: 0, cache_creation_1h: 0 };
+    m.input += u.tokens.input;
+    m.output += u.tokens.output;
+    m.cache_read += u.tokens.cache_read;
+    m.cache_creation += u.tokens.cache_creation;
+    m.cache_creation_5m += u.tokens.cache_creation_5m;
+    m.cache_creation_1h += u.tokens.cache_creation_1h;
+    byModel.set(u.model, m);
+  }
+
+  // Derived pricing per model. Legacy events without the 5m/1h split carry
+  // the unsplit total in cache_creation — price the remainder at the 5m
+  // rate, exactly as the meter does (every counted token gets a bucket).
+  const round4 = (v: number): number => Math.round(v * 10000) / 10000;
+  let effective = 0;
+  let listEq = 0;
+  let cacheReadUsd = 0;
+  let coveredTokens = 0;
+  const modelRows: CacheData["by_model"] = [];
+  for (const [model, m] of [...byModel.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const modelTotal = m.input + m.output + m.cache_read + m.cache_creation;
+    const rate = resolveRate(config.pricing, model)?.rates ?? null;
+    let effectiveUsd: number | null = null;
+    if (rate !== null) {
+      const cc5m =
+        m.cache_creation_5m === 0 && m.cache_creation_1h === 0
+          ? m.cache_creation
+          : Math.max(m.cache_creation - m.cache_creation_1h, 0);
+      const eff =
+        (m.input * rate.input_per_mtok +
+          m.output * rate.output_per_mtok +
+          m.cache_read * rate.cache_read_per_mtok +
+          cc5m * rate.cache_write_5m_per_mtok +
+          m.cache_creation_1h * rate.cache_write_1h_per_mtok) /
+        1_000_000;
+      const list =
+        ((m.input + m.cache_read + m.cache_creation) * rate.input_per_mtok + m.output * rate.output_per_mtok) /
+        1_000_000;
+      effective += eff;
+      listEq += list;
+      cacheReadUsd += (m.cache_read * rate.cache_read_per_mtok) / 1_000_000;
+      coveredTokens += modelTotal;
+      effectiveUsd = round4(eff);
+    }
+    modelRows.push({
+      model,
+      tokens: { input: m.input, output: m.output, cache_read: m.cache_read, cache_creation_5m: m.cache_creation_5m, cache_creation_1h: m.cache_creation_1h },
+      effective_usd: effectiveUsd,
+    });
+  }
+  modelRows.sort((a, b) => {
+    const ta = a.tokens.input + a.tokens.output + a.tokens.cache_read + a.tokens.cache_creation_5m + a.tokens.cache_creation_1h;
+    const tb = b.tokens.input + b.tokens.output + b.tokens.cache_read + b.tokens.cache_creation_5m + b.tokens.cache_creation_1h;
+    return tb - ta || (a.model < b.model ? -1 : 1);
+  });
+
+  const priced = coveredTokens > 0;
+  return {
+    window,
+    tokens,
+    total_tokens: total,
+    cache_read_pct: total > 0 ? Math.round((tokens.cache_read / total) * 1000) / 10 : 0,
+    by_model: modelRows,
+    billed: {
+      effective_usd: priced ? round4(effective) : null,
+      list_equivalent_usd: priced ? round4(listEq) : null,
+      saved_usd: priced ? round4(listEq - effective) : null,
+      cache_read_share_of_billed_pct:
+        priced && effective > 0 ? Math.round((cacheReadUsd / effective) * 1000) / 10 : null,
+      covered_pct: total > 0 ? Math.round((coveredTokens / total) * 1000) / 10 : 0,
+      basis: "list_price_equivalent_derived",
+    },
+    unattributed_tokens: unattributed,
+    unattributed_pct: total > 0 ? Math.round((unattributed / total) * 1000) / 10 : 0,
+    pricing_version: config.pricing.version,
+  };
+}
+
 export function countOpenAmbiguities(exceptionEvents: ExceptionEvent[]): number {
   const resolved = new Set(
     exceptionEvents
