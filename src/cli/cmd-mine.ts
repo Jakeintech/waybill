@@ -7,6 +7,7 @@ import { appendEvents, readEvents } from "../core/streams.ts";
 import { acquireLock, releaseLock } from "../meter/lock.ts";
 import { defaultProjectsDir, listTranscripts, loadMeterContext, meterFile, meterFileWithSubagents, type MeterContext } from "../meter/run.ts";
 import { refreshDashboardIfPresent } from "./cmd-dashboard.ts";
+import { queueNotice } from "./notice.ts";
 
 interface Capture {
   session_id?: string;
@@ -172,6 +173,16 @@ export function runMine(home: string, args: string[], json: boolean): number {
     // Keep the zero-token dashboard current — best-effort, opted into by
     // its first generation, never able to disturb metering.
     refreshDashboardIfPresent(home);
+  }
+  // Queue the next session-start notice (E-12): thresholds cross when
+  // tokens land — i.e. here, at mine time — so precomputing now and letting
+  // the SessionStart hook serve the file changes nothing about when a
+  // notice appears, while keeping session start free of engine work.
+  // Best-effort: a notice must never fail the miner.
+  try {
+    queueNotice(home, new Date().toISOString().replace(/\.\d{3}Z$/, "Z"));
+  } catch {
+    // rollups unwritable — the pace CLI path still works
   }
   if (json) {
     process.stdout.write(
