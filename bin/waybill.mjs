@@ -82,6 +82,13 @@ var STREAM_KINDS = {
   sessions: /* @__PURE__ */ new Set(["session", "correction"]),
   exceptions: /* @__PURE__ */ new Set(["ambiguity", "resolution", "meter_discrepancy", "meter_gap"])
 };
+function subagentSessionId(parentId, agentId) {
+  return `${parentId}:agent-${agentId}`;
+}
+function rootSessionId(sessionId) {
+  const i = sessionId.indexOf(":agent-");
+  return i === -1 ? sessionId : sessionId.slice(0, i);
+}
 function finalizeEvent(stream, body) {
   const id = deterministicUlid(body.ts, stream, body);
   return { id, ...body };
@@ -205,7 +212,14 @@ function authoritative(events) {
 }
 
 // src/verify/verify.ts
+function splitFindings(findings) {
+  return {
+    errors: findings.filter((f) => f.severity !== "warning"),
+    warnings: findings.filter((f) => f.severity === "warning")
+  };
+}
 var STREAMS = ["ledger", "usage", "sessions", "exceptions"];
+var PRE_REGISTRATION_LAG_MS = 48 * 36e5;
 var isIsoUtc = isIsoTimestamp;
 function zeroTotals() {
   return { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
@@ -363,6 +377,16 @@ function verifyHome(home) {
         message: `pre_registered estimate logged_at ${est.logged_at} is after entry ts ${e.ts}`
       });
     }
+    if (est && est.pre_registered && typeof e.appended_at === "string" && !Number.isNaN(Date.parse(est.logged_at)) && !Number.isNaN(Date.parse(e.appended_at)) && Date.parse(e.appended_at) - Date.parse(est.logged_at) > PRE_REGISTRATION_LAG_MS) {
+      findings.push({
+        check: "pre_registration",
+        stream: "ledger",
+        shard: shardFor(e.ts),
+        id: e.id,
+        severity: "warning",
+        message: `pre_registered estimate logged_at ${est.logged_at} predates its write (appended_at ${e.appended_at}) by more than ${PRE_REGISTRATION_LAG_MS / 36e5}h \u2014 the seal proves no edits since sharing, not when the estimate was written`
+      });
+    }
   }
   const usage = authoritative(byStream.get("usage") ?? []).filter(
     (e) => e.kind === "usage"
@@ -419,20 +443,26 @@ function isEmptyHome(home) {
   return STREAMS.every((s) => readStream(home, s).length === 0);
 }
 function renderFindings(findings, home) {
+  const { errors, warnings } = splitFindings(findings);
   const lines = [];
-  if (findings.length === 0) {
-    lines.push(`waybill verify: ${home}`);
+  lines.push(`waybill verify: ${home}`);
+  if (errors.length === 0) {
     if (isEmptyHome(home)) {
       lines.push("Empty ledger \u2014 no streams to check yet. (Wrong --home? This is not a failure.)");
       return lines.join("\n");
     }
     lines.push("All checks passed. Every escrow seal recomputes; every metered token is accounted for.");
-    return lines.join("\n");
+  } else {
+    lines.push(`${errors.length} finding(s):`);
+    for (const f of errors) {
+      lines.push(`  [${f.check}] ${f.message}`);
+    }
   }
-  lines.push(`waybill verify: ${home}`);
-  lines.push(`${findings.length} finding(s):`);
-  for (const f of findings) {
-    lines.push(`  [${f.check}] ${f.message}`);
+  if (warnings.length > 0) {
+    lines.push(`${warnings.length} warning(s) \u2014 disclosed, not failures:`);
+    for (const f of warnings) {
+      lines.push(`  [${f.check}] ${f.message}`);
+    }
   }
   return lines.join("\n");
 }
@@ -441,10 +471,12 @@ function renderFindings(findings, home) {
 import { execFileSync } from "node:child_process";
 import { readFileSync as readFileSync2 } from "node:fs";
 var STREAMS2 = ["ledger", "usage", "sessions", "exceptions"];
+var APPEND_CLOCK_SKEW_MS = 5 * 60 * 1e3;
 function runAppend(home, args, json) {
   let stream = null;
   let bodyJson = null;
   let commit = false;
+  let nowIso2 = null;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--stream") {
@@ -458,6 +490,7 @@ function runAppend(home, args, json) {
     } else if (a === "--event") bodyJson = args[++i] ?? null;
     else if (a === "--stdin") bodyJson = readFileSync2(0, "utf8");
     else if (a === "--commit") commit = true;
+    else if (a === "--now") nowIso2 = args[++i] ?? null;
     else {
       process.stderr.write(`waybill append: unknown option ${a}
 `);
@@ -468,6 +501,11 @@ function runAppend(home, args, json) {
     process.stderr.write("waybill append: pass --stream <name> and --event '<json>' (or --stdin)\n");
     return 2;
   }
+  if (nowIso2 !== null && Number.isNaN(Date.parse(nowIso2))) {
+    process.stderr.write("waybill append: --now must be an ISO timestamp\n");
+    return 2;
+  }
+  const nowMs = nowIso2 !== null ? Date.parse(nowIso2) : Date.now();
   let body;
   try {
     body = JSON.parse(bodyJson);
@@ -478,6 +516,10 @@ function runAppend(home, args, json) {
   }
   if ("id" in body) {
     process.stderr.write("waybill append: do not supply an id \u2014 ids are derived from content\n");
+    return 2;
+  }
+  if ("appended_at" in body) {
+    process.stderr.write("waybill append: do not supply appended_at \u2014 the write path stamps it\n");
     return 2;
   }
   if (typeof body["ts"] !== "string" || Number.isNaN(Date.parse(body["ts"]))) {
@@ -521,15 +563,30 @@ function runAppend(home, args, json) {
       process.stderr.write("waybill append: refusing a pre_registered estimate logged after the entry ts\n");
       return 1;
     }
+    if (est && est.pre_registered === true && Date.parse(est.logged_at) > nowMs + APPEND_CLOCK_SKEW_MS) {
+      process.stderr.write(
+        `waybill append: refusing a pre_registered estimate with a future logged_at (${est.logged_at} is ahead of the wall clock by more than ${APPEND_CLOCK_SKEW_MS / 6e4} minutes)
+`
+      );
+      return 2;
+    }
   }
-  const event = finalizeEvent(stream, body);
-  const duplicate = readEvents(home, stream).some((e) => e.id === event.id);
-  if (duplicate) {
-    if (json) process.stdout.write(JSON.stringify({ id: event.id, appended: false, reason: "duplicate" }) + "\n");
-    else process.stdout.write(`already present: ${event.id}
+  const contentKey = (e) => {
+    const { id: _id, appended_at: _at, ...rest } = e;
+    return canonicalJson(rest);
+  };
+  const bodyKey = contentKey(body);
+  const existing = readEvents(home, stream).find(
+    (e) => contentKey(e) === bodyKey
+  );
+  if (existing) {
+    if (json) process.stdout.write(JSON.stringify({ id: existing.id, appended: false, reason: "duplicate" }) + "\n");
+    else process.stdout.write(`already present: ${existing.id}
 `);
     return 0;
   }
+  if (stream === "ledger") body["appended_at"] = new Date(nowMs).toISOString();
+  const event = finalizeEvent(stream, body);
   appendEvents(home, stream, [event]);
   if (commit) {
     try {
@@ -767,9 +824,9 @@ function isGitRepo(path) {
 
 // src/meter/run.ts
 import { execFileSync as execFileSync3 } from "node:child_process";
-import { existsSync as existsSync5, readFileSync as readFileSync5, readdirSync as readdirSync2, statSync } from "node:fs";
+import { existsSync as existsSync5, readFileSync as readFileSync6, readdirSync as readdirSync2, statSync } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 
 // src/attribution/resolver.ts
 var RULES_VERSION = "2";
@@ -794,8 +851,9 @@ function resolveTurn(turn, ctx) {
     return { attribution: attribution(override, "pin", 1), ambiguity: null };
   }
   const turnTs = turn.models.reduce((max, m) => m.lastTs > max ? m.lastTs : max, "");
+  const rootId = rootSessionId(ctx.sessionId);
   const matchingPins = ctx.pins.filter((p) => {
-    if (p.session_id !== ctx.sessionId) return false;
+    if (p.session_id !== ctx.sessionId && p.session_id !== rootId) return false;
     if (p.range === null) return true;
     if (turnTs === "") return false;
     const fromOk = p.range.from <= turnTs;
@@ -842,6 +900,72 @@ function resolveTurn(turn, ctx) {
     }
   }
   return { attribution: attribution("unattributed", "none", 1), ambiguity };
+}
+
+// src/meter/lock.ts
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync4, renameSync, rmSync, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join4 } from "node:path";
+function lockPath(home) {
+  return join4(home, "pending-sessions", ".miner.lock");
+}
+function acquireLock(home) {
+  mkdirSync2(join4(home, "pending-sessions"), { recursive: true });
+  const p = lockPath(home);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync2(p, String(process.pid), { flag: "wx" });
+      return true;
+    } catch {
+      try {
+        const pid = Number(readFileSync4(p, "utf8").trim());
+        if (Number.isInteger(pid) && pid > 0) {
+          process.kill(pid, 0);
+          return false;
+        }
+      } catch (err) {
+        if (err.code === "ENOENT") continue;
+      }
+      const claim = `${p}.reap.${process.pid}`;
+      try {
+        renameSync(p, claim);
+      } catch {
+        return false;
+      }
+      try {
+        const claimed = readFileSync4(claim, "utf8");
+        const claimedPid = Number(claimed.trim());
+        if (Number.isInteger(claimedPid) && claimedPid > 0 && claimedPid !== process.pid) {
+          try {
+            process.kill(claimedPid, 0);
+            try {
+              writeFileSync2(p, claimed, { flag: "wx" });
+              unlinkSync(claim);
+            } catch {
+            }
+            return false;
+          } catch {
+          }
+        }
+        unlinkSync(claim);
+      } catch {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+async function acquireLockWait(home, tries = 10, delayMs = 200) {
+  for (let i = 0; i < tries; i++) {
+    if (acquireLock(home)) return true;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return false;
+}
+function releaseLock(home) {
+  try {
+    unlinkSync(lockPath(home));
+  } catch {
+  }
 }
 
 // src/core/pricing-resolve.ts
@@ -972,6 +1096,7 @@ function parseTranscript(raw, options) {
   const models = [];
   const byMessage = /* @__PURE__ */ new Map();
   let sessionId = null;
+  let agentId = null;
   let version = null;
   let cwd = null;
   let currentBranch = null;
@@ -1007,7 +1132,10 @@ function parseTranscript(raw, options) {
     } catch {
       continue;
     }
-    if (sessionId === null && typeof line.sessionId === "string") sessionId = line.sessionId;
+    if (sessionId === null && typeof line.sessionId === "string") {
+      sessionId = line.sessionId;
+      if (typeof line.agentId === "string" && line.agentId !== "") agentId = line.agentId;
+    }
     if (version === null && typeof line.version === "string") version = line.version;
     if (cwd === null && typeof line.cwd === "string") cwd = line.cwd;
     if (typeof line.gitBranch === "string" && line.gitBranch !== "") {
@@ -1130,6 +1258,7 @@ function parseTranscript(raw, options) {
   const nonEmptyTurns = turns.filter((t) => t.models.length > 0);
   return {
     sessionId,
+    agentId,
     version,
     cwd,
     branches,
@@ -1182,7 +1311,7 @@ function meterTranscript(input) {
     branchKeyPattern: input.config.metering.branch_key_pattern,
     projectKeys: input.config.tracker.project_keys
   });
-  const sessionId = transcript.sessionId;
+  const sessionId = transcript.sessionId !== null && transcript.agentId !== null ? subagentSessionId(transcript.sessionId, transcript.agentId) : transcript.sessionId;
   const newUsage = [];
   const newSessions = [];
   const newExceptions = [];
@@ -1377,10 +1506,10 @@ function sortRecord(record) {
 }
 
 // src/meter/state.ts
-import { existsSync as existsSync4, readFileSync as readFileSync4, renameSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join4 } from "node:path";
+import { existsSync as existsSync4, readFileSync as readFileSync5, renameSync as renameSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join5 } from "node:path";
 function statePath(home) {
-  return join4(home, "meter_state.json");
+  return join5(home, "meter_state.json");
 }
 function loadState(home) {
   const p = statePath(home);
@@ -1389,7 +1518,7 @@ function loadState(home) {
   }
   let raw;
   try {
-    raw = JSON.parse(readFileSync4(p, "utf8"));
+    raw = JSON.parse(readFileSync5(p, "utf8"));
   } catch {
     return { schema_version: 2, sessions: {} };
   }
@@ -1415,8 +1544,8 @@ function loadState(home) {
 }
 function saveState(home, state) {
   const p = statePath(home);
-  writeFileSync2(`${p}.tmp`, JSON.stringify(state, null, 2) + "\n", "utf8");
-  renameSync(`${p}.tmp`, p);
+  writeFileSync3(`${p}.tmp`, JSON.stringify(state, null, 2) + "\n", "utf8");
+  renameSync2(`${p}.tmp`, p);
 }
 function isCurrent(state, sessionId, fileBytes, pricingDigest, attributionInputs) {
   const cp = Object.hasOwn(state.sessions, sessionId) ? state.sessions[sessionId] : void 0;
@@ -1440,13 +1569,13 @@ function repoFromCwd(cwd) {
   }
 }
 function defaultProjectsDir() {
-  return join5(homedir2(), ".claude", "projects");
+  return join6(homedir2(), ".claude", "projects");
 }
 function listTranscripts(projectsDir) {
   if (!existsSync5(projectsDir)) return [];
   const out = [];
   for (const proj of readdirSync2(projectsDir).sort()) {
-    const dir = join5(projectsDir, proj);
+    const dir = join6(projectsDir, proj);
     let entries;
     try {
       entries = readdirSync2(dir);
@@ -1454,10 +1583,25 @@ function listTranscripts(projectsDir) {
       continue;
     }
     for (const f of entries.sort()) {
-      if (f.endsWith(".jsonl")) out.push(join5(dir, f));
+      if (f.endsWith(".jsonl")) {
+        out.push(join6(dir, f));
+        continue;
+      }
+      out.push(...listSubagentTranscripts(join6(dir, f)));
     }
   }
   return out;
+}
+function listSubagentTranscripts(sessionDirOrTranscript) {
+  const sessionDir = sessionDirOrTranscript.endsWith(".jsonl") ? sessionDirOrTranscript.slice(0, -".jsonl".length) : sessionDirOrTranscript;
+  const subagentsDir = join6(sessionDir, "subagents");
+  let entries;
+  try {
+    entries = readdirSync2(subagentsDir);
+  } catch {
+    return [];
+  }
+  return entries.filter((f) => f.endsWith(".jsonl")).sort().map((f) => join6(subagentsDir, f));
 }
 function attributionFingerprint(ledgerEvents, exceptionEvents, config) {
   const pins = authoritative(ledgerEvents).filter((e) => e.kind === "pin").map((p) => ({ id: p.id, session: p.session_id, account: p.account, range: p.range })).sort((a, b) => a.id < b.id ? -1 : 1);
@@ -1499,7 +1643,9 @@ function probeSessionId(raw) {
     start = nl === -1 ? raw.length : nl + 1;
     try {
       const parsed = JSON.parse(line);
-      if (typeof parsed.sessionId === "string") return parsed.sessionId;
+      if (typeof parsed.sessionId === "string") {
+        return typeof parsed.agentId === "string" && parsed.agentId !== "" ? subagentSessionId(parsed.sessionId, parsed.agentId) : parsed.sessionId;
+      }
     } catch {
     }
   }
@@ -1509,7 +1655,7 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
   const config = loadConfig(home);
   const state = loadState(home);
   const fileBytes = statSync(transcriptPath).size;
-  const raw = readFileSync5(transcriptPath, "utf8");
+  const raw = readFileSync6(transcriptPath, "utf8");
   const pricingDigest = sha256Hex(canonicalJson(config.pricing));
   const ledgerEvents = readEvents(home, "ledger");
   const existingExceptions = readEvents(home, "exceptions");
@@ -1534,7 +1680,7 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
     branchKeyPattern: config.metering.branch_key_pattern,
     projectKeys: config.tracker.project_keys
   });
-  const sessionId = probe.sessionId;
+  const sessionId = probe.sessionId !== null && probe.agentId !== null ? subagentSessionId(probe.sessionId, probe.agentId) : probe.sessionId;
   if (!force && sessionId !== null && sessionId !== probedId) {
     if (isCurrent(state, sessionId, fileBytes, pricingDigest, fingerprint) || duplicateOf(sessionId)) {
       return { session_id: sessionId, transcript_path: transcriptPath, skipped: true, remetered: false, usage: 0, sessions: 0, exceptions: 0 };
@@ -1583,6 +1729,37 @@ function meterFile(home, transcriptPath, repoHint, force = false) {
     sessions: out.newSessions.length,
     exceptions: out.newExceptions.length
   };
+}
+function meterAllQuiet(home, projectsDir, onError) {
+  if (!acquireLock(home)) return null;
+  const result = { metered: 0, already_current: 0, failures: 0 };
+  try {
+    for (const p of listTranscripts(projectsDir)) {
+      try {
+        const r = meterFile(home, p, null);
+        if (r.skipped) result.already_current += 1;
+        else result.metered += 1;
+      } catch (err) {
+        result.failures += 1;
+        onError?.(p, err);
+      }
+    }
+  } finally {
+    releaseLock(home);
+  }
+  return result;
+}
+function meterFileWithSubagents(home, transcriptPath, repoHint, force = false, onError) {
+  const results = [];
+  for (const p of [transcriptPath, ...listSubagentTranscripts(transcriptPath)]) {
+    try {
+      results.push(meterFile(home, p, repoHint, force));
+    } catch (err) {
+      if (p === transcriptPath) throw err;
+      onError?.(p, err);
+    }
+  }
+  return results;
 }
 
 // src/cli/cmd-bootstrap.ts
@@ -1650,7 +1827,7 @@ function collectTokens(home, sinceIso, untilIso) {
   const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
   const byAccount = /* @__PURE__ */ new Map();
   for (const u of usage) {
-    sessions.add(u.session_id);
+    sessions.add(rootSessionId(u.session_id));
     totals.input += u.tokens.input;
     totals.output += u.tokens.output;
     totals.cache_read += u.tokens.cache_read;
@@ -1773,22 +1950,22 @@ exit 0
 }
 
 // src/cli/cmd-dashboard.ts
-import { existsSync as existsSync7, mkdirSync as mkdirSync2, readFileSync as readFileSync6, writeFileSync as writeFileSync3 } from "node:fs";
-import { join as join7 } from "node:path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync3, readFileSync as readFileSync7, writeFileSync as writeFileSync4 } from "node:fs";
+import { join as join8 } from "node:path";
 
 // src/core/references.ts
 import { existsSync as existsSync6 } from "node:fs";
-import { dirname, join as join6 } from "node:path";
+import { dirname, join as join7 } from "node:path";
 import { fileURLToPath } from "node:url";
 function findReferenceFile(filename) {
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot) {
-    const p = join6(pluginRoot, "references", filename);
+    const p = join7(pluginRoot, "references", filename);
     if (existsSync6(p)) return p;
   }
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 8; i++) {
-    const p = join6(dir, "references", filename);
+    const p = join7(dir, "references", filename);
     if (existsSync6(p)) return p;
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -1933,7 +2110,7 @@ function spendData(usageEvents, exceptionEvents, ledgerEvents, config, window) {
     }
     accounts.set(u.attribution.account, acc);
     const sess = accountSessions.get(u.attribution.account) ?? /* @__PURE__ */ new Set();
-    sess.add(u.session_id);
+    sess.add(rootSessionId(u.session_id));
     accountSessions.set(u.attribution.account, sess);
     const m = models.get(u.model) ?? { tokens: 0, cost: 0, priced: false, unpriced: 0 };
     m.tokens += t;
@@ -2021,7 +2198,7 @@ function reportData(ledgerEvents, usageEvents, exceptionEvents, config, window) 
     split.set(u.model, (split.get(u.model) ?? 0) + totalTokens(u));
     storyModelTokens.set(key, split);
     const sess = sessionsByKey.get(key) ?? /* @__PURE__ */ new Set();
-    sess.add(u.session_id);
+    sess.add(rootSessionId(u.session_id));
     sessionsByKey.set(key, sess);
   }
   const shipped = views.map(({ entry: e, shipped_ts }) => ({
@@ -2304,7 +2481,7 @@ function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, 
       last_ts: u.ts
     };
     acc.tokens += totalTokens3(u.tokens);
-    acc.sessions.add(u.session_id);
+    acc.sessions.add(rootSessionId(u.session_id));
     if (u.ts > acc.last_ts) acc.last_ts = u.ts;
     byAccount.set(u.attribution.account, acc);
   }
@@ -2349,10 +2526,14 @@ function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, 
   const repos = [];
   const branches = [];
   let turns = 0;
+  let rootCount = 0;
   for (const s of receipts) {
     if (s.repo !== null && !repos.includes(s.repo)) repos.push(s.repo);
     for (const b of s.branches) if (!branches.includes(b)) branches.push(b);
-    turns += s.turns;
+    if (rootSessionId(s.session_id) === s.session_id) {
+      rootCount += 1;
+      turns += s.turns;
+    }
   }
   repos.sort();
   branches.sort();
@@ -2364,7 +2545,7 @@ function standupData(ledgerEvents, usageEvents, sessionEvents, exceptionEvents, 
     shipped,
     progressed,
     opened,
-    session_summary: { count: receipts.length, repos, branches, turns },
+    session_summary: { count: rootCount, repos, branches, turns },
     tokens: {
       total,
       totals,
@@ -2444,18 +2625,18 @@ function generateDashboard(home, nowIso2) {
     standup,
     manifest
   };
-  const template = readFileSync6(findReferenceFile("dashboard-template.html"), "utf8");
+  const template = readFileSync7(findReferenceFile("dashboard-template.html"), "utf8");
   const payload = JSON.stringify(data).replace(/</g, "\\u003c");
   const html = template.replace("__WAYBILL_DATA__", payload);
-  const dir = join7(home, "rollups");
-  mkdirSync2(dir, { recursive: true });
-  const out = join7(dir, "dashboard.html");
-  writeFileSync3(out, html, "utf8");
+  const dir = join8(home, "rollups");
+  mkdirSync3(dir, { recursive: true });
+  const out = join8(dir, "dashboard.html");
+  writeFileSync4(out, html, "utf8");
   return out;
 }
 function refreshDashboardIfPresent(home) {
   try {
-    if (existsSync7(join7(home, "rollups", "dashboard.html"))) {
+    if (existsSync7(join8(home, "rollups", "dashboard.html"))) {
       generateDashboard(home, (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z"));
     }
   } catch {
@@ -2495,17 +2676,17 @@ Open it in a browser \u2014 reading your numbers costs zero tokens. The miner re
 
 // src/cli/cmd-init.ts
 import { execFileSync as execFileSync4 } from "node:child_process";
-import { existsSync as existsSync8, mkdirSync as mkdirSync3, readFileSync as readFileSync8, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync4, readFileSync as readFileSync9, writeFileSync as writeFileSync5 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 
 // src/core/pricing-bundle.ts
-import { readFileSync as readFileSync7 } from "node:fs";
+import { readFileSync as readFileSync8 } from "node:fs";
 var cached = null;
 function loadPricingBundle() {
   if (cached) return cached;
   const path = findReferenceFile("anthropic-pricing.json");
-  cached = JSON.parse(readFileSync7(path, "utf8"));
+  cached = JSON.parse(readFileSync8(path, "utf8"));
   return cached;
 }
 function resolveBundledModel(bundle, nameOrAlias) {
@@ -2717,7 +2898,7 @@ function checkRetention(claudeSettingsPath) {
   const readDays = (path) => {
     if (!existsSync8(path)) return null;
     try {
-      const settings = JSON.parse(readFileSync8(path, "utf8"));
+      const settings = JSON.parse(readFileSync9(path, "utf8"));
       return typeof settings["cleanupPeriodDays"] === "number" ? settings["cleanupPeriodDays"] : null;
     } catch {
       return null;
@@ -2770,19 +2951,21 @@ function buildIdentity() {
   };
 }
 function runInit(home, args, json) {
-  let claudeSettings = join8(homedir3(), ".claude", "settings.json");
+  let claudeSettings = join9(homedir3(), ".claude", "settings.json");
+  let projectsDir = defaultProjectsDir();
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--claude-settings") claudeSettings = args[++i] ?? claudeSettings;
+    else if (a === "--projects-dir") projectsDir = args[++i] ?? projectsDir;
     else {
       process.stderr.write(`waybill init: unknown option ${a}
 `);
       return 2;
     }
   }
-  mkdirSync3(join8(home, "pending-sessions"), { recursive: true });
-  mkdirSync3(join8(home, "rollups"), { recursive: true });
-  const freshConfig = !existsSync8(join8(home, "config.json"));
+  mkdirSync4(join9(home, "pending-sessions"), { recursive: true });
+  mkdirSync4(join9(home, "rollups"), { recursive: true });
+  const freshConfig = !existsSync8(join9(home, "config.json"));
   const config = freshConfig ? defaultConfig() : loadConfig(home);
   const cwdRepo = repoFromCwd(process.cwd());
   if (cwdRepo && !config.git.repos.includes(cwdRepo)) config.git.repos.push(cwdRepo);
@@ -2796,15 +2979,32 @@ function runInit(home, args, json) {
   saveConfig(home, config);
   const identity = buildIdentity();
   saveIdentity(home, identity);
-  if (!existsSync8(join8(home, ".git"))) {
+  if (!existsSync8(join9(home, ".git"))) {
     git(home, ["init", "-b", "main"]);
   }
-  writeFileSync4(join8(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
-  writeFileSync4(join8(home, ".gitattributes"), "streams/**/*.jsonl merge=union\n", "utf8");
+  writeFileSync5(join9(home, ".gitignore"), "rollups/\npending-sessions/\nmeter_state.json\n", "utf8");
+  writeFileSync5(join9(home, ".gitattributes"), "streams/**/*.jsonl merge=union\n", "utf8");
   try {
     git(home, ["add", "-A"]);
     git(home, ["commit", "-m", freshConfig ? "ledger: initialized" : "ledger: init refreshed"]);
   } catch {
+  }
+  let mined = null;
+  const transcriptCount = config.metering.enabled === false ? 0 : listTranscripts(projectsDir).length;
+  if (transcriptCount > 0) {
+    process.stderr.write(
+      `Metering ${transcriptCount} existing transcript(s) (subagents included) \u2014 months of history can take a minute...
+`
+    );
+    mined = meterAllQuiet(
+      home,
+      projectsDir,
+      (p, err) => process.stderr.write(`waybill init: ${p}: ${err.message}
+`)
+    );
+    if (mined === null) {
+      process.stderr.write("another metering process is running \u2014 existing transcripts will be picked up by it\n");
+    }
   }
   const retention = checkRetention(claudeSettings);
   const githubPatSet = (process.env["GITHUB_MCP_PAT"] ?? "") !== "";
@@ -2815,6 +3015,7 @@ function runInit(home, args, json) {
   }
   const configured = [
     "ledger (git-backed, append-only)",
+    mined !== null && mined.metered + mined.already_current > 0 ? `metered transcripts (${mined.metered} session(s) mined now, ${mined.already_current} already current` + (mined.failures > 0 ? `, ${mined.failures} failed` : "") + ")" : null,
     identity.git_emails.length > 0 ? `identity (${identity.git_emails.join(", ")})` : null,
     config.git.repos.length > 0 ? `repo scope (${config.git.repos.join(", ")})` : null,
     pricing && pricing.imported.length > 0 ? `pricing (${pricing.imported.length} bundled Anthropic model(s), version ${pricing.version})` : config.pricing.version !== null ? `pricing (${config.pricing.version === bundledPricingVersion ? "bundled Anthropic rates" : "custom"}, version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s))` : null,
@@ -2832,6 +3033,7 @@ function runInit(home, args, json) {
   const result = {
     home,
     fresh: freshConfig,
+    mined,
     repos: config.git.repos,
     identity: { git_emails: identity.git_emails, github_login: identity.github_login },
     retention,
@@ -2882,72 +3084,6 @@ function runInit(home, args, json) {
 
 // src/cli/cmd-meter.ts
 import { readFileSync as readFileSync10 } from "node:fs";
-
-// src/meter/lock.ts
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync9, renameSync as renameSync2, rmSync, unlinkSync, writeFileSync as writeFileSync5 } from "node:fs";
-import { join as join9 } from "node:path";
-function lockPath(home) {
-  return join9(home, "pending-sessions", ".miner.lock");
-}
-function acquireLock(home) {
-  mkdirSync4(join9(home, "pending-sessions"), { recursive: true });
-  const p = lockPath(home);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      writeFileSync5(p, String(process.pid), { flag: "wx" });
-      return true;
-    } catch {
-      try {
-        const pid = Number(readFileSync9(p, "utf8").trim());
-        if (Number.isInteger(pid) && pid > 0) {
-          process.kill(pid, 0);
-          return false;
-        }
-      } catch (err) {
-        if (err.code === "ENOENT") continue;
-      }
-      const claim = `${p}.reap.${process.pid}`;
-      try {
-        renameSync2(p, claim);
-      } catch {
-        return false;
-      }
-      try {
-        const claimed = readFileSync9(claim, "utf8");
-        const claimedPid = Number(claimed.trim());
-        if (Number.isInteger(claimedPid) && claimedPid > 0 && claimedPid !== process.pid) {
-          try {
-            process.kill(claimedPid, 0);
-            try {
-              writeFileSync5(p, claimed, { flag: "wx" });
-              unlinkSync(claim);
-            } catch {
-            }
-            return false;
-          } catch {
-          }
-        }
-        unlinkSync(claim);
-      } catch {
-        return false;
-      }
-    }
-  }
-  return false;
-}
-async function acquireLockWait(home, tries = 10, delayMs = 200) {
-  for (let i = 0; i < tries; i++) {
-    if (acquireLock(home)) return true;
-    await new Promise((r) => setTimeout(r, delayMs));
-  }
-  return false;
-}
-function releaseLock(home) {
-  try {
-    unlinkSync(lockPath(home));
-  } catch {
-  }
-}
 
 // src/meter/otel.ts
 var TYPE_MAP = {
@@ -3234,13 +3370,28 @@ async function runMeter(home, args, json) {
   const results = [];
   let failures = 0;
   try {
-    const paths = all ? listTranscripts(projectsDir) : [transcript];
-    for (const p of paths) {
+    if (all) {
+      for (const p of listTranscripts(projectsDir)) {
+        try {
+          results.push(meterFile(home, p, repo, force));
+        } catch (err) {
+          failures += 1;
+          process.stderr.write(`waybill meter: ${p}: ${err.message}
+`);
+        }
+      }
+    } else {
       try {
-        results.push(meterFile(home, p, repo, force));
+        results.push(
+          ...meterFileWithSubagents(home, transcript, repo, force, (p, err) => {
+            failures += 1;
+            process.stderr.write(`waybill meter: ${p}: ${err.message}
+`);
+          })
+        );
       } catch (err) {
         failures += 1;
-        process.stderr.write(`waybill meter: ${p}: ${err.message}
+        process.stderr.write(`waybill meter: ${transcript}: ${err.message}
 `);
       }
     }
@@ -3354,14 +3505,24 @@ function runMine(home, args, json) {
         continue;
       }
       try {
-        const result = meterFile(home, transcript, typeof capture.repo === "string" ? capture.repo : null);
+        const results = meterFileWithSubagents(
+          home,
+          transcript,
+          typeof capture.repo === "string" ? capture.repo : null,
+          false,
+          (p, err) => process.stderr.write(`waybill mine: ${p}: ${err.message}
+`)
+        );
         capture.mined = true;
-        capture["mined_session_id"] = result.session_id;
-        capture["mined_usage_events"] = result.usage;
+        capture["mined_session_id"] = results[0].session_id;
+        capture["mined_usage_events"] = results.reduce((n, r) => n + r.usage, 0);
+        capture["mined_subagent_transcripts"] = results.length - 1;
         writeFileSync6(path, JSON.stringify(capture) + "\n", "utf8");
-        if (result.skipped) alreadyCurrent += 1;
-        else if (result.remetered) remetered += 1;
-        else minedNew += 1;
+        for (const result of results) {
+          if (result.skipped) alreadyCurrent += 1;
+          else if (result.remetered) remetered += 1;
+          else minedNew += 1;
+        }
       } catch (err) {
         process.stderr.write(`waybill mine: ${transcript}: ${err.message}
 `);
@@ -3556,7 +3717,7 @@ function buildPack(home, outDir, window, nowIso2) {
     engine_included: false,
     config_included: false
   };
-  const findings = verifyHome(home);
+  const findings = splitFindings(verifyHome(home)).errors;
   if (findings.length > 0) {
     return {
       result: empty,
@@ -3572,25 +3733,26 @@ function buildPack(home, outDir, window, nowIso2) {
     const ts = l.parsed?.["ts"];
     const sid = l.parsed?.["session_id"];
     if (typeof ts === "string" && typeof sid === "string" && inWindow(ts, window.from, window.to)) {
-      included.add(sid);
+      included.add(rootSessionId(sid));
     }
   }
+  const includes = (sid) => included.has(rootSessionId(String(sid)));
   const keep = {
     ledger: readRawLines(home, "ledger"),
-    usage: usageLines.filter((l) => included.has(String(l.parsed?.["session_id"]))),
-    sessions: readRawLines(home, "sessions").filter((l) => included.has(String(l.parsed?.["session_id"]))),
+    usage: usageLines.filter((l) => includes(l.parsed?.["session_id"])),
+    sessions: readRawLines(home, "sessions").filter((l) => includes(l.parsed?.["session_id"])),
     exceptions: []
   };
   const exceptionLines = readRawLines(home, "exceptions");
   const includedAmbiguities = /* @__PURE__ */ new Set();
   for (const l of exceptionLines) {
-    if (l.parsed?.["kind"] === "ambiguity" && included.has(String(l.parsed?.["session_id"]))) {
+    if (l.parsed?.["kind"] === "ambiguity" && includes(l.parsed?.["session_id"])) {
       includedAmbiguities.add(String(l.parsed?.["id"]));
     }
   }
   keep.exceptions = exceptionLines.filter((l) => {
     if (l.parsed?.["kind"] === "resolution") return includedAmbiguities.has(String(l.parsed?.["resolves"]));
-    return included.has(String(l.parsed?.["session_id"]));
+    return includes(l.parsed?.["session_id"]);
   });
   const packUsage = keep.usage.map((l) => l.parsed).filter((u) => u !== null);
   const totalTokens5 = authoritative(packUsage).filter((u) => u.kind === "usage").reduce((n, u) => n + u.tokens.input + u.tokens.output + u.tokens.cache_read + u.tokens.cache_creation, 0);
@@ -3683,8 +3845,11 @@ That re-runs, against the included events (Node 20+, no network, no install):
 
 - **Id determinism** \u2014 every event id recomputes from its content
   (SHA-256); an edited line no longer matches its id.
-- **Escrow seals** \u2014 pre-registered estimates are hash-sealed at logging
-  time; a backdated or altered estimate fails the seal.
+- **Escrow seals** \u2014 each pre-registered estimate is hash-sealed at
+  logging time. The seal proves the entry hasn't been edited since a copy
+  was shared; it does not prove when the estimate was written. Write-time
+  ordering is enforced separately (logged_at \u2264 ts, wall-clock checked at
+  append; verify discloses estimates written long after their logged_at).
 - **Conservation** \u2014 per session, the sum of per-turn usage events equals
   the session receipt's totals. Sessions are included whole (every usage
   event, even outside the window) so this check is meaningful.
@@ -4271,13 +4436,17 @@ function runStatus(home, args, json) {
       sitting: manifest.sitting,
       demurrage_days: manifest.demurrage_days
     },
-    verify: findings === null ? { skipped: true } : { findings: findings.length, ok: findings.length === 0 },
+    verify: findings === null ? { skipped: true } : {
+      findings: splitFindings(findings).errors.length,
+      warnings: splitFindings(findings).warnings.length,
+      ok: splitFindings(findings).errors.length === 0
+    },
     remote,
     next: next.slice(0, 2)
   };
   if (json) {
     process.stdout.write(JSON.stringify({ data }, null, 2) + "\n");
-    return findings === null || findings.length === 0 ? 0 : 1;
+    return findings === null || splitFindings(findings).errors.length === 0 ? 0 : 1;
   }
   const lines = [];
   lines.push(`waybill status \u2014 ${home} (engine ${ENGINE_VERSION})`);
@@ -4306,9 +4475,13 @@ function runStatus(home, args, json) {
       `pricing: version ${config.pricing.version}, ${Object.keys(config.pricing.models).length} model(s)` + (unpriced.length > 0 ? `; NO RATE for metered model(s): ${unpriced.join(", ")} \u2014 costs shown tokens-only. Fix: waybill pricing set <model-id> ... (then: waybill meter --all)` : "") + (repriceable > 0 ? `; ${fmtInt2(repriceable)} event(s) metered before their rate existed \u2014 re-price: waybill meter --all` : "")
     );
   }
-  lines.push(
-    findings === null ? "verify: skipped (--fast) \u2014 run: waybill verify" : findings.length === 0 ? "verify: all checks pass" : `verify: ${findings.length} finding(s) \u2014 run: waybill verify`
-  );
+  {
+    const split = findings === null ? null : splitFindings(findings);
+    const warnSuffix = split !== null && split.warnings.length > 0 ? ` (${split.warnings.length} warning(s) \u2014 waybill verify prints them)` : "";
+    lines.push(
+      split === null ? "verify: skipped (--fast) \u2014 run: waybill verify" : split.errors.length === 0 ? `verify: all checks pass${warnSuffix}` : `verify: ${split.errors.length} finding(s) \u2014 run: waybill verify`
+    );
+  }
   if (remote.upstream !== null) {
     lines.push(
       `remote: ${remote.upstream} \u2014 ` + (remote.ahead !== null && remote.behind !== null ? `${remote.ahead} ahead, ${remote.behind} behind` + (remote.fetched_at !== null ? ` (as of last fetch ${remote.fetched_at})` : " (never fetched here \u2014 counts are vs the last push)") : "counts unavailable") + (remote.behind !== null && remote.behind > 0 ? '. Pull before logging: git -C "$WAYBILL_HOME" pull' : "")
@@ -4334,7 +4507,7 @@ function runStatus(home, args, json) {
   }
   if (data.next.length > 0) lines.push(`next: ${data.next.join(" \xB7 ")}`);
   process.stdout.write(lines.join("\n") + "\n");
-  return findings === null || findings.length === 0 ? 0 : 1;
+  return findings === null || splitFindings(findings).errors.length === 0 ? 0 : 1;
 }
 
 // src/projections/untracked.ts
@@ -5702,7 +5875,7 @@ Update: claude plugin update waybill@waybill  (then restart Claude Code)
       } else {
         process.stdout.write(renderFindings(findings, cli.home) + "\n");
       }
-      return findings.length === 0 ? 0 : 1;
+      return splitFindings(findings).errors.length === 0 ? 0 : 1;
     }
     default:
       process.stderr.write(`waybill: unknown command "${cmd}"
