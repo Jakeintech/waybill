@@ -27,9 +27,25 @@ export interface Finding {
   shard: string | null;
   id: string | null;
   message: string;
+  /** Absent = an integrity failure (verify exits nonzero, packs refuse to
+   * build). "warning" = disclosed but never fatal: the ledger's promises
+   * hold, and something is still worth telling the reader. */
+  severity?: "warning";
+}
+
+export function splitFindings(findings: Finding[]): { errors: Finding[]; warnings: Finding[] } {
+  return {
+    errors: findings.filter((f) => f.severity !== "warning"),
+    warnings: findings.filter((f) => f.severity === "warning"),
+  };
 }
 
 const STREAMS: StreamName[] = ["ledger", "usage", "sessions", "exceptions"];
+
+/** How long a pre-registered estimate may sit between its claimed
+ * logged_at and its actual write before verify discloses the lag —
+ * generous enough for a machine that was off over a weekend. */
+export const PRE_REGISTRATION_LAG_MS = 48 * 3600_000;
 
 // ISO shape required, not just parseability (core/time): shardFor and
 // window filtering depend on the YYYY-MM prefix, so a merely parseable ts
@@ -177,6 +193,26 @@ export function verifyHome(home: string): Finding[] {
         message: `pre_registered estimate logged_at ${est.logged_at} is after entry ts ${e.ts}`,
       });
     }
+    // Write-time lag (E-01): the escrow seal proves the entry hasn't been
+    // edited since a copy was shared, not when it was written. appended_at
+    // is the wall-clock witness; an estimate claiming a logged_at far
+    // before its actual write is disclosed as a warning — never a failure,
+    // because backfilled facts entries (sync) legitimately carry old ts
+    // and no appended_at at all.
+    if (
+      est && est.pre_registered && typeof e.appended_at === "string" &&
+      !Number.isNaN(Date.parse(est.logged_at)) && !Number.isNaN(Date.parse(e.appended_at)) &&
+      Date.parse(e.appended_at) - Date.parse(est.logged_at) > PRE_REGISTRATION_LAG_MS
+    ) {
+      findings.push({
+        check: "pre_registration", stream: "ledger", shard: shardFor(e.ts), id: e.id,
+        severity: "warning",
+        message:
+          `pre_registered estimate logged_at ${est.logged_at} predates its write ` +
+          `(appended_at ${e.appended_at}) by more than ${PRE_REGISTRATION_LAG_MS / 3600_000}h — ` +
+          "the seal proves no edits since sharing, not when the estimate was written",
+      });
+    }
   }
 
   const usage = authoritative((byStream.get("usage") ?? []) as UsageEvent[]).filter(
@@ -231,20 +267,26 @@ export function isEmptyHome(home: string): boolean {
 }
 
 export function renderFindings(findings: Finding[], home: string): string {
+  const { errors, warnings } = splitFindings(findings);
   const lines: string[] = [];
-  if (findings.length === 0) {
-    lines.push(`waybill verify: ${home}`);
+  lines.push(`waybill verify: ${home}`);
+  if (errors.length === 0) {
     if (isEmptyHome(home)) {
       lines.push("Empty ledger — no streams to check yet. (Wrong --home? This is not a failure.)");
       return lines.join("\n");
     }
     lines.push("All checks passed. Every escrow seal recomputes; every metered token is accounted for.");
-    return lines.join("\n");
+  } else {
+    lines.push(`${errors.length} finding(s):`);
+    for (const f of errors) {
+      lines.push(`  [${f.check}] ${f.message}`);
+    }
   }
-  lines.push(`waybill verify: ${home}`);
-  lines.push(`${findings.length} finding(s):`);
-  for (const f of findings) {
-    lines.push(`  [${f.check}] ${f.message}`);
+  if (warnings.length > 0) {
+    lines.push(`${warnings.length} warning(s) — disclosed, not failures:`);
+    for (const f of warnings) {
+      lines.push(`  [${f.check}] ${f.message}`);
+    }
   }
   return lines.join("\n");
 }

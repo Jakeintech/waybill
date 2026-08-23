@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { canonicalJson } from "../core/canonical.ts";
 import { finalizeEvent, SCHEMA_VERSION, STREAM_KINDS, type Envelope, type LedgerEntry, type StreamName } from "../core/events.ts";
 import { sealEstimate } from "../core/escrow.ts";
 import { appendEvents, readEvents } from "../core/streams.ts";
@@ -12,10 +13,15 @@ const STREAMS: StreamName[] = ["ledger", "usage", "sessions", "exceptions"];
  * appends to the right shard, and optionally commits. Skills never
  * hand-append JSONL — hand-built ids would fail `waybill verify`.
  */
+/** Wall-clock skew tolerated on a pre-registered estimate's logged_at
+ * before append refuses it as future-dated (E-01). */
+export const APPEND_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
 export function runAppend(home: string, args: string[], json: boolean): number {
   let stream: StreamName | null = null;
   let bodyJson: string | null = null;
   let commit = false;
+  let nowIso: string | null = null;
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--stream") {
@@ -28,6 +34,7 @@ export function runAppend(home: string, args: string[], json: boolean): number {
     } else if (a === "--event") bodyJson = args[++i] ?? null;
     else if (a === "--stdin") bodyJson = readFileSync(0, "utf8");
     else if (a === "--commit") commit = true;
+    else if (a === "--now") nowIso = args[++i] ?? null;
     else {
       process.stderr.write(`waybill append: unknown option ${a}\n`);
       return 2;
@@ -37,6 +44,11 @@ export function runAppend(home: string, args: string[], json: boolean): number {
     process.stderr.write("waybill append: pass --stream <name> and --event '<json>' (or --stdin)\n");
     return 2;
   }
+  if (nowIso !== null && Number.isNaN(Date.parse(nowIso))) {
+    process.stderr.write("waybill append: --now must be an ISO timestamp\n");
+    return 2;
+  }
+  const nowMs = nowIso !== null ? Date.parse(nowIso) : Date.now();
 
   let body: Record<string, unknown>;
   try {
@@ -47,6 +59,10 @@ export function runAppend(home: string, args: string[], json: boolean): number {
   }
   if ("id" in body) {
     process.stderr.write("waybill append: do not supply an id — ids are derived from content\n");
+    return 2;
+  }
+  if ("appended_at" in body) {
+    process.stderr.write("waybill append: do not supply appended_at — the write path stamps it\n");
     return 2;
   }
   if (typeof body["ts"] !== "string" || Number.isNaN(Date.parse(body["ts"] as string))) {
@@ -93,15 +109,42 @@ export function runAppend(home: string, args: string[], json: boolean): number {
       process.stderr.write("waybill append: refusing a pre_registered estimate logged after the entry ts\n");
       return 1;
     }
+    // E-01: the escrow seal proves no edits since sharing, not when the
+    // estimate was written — so write-time ordering is enforced here, at
+    // the only moment a wall clock is available. A logged_at ahead of the
+    // clock beyond a small skew is a forged pre-registration, not data.
+    if (est && est.pre_registered === true && Date.parse(est.logged_at) > nowMs + APPEND_CLOCK_SKEW_MS) {
+      process.stderr.write(
+        "waybill append: refusing a pre_registered estimate with a future logged_at " +
+          `(${est.logged_at} is ahead of the wall clock by more than ${APPEND_CLOCK_SKEW_MS / 60000} minutes)\n`,
+      );
+      return 2;
+    }
   }
 
-  const event = finalizeEvent(stream, body as Record<string, unknown> & Omit<Envelope, "id">);
-  const duplicate = readEvents(home, stream).some((e) => e.id === event.id);
-  if (duplicate) {
-    if (json) process.stdout.write(JSON.stringify({ id: event.id, appended: false, reason: "duplicate" }) + "\n");
-    else process.stdout.write(`already present: ${event.id}\n`);
+  // Idempotency by logical content: the appended_at stamp (below) differs
+  // per write, so the duplicate check compares everything except it — a
+  // retried append of the same entry must stay a no-op, reporting the
+  // event already on disk.
+  const contentKey = (e: Record<string, unknown>): string => {
+    const { id: _id, appended_at: _at, ...rest } = e;
+    return canonicalJson(rest);
+  };
+  const bodyKey = contentKey(body);
+  const existing = readEvents(home, stream).find(
+    (e) => contentKey(e as unknown as Record<string, unknown>) === bodyKey,
+  );
+  if (existing) {
+    if (json) process.stdout.write(JSON.stringify({ id: existing.id, appended: false, reason: "duplicate" }) + "\n");
+    else process.stdout.write(`already present: ${existing.id}\n`);
     return 0;
   }
+  // Wall-clock witness (E-01, additive 2.1): ledger entries record when
+  // they were actually written, so verify can disclose a pre-registered
+  // estimate whose logged_at long predates its write. Engine-derived
+  // streams (usage/sessions/exceptions) stay replay-deterministic.
+  if (stream === "ledger") body["appended_at"] = new Date(nowMs).toISOString();
+  const event = finalizeEvent(stream, body as Record<string, unknown> & Omit<Envelope, "id">);
   appendEvents(home, stream, [event]);
 
   if (commit) {

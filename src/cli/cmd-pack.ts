@@ -6,7 +6,7 @@ import { rootSessionId } from "../core/events.ts";
 import { sha256Hex } from "../core/sha.ts";
 import { authoritative, listShards, shardPath } from "../core/streams.ts";
 import type { Window } from "../projections/queries.ts";
-import { verifyHome } from "../verify/verify.ts";
+import { splitFindings, verifyHome } from "../verify/verify.ts";
 import { inWindow } from "../core/time.ts";
 import { ENGINE_VERSION } from "./main.ts";
 
@@ -93,8 +93,10 @@ export function buildPack(
     total_tokens: 0, engine_included: false, config_included: false,
   };
   // A pack is a claim of integrity — it is only ever built from a ledger
-  // that verifies green right now.
-  const findings = verifyHome(home);
+  // that verifies green right now. Warnings are disclosures (they travel
+  // with the events and re-surface when the recipient runs verify), so
+  // they never block the recipient from getting the evidence.
+  const findings = splitFindings(verifyHome(home)).errors;
   if (findings.length > 0) {
     return {
       result: empty,
@@ -248,8 +250,11 @@ That re-runs, against the included events (Node 20+, no network, no install):
 
 - **Id determinism** — every event id recomputes from its content
   (SHA-256); an edited line no longer matches its id.
-- **Escrow seals** — pre-registered estimates are hash-sealed at logging
-  time; a backdated or altered estimate fails the seal.
+- **Escrow seals** — each pre-registered estimate is hash-sealed at
+  logging time. The seal proves the entry hasn't been edited since a copy
+  was shared; it does not prove when the estimate was written. Write-time
+  ordering is enforced separately (logged_at ≤ ts, wall-clock checked at
+  append; verify discloses estimates written long after their logged_at).
 - **Conservation** — per session, the sum of per-turn usage events equals
   the session receipt's totals. Sessions are included whole (every usage
   event, even outside the window) so this check is meaningful.

@@ -1,5 +1,5 @@
 import { resolveHome } from "../core/home.ts";
-import { renderFindings, verifyHome } from "../verify/verify.ts";
+import { renderFindings, splitFindings, verifyHome } from "../verify/verify.ts";
 
 // Injected by the build (esbuild --define); "dev" when running from src/.
 declare const __WAYBILL_VERSION__: string | undefined;
@@ -145,7 +145,8 @@ export async function main(argv: string[]): Promise<number> {
       } else {
         process.stdout.write(renderFindings(findings, cli.home) + "\n");
       }
-      return findings.length === 0 ? 0 : 1;
+      // Warnings are disclosures, not failures: only errors gate the exit.
+      return splitFindings(findings).errors.length === 0 ? 0 : 1;
     }
     default:
       process.stderr.write(`waybill: unknown command "${cmd}"\n\n${USAGE}`);

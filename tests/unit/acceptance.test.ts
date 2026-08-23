@@ -61,14 +61,18 @@ test("flow 2 (story cost): one interaction, tokens + cache share + per-point", (
   try {
     const opened = makeOpened();
     const { id: _i, ...openedBody } = opened;
-    cli(home, ["append", "--stream", "ledger", "--event", JSON.stringify(openedBody)]);
+    // The write path stamps appended_at, so ids are never predicted
+    // client-side — the skills' contract is to read the id append returns.
+    const openedResult = JSON.parse(
+      cli(home, ["append", "--stream", "ledger", "--event", JSON.stringify(openedBody), "--json"]),
+    ) as { id: string };
     cli(home, ["meter", "--transcript", join(FIXTURES, "v2.1/basic.jsonl"), "--repo", "acme/platform"]);
     // Ship it (supersede the opened entry) so cost-per-point exists.
     const shippedBody = {
       ...openedBody,
       ts: "2026-08-12T16:30:00Z",
       kind: "shipped",
-      supersedes: opened.id,
+      supersedes: openedResult.id,
       artifacts: { prs: ["https://github.com/acme/platform/pull/1932"], commits: [], deploy: null, docs: [] },
     };
     cli(home, ["append", "--stream", "ledger", "--event", JSON.stringify(shippedBody)]);
@@ -112,13 +116,15 @@ test("flow 4 (the pitch): report data carries the spend ledger, receipts, and co
     saveConfig(home, config);
     const opened = makeOpened();
     const { id: _i, ...openedBody } = opened;
-    cli(home, ["append", "--stream", "ledger", "--event", JSON.stringify(openedBody)]);
+    const openedResult = JSON.parse(
+      cli(home, ["append", "--stream", "ledger", "--event", JSON.stringify(openedBody), "--json"]),
+    ) as { id: string };
     cli(home, ["meter", "--transcript", join(FIXTURES, "v2.1/basic.jsonl"), "--repo", "acme/platform"]);
     cli(home, ["append", "--stream", "ledger", "--event", JSON.stringify({
       ...openedBody,
       ts: "2026-08-12T16:30:00Z",
       kind: "shipped",
-      supersedes: opened.id,
+      supersedes: openedResult.id,
       actual_hours: 4.5,
       claude_role: "co_wrote",
       time_saved_hours: { low: 5.5, high: 11.5, confidence: "medium", basis: "pre_registered" },

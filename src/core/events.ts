@@ -56,6 +56,11 @@ export interface TimeSaved {
 
 export interface LedgerEntry extends Envelope {
   kind: "opened" | "progress" | "shipped" | "correction";
+  /** Wall-clock witness stamped by `waybill append` at write time (2.1,
+   * additive). Backfilled entries written by sync and pre-2.1 events lack
+   * it; verify warns — never fails — when a pre-registered estimate's
+   * logged_at sits far before it. */
+  appended_at?: string;
   title: string;
   tracker_key: string | null;
   epic_key: string | null;
@@ -80,6 +85,8 @@ export interface LedgerEntry extends Envelope {
 
 export interface PinEntry extends Envelope {
   kind: "pin";
+  /** Same write-time stamp as LedgerEntry.appended_at (2.1, additive). */
+  appended_at?: string;
   session_id: string;
   account: string;
   tracker_key: string | null;

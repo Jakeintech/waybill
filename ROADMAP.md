@@ -153,6 +153,15 @@ timeframe).
 - With those executed, the OSS project is **complete**: changes are
   upkeep, not construction.
 
+## Under consideration (free side)
+
+- **External time anchoring for escrow seals** — signing, a remote the
+  verifier reads, or OpenTimestamps, so a seal can prove *when* an
+  estimate was written rather than only that it hasn't changed since a
+  copy was shared. Roadmap, not shipped: today write-time ordering is
+  enforced at append (logged_at ≤ ts, wall-clock skew check,
+  `appended_at` witness) and disclosed by verify.
+
 ## Beyond the free side (not part of the OSS project)
 
 **Waybill Premium** — the org-side product the receipts make possible,

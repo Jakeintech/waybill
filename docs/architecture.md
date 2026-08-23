@@ -72,8 +72,16 @@ determinism, shard placement, uniqueness, supersedes existence (including
 forked chains), escrow seals, pre-registration ordering, and per-line
 stream integrity. Estimates earn the top evidence tier through escrow:
 `waybill append` seals a pre-registered range and `logged_at` under a
-SHA-256 whose fixed payload order makes field-shift forgery structurally
-impossible (`src/core/escrow.ts`), and verify recomputes each seal.
+SHA-256 over a fixed-order, delimiter-separated payload — a defense
+against field-shift and delimiter-injection ambiguity in the hash
+preimage (`src/core/escrow.ts`) — and verify recomputes each seal. The
+seal proves the sealed fields haven't changed since a copy was shared; it
+cannot prove when the estimate was written. Write-time ordering is
+enforced separately: append refuses `logged_at` after the entry ts or
+ahead of the wall clock, stamps ledger entries with an `appended_at`
+witness, and verify discloses (as a warning, never a failure) a
+pre-registered estimate whose `logged_at` sits far before its actual
+write.
 
 Output leaves `query` only through audience redaction
 (`src/report/redaction.ts`): internal strips machine-local detail (session

@@ -99,11 +99,14 @@ ledger unlocks the stronger claims (see tiers below).
 
 Every Claude Code token is metered deterministically from your local
 transcripts and attributed to the story it served, with a per-event resolver
-name and confidence, a conservation check (Σ attributed = Σ observed, per
-session) you can re-run offline with `waybill verify`, an attribution inbox
-for the ambiguous leftovers, and per-story waste diagnostics (what the
-tokens bought — and what they wasted on retry loops). As of 1.0 the
-[schema is frozen](docs/migration.md): the receipts are the contract.
+name and confidence, a conservation check (Σ attributed = Σ metered, per
+session) you can re-run offline with `waybill verify` — an
+internal-consistency guarantee on the meter's own output: it catches a
+dropped or edited event; it cannot detect undercounting at the source —
+plus an attribution inbox for the ambiguous leftovers and per-story waste
+diagnostics (what the tokens bought — and what they wasted on retry
+loops). As of 1.0 the [schema is frozen](docs/migration.md): the receipts
+are the contract.
 
 ### Evidence tiers (the whole idea)
 

@@ -8,7 +8,7 @@ import { authoritative, readEvents } from "../core/streams.ts";
 import { manifestData } from "../projections/manifest.ts";
 import { countOpenAmbiguities, spendData } from "../projections/queries.ts";
 import { loadState } from "../meter/state.ts";
-import { verifyHome } from "../verify/verify.ts";
+import { splitFindings, verifyHome } from "../verify/verify.ts";
 import { execFileSync } from "node:child_process";
 import { checkRetention } from "./cmd-init.ts";
 import { parseFlags } from "./flags.ts";
@@ -198,14 +198,18 @@ export function runStatus(home: string, args: string[], json: boolean): number {
     verify:
       findings === null
         ? { skipped: true as const }
-        : { findings: findings.length, ok: findings.length === 0 },
+        : {
+            findings: splitFindings(findings).errors.length,
+            warnings: splitFindings(findings).warnings.length,
+            ok: splitFindings(findings).errors.length === 0,
+          },
     remote,
     next: next.slice(0, 2),
   };
 
   if (json) {
     process.stdout.write(JSON.stringify({ data }, null, 2) + "\n");
-    return findings === null || findings.length === 0 ? 0 : 1;
+    return findings === null || splitFindings(findings).errors.length === 0 ? 0 : 1;
   }
 
   const lines: string[] = [];
@@ -254,13 +258,19 @@ export function runStatus(home: string, args: string[], json: boolean): number {
           : ""),
     );
   }
-  lines.push(
-    findings === null
-      ? "verify: skipped (--fast) — run: waybill verify"
-      : findings.length === 0
-        ? "verify: all checks pass"
-        : `verify: ${findings.length} finding(s) — run: waybill verify`,
-  );
+  {
+    const split = findings === null ? null : splitFindings(findings);
+    const warnSuffix = split !== null && split.warnings.length > 0
+      ? ` (${split.warnings.length} warning(s) — waybill verify prints them)`
+      : "";
+    lines.push(
+      split === null
+        ? "verify: skipped (--fast) — run: waybill verify"
+        : split.errors.length === 0
+          ? `verify: all checks pass${warnSuffix}`
+          : `verify: ${split.errors.length} finding(s) — run: waybill verify`,
+    );
+  }
   if (remote.upstream !== null) {
     lines.push(
       `remote: ${remote.upstream} — ` +
@@ -297,5 +307,5 @@ export function runStatus(home: string, args: string[], json: boolean): number {
   }
   if (data.next.length > 0) lines.push(`next: ${data.next.join(" · ")}`);
   process.stdout.write(lines.join("\n") + "\n");
-  return findings === null || findings.length === 0 ? 0 : 1;
+  return findings === null || splitFindings(findings).errors.length === 0 ? 0 : 1;
 }
