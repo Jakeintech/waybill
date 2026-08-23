@@ -22,6 +22,38 @@ data off the user's machine, it fails the test (see Non-goals).
 The normative product specification — including the spend-attribution
 engine — lives in [docs/product-spec.md](product-spec.md).
 
+## Next — 2.3.0 candidates (tracked on GitHub)
+
+Every candidate comes from a maintainer field run of 2.2.0 over a real
+3.45B-token ledger; each issue carries the verified diagnosis and the
+proposed scope. Nothing here is promised — the issues are the queue.
+
+- Engine verbs & rules: [#26](https://github.com/Jakeintech/waybill/issues/26)
+  `waybill unpin`, [#27](https://github.com/Jakeintech/waybill/issues/27)
+  pin fill mode, [#29](https://github.com/Jakeintech/waybill/issues/29)
+  re-attribution for transcript-less sessions,
+  [#28](https://github.com/Jakeintech/waybill/issues/28) subagent
+  `repo: null` root-inheritance.
+- Surfaces: [#31](https://github.com/Jakeintech/waybill/issues/31)
+  consistent `query --json` payload shapes,
+  [#32](https://github.com/Jakeintech/waybill/issues/32) point-less
+  tracker fallbacks, [#30](https://github.com/Jakeintech/waybill/issues/30)
+  init discovery through connected tools.
+- The AI layer, used where it helps:
+  [#33](https://github.com/Jakeintech/waybill/issues/33) derive
+  `claude_role` from transcript evidence,
+  [#34](https://github.com/Jakeintech/waybill/issues/34) transcript-quoted
+  salvage titles + subagent fan-out,
+  [#35](https://github.com/Jakeintech/waybill/issues/35) the
+  pre-registration moment (SessionStart nudge) + pending-sessions GC.
+- Community-blocked (environments this repo can't fake):
+  [#16](https://github.com/Jakeintech/waybill/issues/16) live adapter
+  run, [#17](https://github.com/Jakeintech/waybill/issues/17) native
+  Windows report, [#19](https://github.com/Jakeintech/waybill/issues/19)
+  bring-your-tracker adapters,
+  [#25](https://github.com/Jakeintech/waybill/issues/25) multi-agent
+  ingestion umbrella.
+
 ## Shipped — 2.2.0 (2026-08)
 
 Multi-repo attribution completed (per-turn, rules v3 — closes the E-14
